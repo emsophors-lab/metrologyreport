@@ -55,45 +55,33 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 
 -- -------------------------------------------------------------------------
--- 3. Row Level Security Policies (RLS)
+-- 3. Row Level Security Policies (RLS) Configuration
 -- -------------------------------------------------------------------------
+-- NOTE: Since this application authenticates using a custom client-side system and 
+-- stores users in a standard table (rather than Supabase native Auth emails), auth.uid() 
+-- will always return NULL for anonymous client requests. 
+-- To prevent infinite recursion and HTTP 500 errors in PostgREST, we configure simple 
+-- public policies for reading/writing.
+--
+-- For strict production security, we recommend disabling client-direct writes and 
+-- proxying via a server, or using Supabase Native Auth. For this design format:
+
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
 
 -- Select policies
-CREATE POLICY "Public select access for users authentication" ON users
+CREATE POLICY "Public Read Access for Users" ON users
   FOR SELECT USING (true);
 
--- Superadmin full operations on users
-CREATE POLICY "Superadmin complete control on users" ON users
-  FOR ALL USING (
-    (SELECT role FROM users WHERE id = auth.uid()::text) = 'superadmin'
-  );
+-- Insert/Update/Delete policies for users
+CREATE POLICY "Public Write Access for Users" ON users
+  FOR ALL USING (true) WITH CHECK (true);
 
--- Admins and owner selects reports
-CREATE POLICY "Users can query their own reports and admin inspects everything" ON reports
-  FOR SELECT USING (
-    user_id = auth.uid()::text OR
-    (SELECT role FROM users WHERE id = auth.uid()::text) IN ('superadmin', 'admin')
-  );
+-- Select reports
+CREATE POLICY "Public Read Access for Reports" ON reports
+  FOR SELECT USING (true);
 
--- Insert reports policy
-CREATE POLICY "Registered enterprises can post report if can_save is true" ON reports
-  FOR INSERT WITH CHECK (
-    user_id = auth.uid()::text AND
-    (SELECT can_save FROM users WHERE id = auth.uid()::text) = true
-  );
+-- Write reports (Insert/Update/Delete)
+CREATE POLICY "Public Write Access for Reports" ON reports
+  FOR ALL USING (true) WITH CHECK (true);
 
--- Update reports policy
-CREATE POLICY "Owners can update report if can_edit is true" ON reports
-  FOR UPDATE USING (
-    user_id = auth.uid()::text AND
-    (SELECT can_edit FROM users WHERE id = auth.uid()::text) = true
-  );
-
--- Delete reports policy
-CREATE POLICY "Owners can delete report if can_delete is true" ON reports
-  FOR DELETE USING (
-    user_id = auth.uid()::text AND
-    (SELECT can_delete FROM users WHERE id = auth.uid()::text) = true
-  );
