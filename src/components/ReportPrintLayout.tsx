@@ -11,6 +11,8 @@ interface ReportPrintLayoutProps {
   title?: string;
   filterMonth?: string;
   filterYear?: string;
+  filterServiceType?: string;
+  searchQuery?: string;
   isPublicVerify?: boolean;
 }
 
@@ -22,6 +24,8 @@ export default function ReportPrintLayout({
   title, 
   filterMonth, 
   filterYear,
+  filterServiceType,
+  searchQuery,
   isPublicVerify = false
 }: ReportPrintLayoutProps) {
   const handlePrint = () => {
@@ -110,11 +114,11 @@ export default function ReportPrintLayout({
                   <p className="text-[11px] font-extrabold text-indigo-900 underline mt-1">{displayCompanyName}</p>
                 </>
               ) : (
-                <>
-                  <p className="text-[10px] font-bold text-slate-800 uppercase tracking-tight">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ</p>
-                  <p className="text-[10px] font-bold text-slate-800 uppercase -mt-0.5">បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
-                  <p className="text-[11px] font-bold text-indigo-900 underline mt-1">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
-                </>
+                <div className="font-muol">
+                  <p className="text-[10px] font-bold text-slate-800 uppercase tracking-tight leading-normal">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ</p>
+                  <p className="text-[10px] font-bold text-slate-800 uppercase -mt-0.5 leading-normal">បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
+                  <p className="text-[11px] font-bold text-indigo-900 underline mt-1 leading-normal">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+                </div>
               )}
             </div>
           </div>
@@ -280,7 +284,17 @@ export default function ReportPrintLayout({
               <div className="pt-2 pb-2 flex flex-col items-center">
                 <img
                   referrerPolicy="no-referrer"
-                  src={getReportQRCodeUrl(reports[0]?.id || 'NMC-QR-ALL', selectedUser?.license_number || 'NMC-LICENSE')}
+                  src={getReportQRCodeUrl(
+                    selectedUser ? (reports[0]?.id || 'NMC-QR-ALL') : 'filtered',
+                    selectedUser?.license_number || 'NMC-LICENSE',
+                    {
+                      month: filterMonth,
+                      year: filterYear,
+                      companyId: selectedUser?.id || 'all',
+                      serviceType: filterServiceType,
+                      searchQuery: searchQuery
+                    }
+                  )}
                   alt="Metrology report QR"
                   className="w-20 h-20 border border-slate-200 p-1 bg-white rounded shadow-xs"
                 />
@@ -289,7 +303,7 @@ export default function ReportPrintLayout({
 
               <div className="h-24 flex flex-col justify-end items-center min-w-[220px]">
                 <p className="text-[11px] text-slate-950 font-extrabold mb-1">
-                  {currentUser?.legal_representative || currentUser?.username || 'លោក លី ម៉េង'}
+                  {selectedUser ? selectedUser.legal_representative : (currentUser?.legal_representative || currentUser?.username || 'លោក លី ម៉េង')}
                 </p>
                 <p className="text-slate-300 leading-none">........................................................................</p>
                 <p className="text-[10px] text-slate-500 font-bold mt-1 text-center">(ហត្ថលេខា និងឈ្មោះអ្នករៀបចំ)</p>

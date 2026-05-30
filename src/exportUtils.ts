@@ -20,13 +20,35 @@ export function getMonthNameKH(numStr: string): string {
   return months[numStr] || `ខែទី ${numStr}`;
 }
 
-// Generates the official Cambodian QR Code URL
-export function getReportQRCodeUrl(reportId: string, companyLicense: string): string {
+// Generates the official Cambodian QR Code URL with optional verification filters
+export function getReportQRCodeUrl(
+  reportId: string, 
+  companyLicense: string, 
+  filters?: {
+    month?: string;
+    year?: string;
+    companyId?: string;
+    serviceType?: string;
+    searchQuery?: string;
+  }
+): string {
   let origin = 'https://ais-dev-nmgbgbd647arjsyjuqbcse-211647852106.asia-southeast1.run.app';
   if (typeof window !== 'undefined' && window.location) {
     origin = window.location.origin;
   }
-  const verificationUrl = `${origin}/?verifyReport=${reportId}`;
+  let verificationUrl = '';
+  if (reportId === 'filtered' && filters) {
+    const params = new URLSearchParams();
+    params.set('verifyReport', 'filtered');
+    if (filters.month) params.set('month', filters.month);
+    if (filters.year) params.set('year', filters.year);
+    if (filters.companyId) params.set('companyId', filters.companyId);
+    if (filters.serviceType) params.set('serviceType', filters.serviceType);
+    if (filters.searchQuery) params.set('searchQuery', filters.searchQuery);
+    verificationUrl = `${origin}/?${params.toString()}`;
+  } else {
+    verificationUrl = `${origin}/?verifyReport=${reportId}`;
+  }
   const data = encodeURIComponent(verificationUrl);
   return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${data}&ecc=M`;
 }
@@ -71,7 +93,9 @@ export function exportToWordDoc(
   selectedUser?: MetrologyUser | null, 
   currentUser?: MetrologyUser | null,
   filterMonth?: string,
-  filterYear?: string
+  filterYear?: string,
+  filterServiceType?: string,
+  searchQuery?: string
 ) {
   const now = new Date();
   const dateString = `ថ្ងៃទី ${now.getDate()} ខែ ${getMonthNameKH(String(now.getMonth() + 1).padStart(2, '0'))} ឆ្នាំ ${now.getFullYear()}`;
@@ -205,9 +229,9 @@ export function exportToWordDoc(
               <p style="font-size: 10px; font-weight: bold; margin: 0; color: #475569; text-transform: uppercase;">ក្រុមហ៊ុនសេវាកម្មមាត្រាសាស្ត្រ</p>
               <p style="font-size: 12px; font-weight: 800; color: #1e3a8a; text-decoration: underline; margin: 4px 0 0 0;">${displayCompanyName}</p>
             ` : `
-              <p style="font-size: 10px; font-weight: bold; margin: 0; color: #334155; text-transform: uppercase;">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ</p>
-              <p style="font-size: 10px; font-weight: bold; margin: 0; color: #334155;">បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
-              <p style="font-size: 11px; font-weight: bold; color: #1e3a8a; text-decoration: underline; margin: 4px 0 0 0;">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+              <p style="font-size: 10px; font-weight: bold; margin: 0; color: #334155; text-transform: uppercase; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ</p>
+              <p style="font-size: 10px; font-weight: bold; margin: 0; color: #334155; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
+              <p style="font-size: 11px; font-weight: bold; color: #1e3a8a; text-decoration: underline; margin: 4px 0 0 0; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
             `}
           </td>
           <td style="border: none; width: 50%; text-align: center; vertical-align: top; padding: 0; font-family: 'Khmer OS Battambang', Arial, sans-serif;">
@@ -220,7 +244,7 @@ export function exportToWordDoc(
 
       <!-- Document Title & Header Area -->
       <div style="text-align: center; margin-top: 15px; margin-bottom: 25px; font-family: 'Khmer OS Battambang', Arial, sans-serif;">
-        <p style="font-size: 12px; font-weight: bold; margin: 0 0 8px 0; color: #1e293b;">សូមគោរពជូនឯកឧត្តមប្រធានមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+        <p style="font-size: 12px; font-weight: bold; margin: 0 0 8px 0; color: #1e293b; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">សូមគោរពជូនឯកឧត្តមប្រធានមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
         <h2 style="font-size: 15px; font-weight: 950; margin: 0; color: #0f172a; line-height: 1.4;">${titleText}</h2>
         <p style="font-size: 10.5px; color: #64748b; font-style: italic; margin: 4px 0 0 0; font-family: Arial, sans-serif;">
           (Monthly Performance Report on Manufacturing, Installing, and Repairing Metrological Instruments)
@@ -283,14 +307,14 @@ export function exportToWordDoc(
               
               <!-- QR Verification block -->
               <div style="margin-top: 15px; text-align: right;">
-                <img src="${getReportQRCodeUrl(reports[0]?.id || 'NMC-QR-ALL', selectedUser?.license_number || 'NMC-LICENSE')}" style="width: 80px; height: 80px; display: inline-block;" />
+                <img src="${getReportQRCodeUrl(selectedUser ? (reports[0]?.id || 'NMC-QR-ALL') : 'filtered', selectedUser?.license_number || 'NMC-LICENSE', { month: filterMonth, year: filterYear, companyId: selectedUser?.id || 'all', serviceType: filterServiceType, searchQuery: searchQuery })}" style="width: 80px; height: 80px; display: inline-block;" />
                 <p style="font-size: 7.5px; color: #94a3b8; font-family: Arial, sans-serif; margin: 3px 0 0 0; text-transform: uppercase;">Scan to Verify Record</p>
               </div>
 
               <!-- Signature names above dotted lines -->
               <div style="margin-top: 25px; text-align: right;">
                 <p style="font-size: 11px; font-weight: bold; color: #020617; margin: 0 0 2px 0;">
-                  ${currentUser?.legal_representative || currentUser?.username || 'លោក លី ម៉េង'}
+                  ${selectedUser ? selectedUser.legal_representative : (currentUser?.legal_representative || currentUser?.username || 'លោក លី ម៉េង')}
                 </p>
                 <p style="margin: 0; color: #94a3b8;">...............................................................</p>
                 <p style="font-size: 10px; color: #64748b; margin: 4px 0 0 0;">(ហត្ថលេខា និងឈ្មោះអ្នករៀបចំ)</p>

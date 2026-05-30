@@ -71,6 +71,7 @@ export default function App() {
   const [verifyReportId, setVerifyReportId] = useState<string | null>(null);
   const [verifiedReport, setVerifiedReport] = useState<MetrologyReport | null>(null);
   const [verifiedCompany, setVerifiedCompany] = useState<MetrologyUser | null>(null);
+  const [verifiedReportsList, setVerifiedReportsList] = useState<MetrologyReport[]>([]);
   
   // Database datasets states
   const [users, setUsers] = useState<MetrologyUser[]>([]);
@@ -208,18 +209,60 @@ export default function App() {
     if (verifyId) {
       setVerifyReportId(verifyId);
       
-      // Attempt resolving target report from memory database lists
-      const rep = reports.find(r => r.id === verifyId);
-      if (rep) {
-        setVerifiedReport(rep);
-        const comp = users.find(u => u.license_number === rep.license_number || u.company_name_kh === rep.company_name_kh);
-        setVerifiedCompany(comp || null);
-      } else if (INITIAL_REPORTS && INITIAL_REPORTS.length > 0) {
-        const backupRep = INITIAL_REPORTS.find(r => r.id === verifyId);
-        if (backupRep) {
-          setVerifiedReport(backupRep);
-          const backupComp = INITIAL_USERS.find(u => u.license_number === backupRep.license_number || u.company_name_kh === backupRep.company_name_kh);
-          setVerifiedCompany(backupComp || null);
+      const reportsSource = (reports && reports.length > 0) ? reports : INITIAL_REPORTS;
+      const usersSource = (users && users.length > 0) ? users : INITIAL_USERS;
+      
+      if (verifyId === 'filtered') {
+        const filterM = params.get('month') || 'all';
+        const filterY = params.get('year') || 'all';
+        const filterC = params.get('companyId') || 'all';
+        const filterS = params.get('serviceType') || 'all';
+        const filterQ = params.get('searchQuery') || '';
+
+        let list = [...reportsSource];
+        if (filterC !== 'all') {
+          list = list.filter(r => r.user_id === filterC);
+        }
+        if (filterM !== 'all') {
+          list = list.filter(r => r.report_month === filterM);
+        }
+        if (filterY !== 'all') {
+          list = list.filter(r => r.report_year === filterY);
+        }
+        if (filterS !== 'all') {
+          list = list.filter(r => r.service_type === filterS);
+        }
+        if (filterQ.trim()) {
+          const q = filterQ.toLowerCase().trim();
+          list = list.filter(r => 
+            r.customer_name.toLowerCase().includes(q) ||
+            r.customer_address.toLowerCase().includes(q) ||
+            r.measuring_instrument.toLowerCase().includes(q) ||
+            r.instrument_serial_number.toLowerCase().includes(q) ||
+            r.company_name_kh.toLowerCase().includes(q)
+          );
+        }
+        setVerifiedReportsList(list);
+        if (filterC !== 'all') {
+          const comp = usersSource.find(u => u.id === filterC);
+          setVerifiedCompany(comp || null);
+        } else {
+          setVerifiedCompany(null);
+        }
+      } else {
+        // Attempt resolving target report from memory database lists
+        const rep = reportsSource.find(r => r.id === verifyId);
+        if (rep) {
+          setVerifiedReport(rep);
+          const comp = usersSource.find(u => u.license_number === rep.license_number || u.company_name_kh === rep.company_name_kh);
+          setVerifiedCompany(comp || null);
+        } else if (INITIAL_REPORTS && INITIAL_REPORTS.length > 0) {
+          const backupRep = INITIAL_REPORTS.find(r => r.id === verifyId);
+          if (backupRep) {
+            setVerifiedReport(backupRep);
+            const backupComp = INITIAL_USERS.find(u => u.license_number === backupRep.license_number || u.company_name_kh === backupRep.company_name_kh);
+            setVerifiedCompany(backupComp || null);
+          }
         }
       }
     }
@@ -410,8 +453,20 @@ export default function App() {
   };
 
   const handleExportWord = () => {
-    const selectedCompany = sessionUser?.role === 'company' ? sessionUser : null;
-    exportToWordDoc(filteredReportsList, selectedCompany, sessionUser, filterMonth, filterYear);
+    const selectedCompany = sessionUser?.role === 'company' 
+      ? sessionUser 
+      : filterCompanyId !== 'all' 
+        ? users.find(u => u.id === filterCompanyId) || null 
+        : null;
+    exportToWordDoc(
+      filteredReportsList, 
+      selectedCompany, 
+      sessionUser, 
+      filterMonth, 
+      filterYear,
+      filterServiceType,
+      searchQuery
+    );
     showToast('ឯកសារសេវាកម្ម Word (.doc) ត្រូវបានទាញយកដោយជោគជ័យ!', 'success');
   };
 
@@ -420,20 +475,25 @@ export default function App() {
 
   // Render Verification View if we are verifying a QR code scan
   if (verifyReportId) {
+    const hasData = verifiedReport || verifiedReportsList.length > 0;
+    const searchParams = new URLSearchParams(window.location.search);
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
-        {verifiedReport ? (
+        {hasData ? (
           <ReportPrintLayout 
-            reports={[verifiedReport]}
+            reports={verifiedReport ? [verifiedReport] : verifiedReportsList}
             selectedUser={verifiedCompany}
-            currentUser={verifiedCompany}
-            filterMonth={verifiedReport.report_month}
-            filterYear={verifiedReport.report_year}
+            currentUser={null}
+            filterMonth={verifiedReport ? verifiedReport.report_month : (searchParams.get('month') || 'all')}
+            filterYear={verifiedReport ? verifiedReport.report_year : (searchParams.get('year') || 'all')}
+            filterServiceType={verifiedReport ? verifiedReport.service_type : (searchParams.get('serviceType') || 'all')}
+            searchQuery={verifiedReport ? '' : (searchParams.get('searchQuery') || '')}
             isPublicVerify={true}
             onClose={() => {
               setVerifyReportId(null);
               setVerifiedReport(null);
               setVerifiedCompany(null);
+              setVerifiedReportsList([]);
               window.history.replaceState({}, '', window.location.pathname);
             }}
           />
@@ -454,6 +514,7 @@ export default function App() {
                 setVerifyReportId(null);
                 setVerifiedReport(null);
                 setVerifiedCompany(null);
+                setVerifiedReportsList([]);
                 window.history.replaceState({}, '', window.location.pathname);
               }}
               className="mt-6 w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
@@ -524,7 +585,7 @@ export default function App() {
                 </div>
               </div>
               <div>
-                <h4 className="font-bold text-xs text-gold tracking-wide">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</h4>
+                <h4 className="font-bold text-[10px] text-gold tracking-wide font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</h4>
                 <p className="text-[9px] text-slate-400 font-medium tracking-wide">NATIONAL METROLOGY CENTER</p>
               </div>
             </div>
@@ -640,8 +701,8 @@ export default function App() {
           {/* Dashboard Header Bar */}
           <header className="bg-white border-b border-slate-200 py-3 px-6 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs shrink-0">
             <div>
-              <p className="text-[10px] text-slate-400 font-extrabold hidden sm:block uppercase tracking-wider">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
-              <h2 className="text-xs font-bold text-slate-800 mt-0.5">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ - National Metrology Center of Cambodia</h2>
+              <p className="text-[10px] text-slate-500 font-extrabold hidden sm:block uppercase tracking-wider font-muol leading-normal">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
+              <h2 className="text-xs font-bold text-slate-800 mt-0.5 font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ - National Metrology Center of Cambodia</h2>
             </div>
             
             <div className="flex items-center gap-2.5">
@@ -1076,6 +1137,8 @@ export default function App() {
           currentUser={sessionUser}
           filterMonth={filterMonth}
           filterYear={filterYear}
+          filterServiceType={filterServiceType}
+          searchQuery={searchQuery}
           onClose={() => setIsPrintAllPreview(false)}
         />
       )}
