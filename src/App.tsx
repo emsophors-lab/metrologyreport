@@ -708,7 +708,7 @@ export default function App() {
             <div className="flex items-center gap-2.5">
               <span className="hidden lg:inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-slate-50 p-1.5 px-3 rounded-full border border-slate-200/80">
                 <BriefcaseBusiness className="h-3.5 w-3.5 text-gold" />
-                <span>សកម្មភាព៖ លោក លី ម៉េង</span>
+                <span>សកម្មភាព៖ {sessionUser?.legal_representative || sessionUser?.username}</span>
               </span>
               
               <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold p-1.5 px-3 rounded-full ${dbConfig.useFallback ? 'bg-amber-50 text-amber-700 border border-amber-200/50':'bg-emerald-50 text-emerald-700 border border-emerald-200/50'}`}>
