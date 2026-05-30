@@ -379,10 +379,57 @@ export default function App() {
   };
 
   // Developer config updater
-  const handleUpdateConfig = (newCfg: Partial<SupabaseConfig>) => {
+  const handleUpdateConfig = async (newCfg: Partial<SupabaseConfig>) => {
     const updated = { ...dbConfig, ...newCfg };
     setDbConfig(updated);
     localStorage.setItem('nmc_db_config', JSON.stringify(updated));
+
+    // Force synchronization immediately when credentials are saved or sync is turned on
+    if (updated.url && updated.anonKey && !updated.url.includes('YOUR_SUPABASE_URL') && !updated.useFallback) {
+      showToast('កំពុងព្យាយាមតភ្ជាប់ និងទាញយកទិន្នន័យពី Supabase Cloud...', 'success');
+      try {
+        // Fetch active lists
+        const cloudUsers = await fetchUsersFromSupabase();
+        if (cloudUsers && cloudUsers.length > 0) {
+          setUsers(cloudUsers);
+          localStorage.setItem('nmc_users', JSON.stringify(cloudUsers));
+        }
+
+        const cloudReports = await fetchReportsFromSupabase();
+        if (cloudReports && cloudReports.length > 0) {
+          setReports(cloudReports);
+          localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
+        }
+
+        setDbConfig({
+          ...updated,
+          isConnected: true
+        });
+        showToast('សមកាលកម្មទិន្នន័យជាមួយ Supabase បានជោគជ័យ!', 'success');
+      } catch (error) {
+        console.error('Supabase updateConfig sync error:', error);
+        showToast('ការតភ្ជាប់ទៅកាន់ Supabase បរាជ័យ! សូមពិនិត្យមើល URL, Anon Key, ឬតារាងក្នុង Supabase របស់លោកអ្នក។', 'error');
+        setDbConfig({
+          ...updated,
+          isConnected: false
+        });
+      }
+    } else {
+      // Revert/Fallback to local storage states
+      const cachedUsers = localStorage.getItem('nmc_users');
+      if (cachedUsers) {
+        try { setUsers(JSON.parse(cachedUsers)); } catch (e) { setUsers(INITIAL_USERS); }
+      } else {
+        setUsers(INITIAL_USERS);
+      }
+
+      const cachedReports = localStorage.getItem('nmc_reports');
+      if (cachedReports) {
+        try { setReports(JSON.parse(cachedReports)); } catch (e) { setReports(INITIAL_REPORTS); }
+      } else {
+        setReports(INITIAL_REPORTS);
+      }
+    }
   };
 
   // Filtered reports computed selector
