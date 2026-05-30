@@ -107,6 +107,62 @@ export default function App() {
   // Custom Toast notification
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
+  // Dynamic Cambodia Time (GMT+7)
+  const [systemTime, setSystemTime] = useState<string>(() => {
+    const now = new Date();
+    try {
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Phnom_Penh',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+      const parts = formatter.formatToParts(now);
+      const year = parts.find(p => p.type === 'year')?.value;
+      const month = parts.find(p => p.type === 'month')?.value;
+      const day = parts.find(p => p.type === 'day')?.value;
+      const hour = parts.find(p => p.type === 'hour')?.value;
+      const minute = parts.find(p => p.type === 'minute')?.value;
+      const second = parts.find(p => p.type === 'second')?.value;
+      return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+    } catch (e) {
+      return now.toISOString().replace('T', ' ').substring(0, 19);
+    }
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      try {
+        const formatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'Asia/Phnom_Penh',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        });
+        const parts = formatter.formatToParts(now);
+        const year = parts.find(p => p.type === 'year')?.value;
+        const month = parts.find(p => p.type === 'month')?.value;
+        const day = parts.find(p => p.type === 'day')?.value;
+        const hour = parts.find(p => p.type === 'hour')?.value;
+        const minute = parts.find(p => p.type === 'minute')?.value;
+        const second = parts.find(p => p.type === 'second')?.value;
+        setSystemTime(`${year}-${month}-${day} ${hour}:${minute}:${second}`);
+      } catch (e) {
+        setSystemTime(now.toISOString().replace('T', ' ').substring(0, 19));
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Trigger Toast Notification
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -518,7 +574,7 @@ export default function App() {
   };
 
   // Quick state monitoring values for current view
-  const currentLocalTime = "2026-05-29 05:01:32"; // hardcoded current UTC formatted for aesthetics as requested
+  const currentLocalTime = systemTime; // dynamic Cambodia Time formatted for aesthetics as requested
 
   // Render Verification View if we are verifying a QR code scan
   if (verifyReportId) {
@@ -727,7 +783,7 @@ export default function App() {
           <div className="p-4 border-t border-slate-850 space-y-3">
             <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono">
               <Clock className="h-3.5 w-3.5" />
-              <span>UTC : {currentLocalTime.split(' ')[0]}</span>
+              <span>GMT+7 : {systemTime.split(' ')[0]}</span>
             </div>
             
             <button
@@ -1165,7 +1221,7 @@ export default function App() {
       {/* Official State Footer */}
       <footer className="bg-slate-900 text-slate-400 border-t border-slate-850 py-4 px-6 text-center text-[10px] flex flex-col sm:flex-row items-center justify-between gap-3 select-none">
         <p className="font-sans">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ (NMC) នៃក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
-        <p className="font-mono text-slate-500">System Time Session: 2026-05-29 05:01:32 UTC</p>
+        <p className="font-mono text-slate-500">System Time Session: {systemTime} (GMT+7)</p>
       </footer>
 
       {/* Embedded hidden and modal Printable Frame blocks */}
