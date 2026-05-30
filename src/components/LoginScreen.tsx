@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { KeyRound, User, ShieldCheck, Building2, Landmark, HelpCircle, Eye, EyeOff } from 'lucide-react';
+import { KeyRound, User, Landmark, Eye, EyeOff } from 'lucide-react';
 import { MetrologyUser } from '../types';
 import nmcLogo from './NMClogo.png';
 
@@ -30,32 +30,6 @@ export default function LoginScreen({ onLoginSuccess, usersList }: LoginScreenPr
       onLoginSuccess(matchedUser);
     } else {
       setErrorMessage('ឈ្មោះគណនី ឬ លេខសំងាត់មិនត្រឹមត្រូវឡើយ។ សូមព្យាយាមម្តងទៀត!');
-    }
-  };
-
-  const handleQuickLogin = (userType: 'super' | 'admin' | 'company') => {
-    let u = '';
-    let p = '';
-    if (userType === 'super') {
-      u = 'superadmin';
-      p = 'admin123';
-    } else if (userType === 'admin') {
-      u = 'admin';
-      p = 'admin123';
-    } else {
-      u = 'company01';
-      p = 'LIC001';
-    }
-    
-    setUsername(u);
-    setPassword(p);
-    
-    const matchedUser = usersList.find(
-      (usr) => usr.username.toLowerCase() === u.toLowerCase() && usr.password === p
-    );
-    if (matchedUser) {
-      setErrorMessage('');
-      onLoginSuccess(matchedUser);
     }
   };
 
@@ -172,73 +146,6 @@ export default function LoginScreen({ onLoginSuccess, usersList }: LoginScreenPr
             ចូលប្រព័ន្ធ / Sign In
           </button>
         </form>
-
-        {/* Quick Demo Access System */}
-        <div className="mt-8 pt-6 border-t border-slate-200">
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold mb-3">
-            <HelpCircle className="h-4 w-4 text-slate-400" />
-            <span>គណនីសាកល្បងរហ័ស (Demo Accounts Quick Access)</span>
-          </div>
-          
-          <div className="grid grid-cols-1 gap-2">
-            {/* Super admin quick selector */}
-            <button
-              type="button"
-              id="quick-login-sa"
-              onClick={() => handleQuickLogin('super')}
-              className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-left hover:bg-slate-100 text-xs transition-colors cursor-pointer group"
-            >
-              <div className="flex items-center gap-2">
-                <div className="h-6 w-6 rounded bg-gold/10 border border-gold/25 flex items-center justify-center">
-                  <ShieldCheck className="h-3.5 w-3.5 text-gold" />
-                </div>
-                <div>
-                  <p className="font-bold text-slate-800">Super Admin (គ្រប់គ្រងប្រព័ន្ធ)</p>
-                  <p className="text-[10px] text-slate-400">username: superadmin | pass: admin123</p>
-                </div>
-              </div>
-              <span className="text-[10px] text-gold font-bold bg-gold/10 px-2 py-0.5 rounded opacity-80 group-hover:opacity-100">ចូលភ្លាមៗ</span>
-            </button>
-
-            {/* Admin quick selector */}
-            <button
-              type="button"
-              id="quick-login-ad"
-              onClick={() => handleQuickLogin('admin')}
-              className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-left hover:bg-slate-100 text-xs transition-colors cursor-pointer group"
-            >
-              <div className="flex items-center gap-2">
-                <div className="h-6 w-6 rounded bg-navy/10 border border-navy/20 flex items-center justify-center">
-                  <Landmark className="h-3.5 w-3.5 text-navy" />
-                </div>
-                <div>
-                  <p className="font-bold text-slate-800">Admin (មន្ត្រីមជ្ឈមណ្ឌលជាតិ)</p>
-                  <p className="text-[10px] text-slate-400">username: admin | pass: admin123</p>
-                </div>
-              </div>
-              <span className="text-[10px] text-navy font-bold bg-navy/10 px-2 py-0.5 rounded opacity-80 group-hover:opacity-100">ចូលភ្លាមៗ</span>
-            </button>
-
-            {/* Company quick selector */}
-            <button
-              type="button"
-              id="quick-login-co"
-              onClick={() => handleQuickLogin('company')}
-              className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-left hover:bg-slate-100 text-xs transition-colors cursor-pointer group"
-            >
-              <div className="flex items-center gap-2">
-                <div className="h-6 w-6 rounded bg-gold/10 border border-gold/20 flex items-center justify-center">
-                  <Building2 className="h-3.5 w-3.5 text-gold" />
-                </div>
-                <div>
-                  <p className="font-bold text-slate-800">Company (ក្រុមហ៊ុនអាជ្ញាប័ណ្ណ)</p>
-                  <p className="text-[10px] text-slate-400">username: company01 | pass: LIC001</p>
-                </div>
-              </div>
-              <span className="text-[10px] text-gold font-bold bg-gold/10 px-2 py-0.5 rounded opacity-80 group-hover:opacity-100">ចូលភ្លាមៗ</span>
-            </button>
-          </div>
-        </div>
 
         <div className="text-center text-[10px] text-slate-400 pt-2 selection:bg-amber-100">
           រក្សាសិទ្ធិគ្រប់យ៉ាង © ២០២៦ មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ

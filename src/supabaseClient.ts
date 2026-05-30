@@ -76,35 +76,35 @@ CREATE POLICY "Public select access for users authentication" ON users
 -- Superadmin full operations on users
 CREATE POLICY "Superadmin complete control on users" ON users
   FOR ALL USING (
-    (SELECT role FROM users WHERE id = auth.uid()) = 'superadmin'
+    (SELECT role FROM users WHERE id = auth.uid()::text) = 'superadmin'
   );
 
 -- Admins and owner selects reports
 CREATE POLICY "Users can query their own reports and admin inspects everything" ON reports
   FOR SELECT USING (
-    user_id = auth.uid() OR
-    (SELECT role FROM users WHERE id = auth.uid()) IN ('superadmin', 'admin')
+    user_id = auth.uid()::text OR
+    (SELECT role FROM users WHERE id = auth.uid()::text) IN ('superadmin', 'admin')
   );
 
 -- Insert reports policy
 CREATE POLICY "Registered enterprises can post report if can_save is true" ON reports
   FOR INSERT WITH CHECK (
-    user_id = auth.uid() AND
-    (SELECT can_save FROM users WHERE id = auth.uid()) = true
+    user_id = auth.uid()::text AND
+    (SELECT can_save FROM users WHERE id = auth.uid()::text) = true
   );
 
 -- Update reports policy
 CREATE POLICY "Owners can update report if can_edit is true" ON reports
   FOR UPDATE USING (
-    user_id = auth.uid() AND
-    (SELECT can_edit FROM users WHERE id = auth.uid()) = true
+    user_id = auth.uid()::text AND
+    (SELECT can_edit FROM users WHERE id = auth.uid()::text) = true
   );
 
 -- Delete reports policy
 CREATE POLICY "Owners can delete report if can_delete is true" ON reports
   FOR DELETE USING (
-    user_id = auth.uid() AND
-    (SELECT can_delete FROM users WHERE id = auth.uid()) = true
+    user_id = auth.uid()::text AND
+    (SELECT can_delete FROM users WHERE id = auth.uid()::text) = true
   );
 `;
 

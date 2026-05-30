@@ -160,24 +160,47 @@ export async function seedSupabaseIfEmpty(client: SupabaseClient) {
 
 /**
  * Fetch list of users from Supabase with safe offline fallback
+ * Implements automatic chunking/pagination to query more than 1,000 records safely.
  */
 export async function fetchUsersFromSupabase(): Promise<MetrologyUser[]> {
   const client = getActiveSupabaseClient();
   if (!client) return [];
 
   try {
-    const { data, error } = await client
-      .from('users')
-      .select('*')
-      .order('created_at', { ascending: true });
+    let allUsers: MetrologyUser[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
 
-    if (error) {
-      console.error('Supabase query error for users:', error);
-      throw error;
+    while (hasMore) {
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+
+      const { data, error } = await client
+        .from('users')
+        .select('*')
+        .order('created_at', { ascending: true })
+        .range(from, to);
+
+      if (error) {
+        console.error(`Supabase query error for users at range ${from}-${to}:`, error);
+        throw error;
+      }
+
+      if (data && data.length > 0) {
+        allUsers = [...allUsers, ...(data as MetrologyUser[])];
+        if (data.length < pageSize) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      } else {
+        hasMore = false;
+      }
     }
 
-    if (data && data.length > 0) {
-      return data as MetrologyUser[];
+    if (allUsers.length > 0) {
+      return allUsers;
     }
     
     // Seed database if we got positive empty set response
@@ -258,24 +281,47 @@ export async function deleteUserFromSupabase(userId: string): Promise<void> {
 
 /**
  * Fetch all monthly metrology reports from Supabase
+ * Implements automatic chunking/pagination to query more than 1,000 records safely.
  */
 export async function fetchReportsFromSupabase(): Promise<MetrologyReport[]> {
   const client = getActiveSupabaseClient();
   if (!client) return [];
 
   try {
-    const { data, error } = await client
-      .from('reports')
-      .select('*')
-      .order('created_at', { ascending: false });
+    let allReports: MetrologyReport[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
 
-    if (error) {
-      console.error('Supabase query error fetch reports:', error);
-      throw error;
+    while (hasMore) {
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+
+      const { data, error } = await client
+        .from('reports')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+      if (error) {
+        console.error(`Supabase query error fetch reports at range ${from}-${to}:`, error);
+        throw error;
+      }
+
+      if (data && data.length > 0) {
+        allReports = [...allReports, ...(data as MetrologyReport[])];
+        if (data.length < pageSize) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      } else {
+        hasMore = false;
+      }
     }
 
-    if (data && data.length > 0) {
-      return data as MetrologyReport[];
+    if (allReports.length > 0) {
+      return allReports;
     }
 
     // Seed database if positive empty response returned

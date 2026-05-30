@@ -9,12 +9,29 @@
       (function() {
         try {
           var origFetch = window.fetch;
-          if (origFetch) {
-            Object.defineProperty(window, 'fetch', {
-              value: origFetch,
-              writable: true,
-              configurable: true
-            });
+          var storage = origFetch;
+          
+          var descriptor = {
+            get: function() {
+              return storage;
+            },
+            set: function(val) {
+              storage = val;
+            },
+            configurable: true,
+            enumerable: true
+          };
+
+          try {
+            // First, try to redefine directly on window
+            Object.defineProperty(window, 'fetch', descriptor);
+          } catch (e) {
+            try {
+              // If that fails, try to redefine on Window.prototype
+              Object.defineProperty(Window.prototype, 'fetch', descriptor);
+            } catch (e2) {
+              console.warn('Failed to define patch on Window.prototype.fetch:', e2);
+            }
           }
         } catch (e) {
           console.warn('Failed to define writable window.fetch:', e);
