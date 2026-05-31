@@ -41,7 +41,34 @@ export async function sendTelegramNotification(
   };
 
   const actionText = isEdit ? 'បានកែសម្រួលរបាយការណ៍ / REVISED' : 'បានបញ្ជូនរបាយការណ៍ថ្មី / SUBMITTED';
-  const opDate = new Date().toLocaleString('en-US', { timeZone: 'UTC' }) + ' UTC';
+  
+  const getCambodiaTimeStr = () => {
+    const now = new Date();
+    try {
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Phnom_Penh',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+      const parts = formatter.formatToParts(now);
+      const year = parts.find(p => p.type === 'year')?.value;
+      const month = parts.find(p => p.type === 'month')?.value;
+      const day = parts.find(p => p.type === 'day')?.value;
+      const hour = parts.find(p => p.type === 'hour')?.value;
+      const minute = parts.find(p => p.type === 'minute')?.value;
+      const second = parts.find(p => p.type === 'second')?.value;
+      return `${year}-${month}-${day} ${hour}:${minute}:${second} (GMT+7)`;
+    } catch (e) {
+      return now.toISOString().replace('T', ' ').substring(0, 19) + ' (GMT+7)';
+    }
+  };
+
+  const opDate = getCambodiaTimeStr();
 
   // Escape HTML entities to prevent malformed tags in Telegram HTML parse_mode
   const escapeHtml = (text: string) => {
@@ -64,16 +91,18 @@ export async function sendTelegramNotification(
 
   // 1. Text Summary for Telegram Caption (HTML Format)
   const captionText = 
-    `🔔 <b>NMC SYSTEM NOTIFICATION</b> 🔔\n\n` +
-    `• <b>ប្រតិបត្តិការ / Action</b>: ${safeActionText}\n` +
-    `• <b>ឈ្មោះសហគ្រាស / Enterprise</b>: ${safeCompanyKh}\n` +
-    `• <b>លេខអាជ្ញាប័ណ្ណ / License</b>: ${safeLicense}\n` +
-    `• <b>ប្រភេទសេវាកម្ម / Service</b>: ${safeServiceType}\n` +
-    `• <b>ឧបករណ៍ / Instrument</b>: ${safeInstrument} (${safeSerial})\n` +
-    `• <b>រយៈពេលរបាយការណ៍ / Period</b>: ខែ${safeMonth} ឆ្នាំ${safeYear}\n` +
-    `• <b>កាលបរិច្ឆេទប្រតិបត្តិការ</b>: ${safeOpDate}\n\n` +
-    `🔗 <b>តំណផ្ទៀងផ្ទាត់ផ្លូវការ / Public Verification Link</b>:\n` +
-    `https://ais-dev-nmgbgbd647arjsyjuqbcse-211647852106.asia-southeast1.run.app/?verifyReport=${safeReportId}\n\n` +
+    `🔔 <b>NMC SYSTEM NOTIFICATION</b> 🔔\n` +
+    `-----------------------------------------\n` +
+    `📤 <b>ប្រតិបត្តិការ / Action:</b> ${safeActionText}\n` +
+    `🏢 <b>ឈ្មោះសហគ្រាស / Enterprise:</b> ${safeCompanyKh}\n` +
+    `📄 <b>លេខអាជ្ញាប័ណ្ណ / License:</b> ${safeLicense}\n` +
+    `🛠️ <b>ប្រភេទសេវាកម្ម / Service:</b> ${safeServiceType}\n` +
+    `⚙️ <b>ឧបករណ៍ / Instrument:</b> ${safeInstrument} (S/N: ${safeSerial})\n` +
+    `📅 <b>រយៈពេលរបាយការណ៍ / Period:</b> ខែ${safeMonth} ឆ្នាំ${safeYear}\n` +
+    `⏱️ <b>កាលបរិច្ឆេទប្រតិបត្តិការ / Date & Time:</b> ${safeOpDate}\n` +
+    `-----------------------------------------\n` +
+    `🔗 <b>តំណផ្ទៀងផ្ទាត់ផ្លូវការ / Public Verification Link:</b>\n` +
+    `${window.location.origin}/?verifyReport=${safeReportId}\n\n` +
     `✓ របាយការណ៍លម្អិតជាឯកសារ PDF របស់មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិត្រូវបានភ្ជាប់ជូនដូចខាងក្រោម។`;
 
   try {
