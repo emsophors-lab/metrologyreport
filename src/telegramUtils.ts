@@ -67,9 +67,9 @@ export async function sendTelegramNotification(
       const hour = parts.find(p => p.type === 'hour')?.value;
       const minute = parts.find(p => p.type === 'minute')?.value;
       const second = parts.find(p => p.type === 'second')?.value;
-      return `${year}-${month}-${day} ${hour}:${minute}:${second} (GMT+7)`;
+      return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
     } catch (e) {
-      return now.toISOString().replace('T', ' ').substring(0, 19) + ' (GMT+7)';
+      return now.toISOString().replace('T', ' ').substring(0, 19);
     }
   };
 
@@ -84,31 +84,55 @@ export async function sendTelegramNotification(
   };
 
   const safeActionText = escapeHtml(actionText);
+  const safeReportId = escapeHtml(report.id);
   const safeCompanyKh = escapeHtml(company.company_name_kh);
   const safeLicense = escapeHtml(company.license_number);
-  const safeServiceType = escapeHtml(report.service_type);
-  const safeInstrument = escapeHtml(report.measuring_instrument);
-  const safeSerial = escapeHtml(report.instrument_serial_number || 'No Serial');
-  const safeMonth = escapeHtml(report.report_month);
-  const safeYear = escapeHtml(report.report_year);
+  const safeSubmittedBy = escapeHtml(company.legal_representative || 'N/A');
+  const safePhone = escapeHtml(company.phone || 'N/A');
+  
+  const safeCustomerName = escapeHtml(report.customer_name || 'N/A');
+  const safeCustomerAddress = escapeHtml(report.customer_address || 'N/A');
+  
+  const safeInstrument = escapeHtml(report.measuring_instrument || 'N/A');
+  const safeSerial = escapeHtml(report.instrument_serial_number || 'N/A');
+  const safeScope = escapeHtml(report.scope_of_weight_measure || 'N/A');
+  
+  const safeServiceType = escapeHtml(report.service_type || 'N/A');
+  
+  const safeSpareParts = escapeHtml(report.spare_parts || 'N/A');
+  const safeSparePartSerial = escapeHtml(report.spare_part_serial_number || 'N/A');
+  
+  const safeStartDate = escapeHtml(report.service_start_date || 'N/A');
+  const safeEndDate = escapeHtml(report.service_end_date || 'N/A');
+  const safeMonth = escapeHtml(report.report_month || 'N/A');
+  const safeYear = escapeHtml(report.report_year || 'N/A');
   const safeOpDate = escapeHtml(opDate);
-  const safeReportId = escapeHtml(report.id);
 
-  // 1. Text Summary for Telegram Caption (HTML Format)
+  // 1. Text Summary for Telegram Caption (HTML Format) matching exact user template
   const captionText = 
-    `🔔 <b>NMC SYSTEM NOTIFICATION</b> 🔔\n` +
-    `-----------------------------------------\n` +
-    `📤 <b>ប្រតិបត្តិការ / Action:</b> ${safeActionText}\n` +
-    `🏢 <b>ឈ្មោះសហគ្រាស / Enterprise:</b> ${safeCompanyKh}\n` +
-    `📄 <b>លេខអាជ្ញាប័ណ្ណ / License:</b> ${safeLicense}\n` +
-    `🛠️ <b>ប្រភេទសេវាកម្ម / Service:</b> ${safeServiceType}\n` +
-    `⚙️ <b>ឧបករណ៍ / Instrument:</b> ${safeInstrument} (S/N: ${safeSerial})\n` +
-    `📅 <b>រយៈពេលរបាយការណ៍ / Period:</b> ខែ${safeMonth} ឆ្នាំ${safeYear}\n` +
-    `⏱️ <b>កាលបរិច្ឆេទប្រតិបត្តិការ / Date & Time:</b> ${safeOpDate}\n` +
-    `-----------------------------------------\n` +
-    `🔗 <b>តំណផ្ទៀងផ្ទាត់ផ្លូវការ / Public Verification Link:</b>\n` +
-    `${window.location.origin}/?verifyReport=${safeReportId}\n\n` +
-    `✓ របាយការណ៍លម្អិតជាឯកសារ PDF របស់មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិត្រូវបានភ្ជាប់ជូនដូចខាងក្រោម។`;
+    `🔔 <b>NMC SYSTEM NOTIFICATION</b> 🔔\n\n` +
+    `📌 <b>ប្រតិបត្តិការ / Action:</b> ${safeActionText}\n` +
+    `🆔 <b>លេខរបាយការណ៍ / Report ID:</b> ${safeReportId}\n` +
+    `🏢 <b>សហគ្រាស / Enterprise:</b> ${safeCompanyKh}\n` +
+    `📄 <b>អាជ្ញាបណ្ណ / License:</b> ${safeLicense}\n` +
+    `👤 <b>អ្នកបញ្ចូល / Submitted By:</b> ${safeSubmittedBy}\n` +
+    `☎️ <b>ទំនាក់ទំនង / Contact:</b> ${safePhone}\n` +
+    `……………………………………………………………….\n` +
+    `👤 <b>អតិថិជន / Customer:</b> ${safeCustomerName}\n` +
+    `📍 <b>អាសយដ្ឋាន / Address:</b> ${safeCustomerAddress}\n\n` +
+    `⚙️ <b>ឧបករណ៍ / Instrument:</b> ${safeInstrument}\n` +
+    `🔢 <b>S/N ឧបករណ៍ / Instrument S/N:</b> ${safeSerial}\n` +
+    `📏 <b>វិសាលភាព / Scope:</b> ${safeScope}\n\n` +
+    `🛠 <b>សេវាកម្ម / Service:</b> ${safeServiceType}\n\n` +
+    `🔧 <b>គ្រឿងបន្លាស់ / Spare Parts:</b> ${safeSpareParts}\n` +
+    `🔢 <b>S/N គ្រឿងបន្លាស់ / Spare Part S/N:</b> ${safeSparePartSerial}\n\n` +
+    `📆 <b>Start Date:</b> ${safeStartDate}\n` +
+    `📆 <b>End Date:</b> ${safeEndDate}\n` +
+    `🗓 <b>រយៈពេល / Period:</b> ខែ ${safeMonth} ឆ្នាំ ${safeYear}\n` +
+    `⏰ <b>Date & Time:</b> ${safeOpDate} (GMT+7)\n` +
+    `🔗 <b>Public Verification Link:</b>\n` +
+    `${window.location.origin}/?verifyReport=${safeReportId}\n` +
+    `✅ បានបង្កើត និងផ្ញើរបាយការណ៍ PDF រួចរាល់។`;
 
   try {
     // 2. Generate PDF using jsPDF
