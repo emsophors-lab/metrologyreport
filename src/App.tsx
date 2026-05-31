@@ -226,8 +226,8 @@ export default function App() {
         console.warn('Installation prompt deferred choice failed:', err);
       }
     } else {
-      // Prompt instructional modal guide
-      setShowInstallGuide(true);
+      // Show an elegant and helpful toast guiding the user to use the browser-native install option
+      showToast('សូមចុចលើរូបសញ្ញា "ដំឡើង" (Install) នៅលើរបារអាសយដ្ឋាន (Address Bar) នៃ Chrome/Edge របស់អ្នក ឬចុចសញ្ញាចុចបី (...) → "ដំឡើងកម្មវិធី (Install app)"។', 'success');
     }
   };
 
@@ -746,18 +746,6 @@ export default function App() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={handlePwaInstall}
-                className="inline-flex items-center gap-1.5 text-[10px] font-black text-amber-400 bg-white/5 hover:bg-white/10 border border-amber-500/30 rounded-lg py-1.5 px-3 transition-all cursor-pointer shadow-xs active:scale-95"
-                title="Open in app / ដំឡើងកម្មវិធី"
-              >
-                <span>Open in app</span>
-                <svg className="h-3 w-3 text-amber-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-              </button>
-
-              <button
-                type="button"
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
                 className="p-1.5 rounded-lg bg-white/5 border border-slate-800 text-slate-300 hover:text-white"
               >
@@ -1036,18 +1024,6 @@ export default function App() {
             </div>
             
             <div className="flex items-center gap-2.5">
-              <button
-                type="button"
-                onClick={handlePwaInstall}
-                className="inline-flex items-center gap-1.5 text-[10px] font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 hover:scale-105 border border-indigo-500/30 p-1.5 px-3.5 rounded-full shadow-md transition-all cursor-pointer active:scale-95"
-                title="ដំឡើង ឬបើកកម្មវិធី / Open App as PWA"
-              >
-                <svg className="h-3.5 w-3.5 text-amber-300 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                <span>Open in app</span>
-              </button>
-
               <span className="hidden lg:inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-slate-50 p-1.5 px-3 rounded-full border border-slate-200/80">
                 <BriefcaseBusiness className="h-3.5 w-3.5 text-gold" />
                 <span>សកម្មភាព៖ {sessionUser?.legal_representative || sessionUser?.username}</span>
