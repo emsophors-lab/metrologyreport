@@ -51,10 +51,46 @@ export default function UserManagement({
   const [telegramEnabled, setTelegramEnabled] = useState(() => localStorage.getItem('nmc_telegram_enabled') !== 'false');
   const [isTestingTelegram, setIsTestingTelegram] = useState(false);
 
+  // Synchronize component input states with the database when usersList updates
+  useEffect(() => {
+    const dbConfig = usersList.find(u => u.id === 'telegram_config');
+    if (dbConfig) {
+      setTelegramBotToken(dbConfig.company_name_kh || '');
+      setTelegramChatId(dbConfig.company_name_en || '');
+      setTelegramEnabled(dbConfig.address === 'true');
+    }
+  }, [usersList]);
+
   const handleSaveTelegramConfig = () => {
-    localStorage.setItem('nmc_telegram_bot_token', telegramBotToken.trim());
-    localStorage.setItem('nmc_telegram_chat_id', telegramChatId.trim());
-    localStorage.setItem('nmc_telegram_enabled', telegramEnabled ? 'true' : 'false');
+    const trimmedBotToken = telegramBotToken.trim();
+    const trimmedChatId = telegramChatId.trim();
+    const enabledStr = telegramEnabled ? 'true' : 'false';
+
+    localStorage.setItem('nmc_telegram_bot_token', trimmedBotToken);
+    localStorage.setItem('nmc_telegram_chat_id', trimmedChatId);
+    localStorage.setItem('nmc_telegram_enabled', enabledStr);
+
+    // Save and synchronize database configuration records with Supabase
+    onSaveUser({
+      id: 'telegram_config',
+      license_number: 'SYSTEM_CONFIG',
+      company_name_kh: trimmedBotToken,
+      company_name_en: trimmedChatId,
+      address: enabledStr,
+      phone: 'SYSTEM',
+      email: 'telegram@system.config',
+      legal_representative: 'System Configuration',
+      representative_position: 'System Settings',
+      username: 'telegram_config',
+      password: 'N/A',
+      role: 'admin',
+      can_view: false,
+      can_edit: false,
+      can_save: false,
+      can_delete: false,
+      created_at: new Date().toISOString()
+    });
+
     toastMsg('បានរក្សាទុកការកំណត់ Telegram ដោយជោគជ័យ!', 'success');
   };
 
@@ -150,7 +186,7 @@ export default function UserManagement({
 
     // Check duplicate username if writing a new user
     const usernameExist = usersList.find(
-      (u) => u.username.toLowerCase() === username.trim().toLowerCase() && u.id !== userId
+      (u) => u.id !== 'telegram_config' && u.username.toLowerCase() === username.trim().toLowerCase() && u.id !== userId
     );
 
     if (usernameExist) {
@@ -199,6 +235,9 @@ export default function UserManagement({
   };
 
   const filteredUsers = usersList.filter((u) => {
+    // Filter out global system config records
+    if (u.id === 'telegram_config') return false;
+
     const term = searchQuery.toLowerCase();
     const locTerm = filterLocation.toLowerCase();
     

@@ -51,10 +51,10 @@ export default function LoginScreen({ onLoginSuccess, usersList }: LoginScreenPr
 
           {/* Brand Main Title styled exactly with elegant Khmer and gorgeous shadow glow */}
           <div className="space-y-1">
-            <h1 className="text-white text-5xl lg:text-6xl font-extrabold leading-normal select-none font-sans drop-shadow-[0_8px_24px_rgba(30,58,138,0.25)] text-transparent bg-clip-text bg-gradient-to-r from-slate-900 to-slate-800">
+            <h1 className="text-[#1565C0] text-4xl lg:text-5xl font-bold leading-normal select-none font-muol drop-shadow-[0_4px_12px_rgba(21,101,192,0.15)]">
               ប្រព័ន្ធរបាយការណ៍
             </h1>
-            <h1 className="text-white text-5xl lg:text-6xl font-extrabold leading-normal select-none font-sans drop-shadow-[0_8px_24px_rgba(30,58,138,0.25)] text-transparent bg-clip-text bg-gradient-to-r from-slate-900 to-slate-800">
+            <h1 className="text-[#1565C0] text-4xl lg:text-5xl font-bold leading-normal select-none font-muol drop-shadow-[0_4px_12px_rgba(21,101,192,0.15)]">
               មាត្រាសាស្ត្រ
             </h1>
           </div>

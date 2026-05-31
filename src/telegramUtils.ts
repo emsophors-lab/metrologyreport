@@ -11,9 +11,14 @@ export async function sendTelegramNotification(
   users: MetrologyUser[],
   showToast: (msg: string, type: 'success' | 'error') => void
 ) {
-  const botToken = localStorage.getItem('nmc_telegram_bot_token');
-  const chatId = localStorage.getItem('nmc_telegram_chat_id');
-  const isEnabled = localStorage.getItem('nmc_telegram_enabled') !== 'false';
+  // Try to find the synchronized system configuration from the user database (Supabase)
+  const dbTelegramConfig = users.find(u => u.id === 'telegram_config');
+
+  const botToken = dbTelegramConfig?.company_name_kh || localStorage.getItem('nmc_telegram_bot_token');
+  const chatId = dbTelegramConfig?.company_name_en || localStorage.getItem('nmc_telegram_chat_id');
+  const isEnabled = dbTelegramConfig 
+    ? (dbTelegramConfig.address === 'true') 
+    : (localStorage.getItem('nmc_telegram_enabled') !== 'false');
 
   // Return silently if notifications are disabled or missing credential details
   if (!isEnabled || !botToken || !chatId) {
