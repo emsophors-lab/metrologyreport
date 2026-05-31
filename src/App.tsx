@@ -20,7 +20,9 @@ import {
   FileText,
   Clock,
   BriefcaseBusiness,
-  Landmark
+  Landmark,
+  Menu,
+  X
 } from 'lucide-react';
 
 // Import Types
@@ -79,6 +81,7 @@ export default function App() {
   
   // App navigation state: 'dashboard' | 'reports' | 'users' | 'developer'
   const [activeTab, setActiveTab] = useState<'dashboard' | 'reports' | 'users' | 'developer'>('dashboard');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Supabase dynamic config
   const [dbConfig, setDbConfig] = useState<SupabaseConfig>({
@@ -658,8 +661,153 @@ export default function App() {
       {/* Main Administrative Layout View */}
       <div className="flex-1 flex flex-col md:flex-row">
         
+        {/* Mobile Navigation Header Bar */}
+        <div className="md:hidden bg-navy text-slate-200 border-b border-slate-800 flex flex-col select-none shrink-0 w-full">
+          <div className="p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-9 flex items-center justify-center shrink-0 overflow-hidden relative">
+                <img 
+                  src={nmcLogo} 
+                  alt="NMC logo" 
+                  className="h-full w-auto object-contain"
+                />
+              </div>
+              <div>
+                <h4 className="font-bold text-[10px] text-gold tracking-wide font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</h4>
+                <p className="text-[8px] text-slate-400 font-medium tracking-wide">NATIONAL METROLOGY CENTER</p>
+              </div>
+            </div>
+            
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="p-1.5 rounded-lg bg-white/5 border border-slate-800 text-slate-300 hover:text-white"
+            >
+              {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+          </div>
+
+          {/* Collapsible Mobile Navigation Links & Session */}
+          {isMobileMenuOpen && (
+            <div className="border-t border-slate-800 bg-black/10 divide-y divide-slate-850 px-4 py-2 space-y-4">
+              {/* Profile card */}
+              <div className="py-2 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="p-1 rounded-md bg-gold/10 border border-gold/25 text-gold">
+                    <User className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="text-xs font-black text-slate-200">{sessionUser.legal_representative || sessionUser.username}</span>
+                </div>
+                
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <p>សិទ្ធិ៖ <strong className="text-gold">{sessionUser.role.toUpperCase()}</strong></p>
+                </div>
+                
+                {sessionUser.role === 'company' && (
+                  <div className="text-[10px] bg-black/20 p-2 rounded border border-slate-800/80 leading-relaxed font-sans text-slate-300">
+                    <p className="font-bold">ក្រុមហ៊ុន៖ {sessionUser.company_name_kh}</p>
+                    <p className="font-mono text-[9px] text-gold/90 mt-0.5">អាជ្ញាប័ណ្ណ៖ {sessionUser.license_number}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Navigation Anchors */}
+              <nav className="py-2 space-y-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('dashboard');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
+                    activeTab === 'dashboard' 
+                      ? 'bg-gold/10 text-gold border-r-4 border-gold' 
+                      : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
+                  }`}
+                >
+                  <Activity className="h-4 w-4 shrink-0 text-gold" />
+                  <span>ផ្ទាំងគ្រប់គ្រង (Dashboard)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('reports');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
+                    activeTab === 'reports' 
+                      ? 'bg-gold/10 text-gold border-r-4 border-gold' 
+                      : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
+                  }`}
+                >
+                  <NotebookTabs className="h-4 w-4 shrink-0 text-gold" />
+                  <span>របាយការណ៍ប្រចាំខែ (Reports)</span>
+                </button>
+
+                {sessionUser.role === 'superadmin' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('users');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
+                      activeTab === 'users' 
+                        ? 'bg-gold/10 text-gold border-r-4 border-gold' 
+                        : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
+                    }`}
+                  >
+                    <Users className="h-4 w-4 shrink-0 text-gold" />
+                    <span>គ្រប់គ្រងគណនីក្រុមហ៊ុន (Users)</span>
+                  </button>
+                )}
+
+                {sessionUser.role !== 'company' && sessionUser.role !== 'admin' && sessionUser.role !== 'superadmin' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('developer');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
+                      activeTab === 'developer' 
+                        ? 'bg-gold/10 text-gold border-r-4 border-gold' 
+                        : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
+                    }`}
+                  >
+                    <Settings2 className="h-4 w-4 shrink-0 text-gold" />
+                    <span>សមកាលកម្ម Supabase (Sync)</span>
+                  </button>
+                )}
+              </nav>
+
+              {/* Timezone & Logout */}
+              <div className="py-3 space-y-3">
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-550 font-mono">
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>GMT+7 : {systemTime.split(' ')[0]}</span>
+                </div>
+                
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    handleLogout();
+                  }}
+                  className="w-full py-2 px-3 bg-red-500/10 hover:bg-red-500/25 text-red-400 hover:text-red-300 border border-red-500/15 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 animate-pulse"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span>ចាកចេញពីប្រព័ន្ធ / Logout</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Navigation Sidebar Drawer - Section 13 */}
-        <aside className="w-full md:w-64 bg-navy text-slate-300 flex flex-col justify-between border-r border-slate-800/80 shrink-0 select-none">
+        <aside className="hidden md:flex md:w-64 bg-navy text-slate-300 flex-col justify-between border-r border-slate-800/80 shrink-0 select-none">
           <div>
             {/* Traditional Emblem Logo Header */}
             <div className="p-5 border-b border-slate-850 flex items-center gap-3 bg-black/10">

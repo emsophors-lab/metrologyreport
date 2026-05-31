@@ -1,0 +1,22 @@
+{
+  "name": "NMC Metrology Report Portal",
+  "short_name": "NMC Report",
+  "description": "National Metrology Center of Cambodia Report and License Tracking Portal",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0e1e3e",
+  "theme_color": "#0e1e3e",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "logo-pwa.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "logo-pwa.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
