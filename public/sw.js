@@ -2,7 +2,8 @@ const CACHE_NAME = 'nmc-metrology-portal-v1';
 const ASSETS = [
   '/',
   '/index.html',
-  '/manifest.json'
+  '/manifest.json',
+  '/logo-pwa.png'
 ];
 
 self.addEventListener('install', (event) => {

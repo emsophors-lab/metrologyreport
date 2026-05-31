@@ -9,12 +9,12 @@
   "orientation": "any",
   "icons": [
     {
-      "src": "logo-pwa.png",
+      "src": "/logo-pwa.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "logo-pwa.png",
+      "src": "/logo-pwa.png",
       "sizes": "512x512",
       "type": "image/png"
     }
