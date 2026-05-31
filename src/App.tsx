@@ -82,6 +82,11 @@ export default function App() {
   // App navigation state: 'dashboard' | 'reports' | 'users' | 'developer'
   const [activeTab, setActiveTab] = useState<'dashboard' | 'reports' | 'users' | 'developer'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  
+  // PWA installation states
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+  const [isAppInstalled, setIsAppInstalled] = useState(false);
 
   // Supabase dynamic config
   const [dbConfig, setDbConfig] = useState<SupabaseConfig>({
@@ -165,6 +170,51 @@ export default function App() {
     }, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Listen for PWA installation events
+  useEffect(() => {
+    const handleBeforePrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    const handleAppInstalledListener = () => {
+      setIsAppInstalled(true);
+      setDeferredPrompt(null);
+      showToast('ដំឡើងកម្មវិធីបានជោគជ័យ! PWA Installed Successfully', 'success');
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforePrompt);
+    window.addEventListener('appinstalled', handleAppInstalledListener);
+
+    // Initial display mode check
+    if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) {
+      setIsAppInstalled(true);
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforePrompt);
+      window.removeEventListener('appinstalled', handleAppInstalledListener);
+    };
+  }, []);
+
+  // Handle custom install trigger action
+  const handlePwaInstall = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      try {
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+          setDeferredPrompt(null);
+        }
+      } catch (err) {
+        console.warn('Installation prompt deferred choice failed:', err);
+      }
+    } else {
+      // Prompt instructional modal guide
+      setShowInstallGuide(true);
+    }
+  };
 
   // Trigger Toast Notification
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -678,13 +728,27 @@ export default function App() {
               </div>
             </div>
             
-            <button
-              type="button"
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="p-1.5 rounded-lg bg-white/5 border border-slate-800 text-slate-300 hover:text-white"
-            >
-              {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handlePwaInstall}
+                className="inline-flex items-center gap-1.5 text-[10px] font-black text-amber-400 bg-white/5 hover:bg-white/10 border border-amber-500/30 rounded-lg py-1.5 px-3 transition-all cursor-pointer shadow-xs active:scale-95"
+                title="Open in app / ដំឡើងកម្មវិធី"
+              >
+                <span>Open in app</span>
+                <svg className="h-3 w-3 text-amber-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="p-1.5 rounded-lg bg-white/5 border border-slate-800 text-slate-300 hover:text-white"
+              >
+                {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              </button>
+            </div>
           </div>
 
           {/* Collapsible Mobile Navigation Links & Session */}
@@ -957,6 +1021,18 @@ export default function App() {
             </div>
             
             <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handlePwaInstall}
+                className="inline-flex items-center gap-1.5 text-[10px] font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 hover:scale-105 border border-indigo-500/30 p-1.5 px-3.5 rounded-full shadow-md transition-all cursor-pointer active:scale-95"
+                title="ដំឡើង ឬបើកកម្មវិធី / Open App as PWA"
+              >
+                <svg className="h-3.5 w-3.5 text-amber-300 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                <span>Open in app</span>
+              </button>
+
               <span className="hidden lg:inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-slate-50 p-1.5 px-3 rounded-full border border-slate-200/80">
                 <BriefcaseBusiness className="h-3.5 w-3.5 text-gold" />
                 <span>សកម្មភាព៖ {sessionUser?.legal_representative || sessionUser?.username}</span>
@@ -1408,6 +1484,108 @@ export default function App() {
           filterYear={selectedPrintReport.report_year}
           onClose={() => setSelectedPrintReport(null)}
         />
+      )}
+
+      {/* 3. High-Fidelity PWA 'Open in App' & Installation Guide Dialog */}
+      {showInstallGuide && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200/80 max-w-lg w-full overflow-hidden leading-relaxed animate-fade-in duration-200">
+            {/* National Crest & Header */}
+            <div className="bg-navy p-6 text-center text-white relative">
+              <button
+                type="button"
+                onClick={() => setShowInstallGuide(false)}
+                className="absolute top-4 right-4 p-2 rounded-full hover:bg-white/10 text-slate-300 hover:text-white transition-all cursor-pointer"
+                aria-label="Close dialog"
+              >
+                <X className="h-5 w-5" />
+              </button>
+              
+              <div className="w-16 h-16 bg-white/10 rounded-2xl mx-auto flex items-center justify-center border border-white/10 overflow-hidden mb-3">
+                <img 
+                  src={nmcLogo} 
+                  alt="NMC logo" 
+                  className="h-12 w-auto object-contain"
+                />
+              </div>
+              <h3 className="font-bold text-sm tracking-wide font-muol mt-2 text-gold">ដំឡើងជាកម្មវិធីទូរស័ព្ទ ឬកុំព្យូទ័រ</h3>
+              <p className="text-[10px] text-slate-300 font-sans tracking-wide mt-1 uppercase">Install "NMC Report" Portal as Native App</p>
+            </div>
+
+            {/* Steps & Guidelines */}
+            <div className="p-6 space-y-5 font-sans">
+              <p className="text-xs text-slate-600 text-center leading-relaxed">
+                អ្នកអាចដំឡើងកម្មវិធីនេះនៅលើឧបករណ៍របស់អ្នកដើម្បីងាយស្រួលបើកប្រើប្រាស់ (Open in App) ដោយផ្ទាល់ដោយមិនបាច់ចូលតាមកម្មវិធីរុករក (Browser)។
+              </p>
+
+              <div className="space-y-4">
+                {/* Desktop Option */}
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 flex items-start gap-3">
+                  <span className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100 shrink-0 font-bold text-xs">A</span>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800">សម្រាប់កុំព្យូទ័រ (Desktop Native App)</h4>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      ចុចលើរូបសញ្ញា <strong className="text-indigo-600">"ដំឡើងកម្មវិធី" (Install / Open in App)</strong> ឬចុចរូប <strong className="font-mono bg-slate-200 px-1 rounded">⊞</strong> នៅលើរបារអាសយដ្ឋាន Chrome/Edge ដូចដែលបានបង្ហាញក្នុងរូបភាព រួចជ្រើសរើស "ដំឡើង" (Install)។
+                    </p>
+                  </div>
+                </div>
+
+                {/* iPhone / iOS Option */}
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 flex items-start gap-3">
+                  <span className="p-2 rounded-xl bg-amber-50 text-amber-600 border border-amber-100 shrink-0 font-bold text-xs">B</span>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800">ស្មាតហ្វូន iPhone / iOS (Safari Browser)</h4>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      បើកទំព័រនេះក្នុងកម្មវិធី <strong className="text-slate-850">Safari</strong> &rarr; ចុចប៊ូតុងចែករំលែក <strong className="text-indigo-600 font-bold">"Share" (រូបសញ្ញាព្រួញឡើងលើ &uarr;)</strong> នៅផ្នែកខាងក្រោម &rarr; អូសចុះក្រោមហើយជ្រើសរើស <strong className="text-indigo-600">"បន្ថែមទៅអេក្រង់ដើម" (Add to Home Screen)</strong>។
+                    </p>
+                  </div>
+                </div>
+
+                {/* Android Option */}
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 flex items-start gap-3">
+                  <span className="p-2 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 shrink-0 font-bold text-xs">C</span>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800">ស្មាតហ្វូន Android (Chrome Browser)</h4>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      ចុចលើប៊ូតុង <strong className="text-emerald-700">"Open in app"</strong> ឬចុចសញ្ញាចុចបី <strong className="font-bold">&bull;&bull;&bull;</strong> នៅជ្រុងខាងលើខាងស្តាំ &rarr; ជ្រើសរើស <strong className="text-emerald-700">"ដំឡើងកម្មវិធី" (Install App / Add to Home Screen)</strong>។
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* native prompt trigger if supported */}
+              {deferredPrompt && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowInstallGuide(false);
+                      handlePwaInstall();
+                    }}
+                    className="w-full py-3 bg-gold text-slate-900 font-bold rounded-xl shadow hover:bg-yellow-500 hover:scale-[1.02] shadow-gold/20 transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <svg className="h-4 w-4 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    <span>ចុចទីនេះដើម្បីដំឡើងភ្លាមៗ / Click to Install</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Close footer */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+                <span>NMC Metrology Report Portal PWA</span>
+                <button
+                  type="button"
+                  onClick={() => setShowInstallGuide(false)}
+                  className="font-bold text-slate-600 hover:text-slate-900"
+                >
+                  យល់ព្រម / Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>
