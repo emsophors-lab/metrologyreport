@@ -33,23 +33,57 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET' || !event.request.url.startsWith(self.location.origin)) {
+  if (event.request.method !== 'GET') {
+    return;
+  }
+
+  const url = new URL(event.request.url);
+
+  // Keep API and third-party database calls uncached and secure
+  if (
+    url.hostname.includes('supabase') || 
+    url.pathname.includes('/api/') || 
+    url.pathname.includes('/rest/') || 
+    url.pathname.includes('auth')
+  ) {
+    return;
+  }
+
+  // Only handle same-origin requests
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  // Only cache common static local resources
+  const isStaticResource = 
+    url.pathname === '/' ||
+    url.pathname === '/index.html' ||
+    url.pathname === '/manifest.json' ||
+    /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|json)$/i.test(url.pathname);
+
+  if (!isStaticResource) {
     return;
   }
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request).then((networkResponse) => {
-        if (networkResponse.status === 200) {
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+      return fetch(event.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
           const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
         }
         return networkResponse;
-      }).catch(() => {
-        return cachedResponse;
+      }).catch((err) => {
+        console.warn('SW Match Fail:', err);
+        if (event.request.mode === 'navigate') {
+          return caches.match('/index.html');
+        }
       });
-
-      return cachedResponse || fetchPromise;
     })
   );
 });
