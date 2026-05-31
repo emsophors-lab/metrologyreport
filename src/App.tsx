@@ -87,6 +87,7 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallGuide, setShowInstallGuide] = useState(false);
   const [isAppInstalled, setIsAppInstalled] = useState(false);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
 
   // Supabase dynamic config
   const [dbConfig, setDbConfig] = useState<SupabaseConfig>({
@@ -176,11 +177,13 @@ export default function App() {
     const handleBeforePrompt = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
+      setShowInstallBanner(true);
     };
 
     const handleAppInstalledListener = () => {
       setIsAppInstalled(true);
       setDeferredPrompt(null);
+      setShowInstallBanner(false);
       showToast('ដំឡើងកម្មវិធីបានជោគជ័យ! PWA Installed Successfully', 'success');
     };
 
@@ -190,6 +193,17 @@ export default function App() {
     // Initial display mode check
     if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) {
       setIsAppInstalled(true);
+      setShowInstallBanner(false);
+    } else {
+      // Auto display installation banner on start up after a small delay
+      const timer = setTimeout(() => {
+        setShowInstallBanner(true);
+      }, 2000);
+      return () => {
+        clearTimeout(timer);
+        window.removeEventListener('beforeinstallprompt', handleBeforePrompt);
+        window.removeEventListener('appinstalled', handleAppInstalledListener);
+      };
     }
 
     return () => {
@@ -206,6 +220,7 @@ export default function App() {
         const { outcome } = await deferredPrompt.userChoice;
         if (outcome === 'accepted') {
           setDeferredPrompt(null);
+          setShowInstallBanner(false);
         }
       } catch (err) {
         console.warn('Installation prompt deferred choice failed:', err);
@@ -1581,6 +1596,60 @@ export default function App() {
                   className="font-bold text-slate-600 hover:text-slate-900"
                 >
                   យល់ព្រម / Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Beautiful Persistent PWA Installation Floating Banner (Bottom-Right, matched to user's screenshot) */}
+      {showInstallBanner && !isAppInstalled && (
+        <div className="fixed bottom-6 right-6 z-[95] max-w-sm w-full bg-white rounded-2xl shadow-[0_10px_35px_rgba(0,0,0,0.15)] border border-slate-150 p-4 leading-relaxed transition-all duration-300 animate-in fade-in slide-in-from-bottom-5 select-none">
+          <div className="flex gap-3 items-start relative">
+            <button
+              type="button"
+              onClick={() => setShowInstallBanner(false)}
+              className="absolute -top-1 -right-1 p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all cursor-pointer"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            
+            {/* App Icon Circle */}
+            <div className="h-10 w-10 shrink-0 bg-blue-550/10 border border-blue-500/20 text-blue-600 flex items-center justify-center rounded-xl overflow-hidden shadow-inner">
+              <img 
+                src={nmcLogo} 
+                alt="NMC icon" 
+                className="h-7 w-auto object-contain"
+              />
+            </div>
+            
+            <div className="flex-1 min-w-0 pr-4">
+              <h4 className="text-sm font-black text-slate-800 flex items-center gap-1.5">
+                ដំឡើង App
+              </h4>
+              <p className="text-[11px] text-slate-500 font-medium leading-normal mt-0.5">
+                Install ប្រព័ន្ធគ្រប់គ្រងរបាយការណ៍ — ប្រើប្រាស់ App ពិតៗ!
+              </p>
+              
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handlePwaInstall}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 hover:scale-105 border border-blue-500/40 rounded-lg py-1.5 px-4 transition-all cursor-pointer shadow-md select-none active:scale-95"
+                >
+                  <svg className="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  <span>ដំឡើង App</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowInstallBanner(false)}
+                  className="text-[11px] font-bold text-slate-400 hover:text-slate-600 px-2 py-1.5 rounded transition-all cursor-pointer"
+                >
+                  ពេលក្រោយ
                 </button>
               </div>
             </div>
