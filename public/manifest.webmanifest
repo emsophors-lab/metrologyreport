@@ -1,6 +1,7 @@
 {
   "name": "NMC Report",
   "short_name": "NMC Report",
+  "description": "National Metrology Center of Cambodia reporting system",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

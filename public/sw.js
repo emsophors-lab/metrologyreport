@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nmc-report-pwa-v5';
+const CACHE_NAME = 'nmc-report-pwa-v6';
 const ASSETS = [
   '/',
   '/index.html',
