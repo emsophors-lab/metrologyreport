@@ -174,8 +174,6 @@ export default function App() {
 
   // Listen for PWA installation events
   useEffect(() => {
-    let timer: any = null;
-
     const handleBeforePrompt = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -196,15 +194,9 @@ export default function App() {
     if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) {
       setIsAppInstalled(true);
       setShowInstallBanner(false);
-    } else {
-      // Auto display installation banner on start up after a small delay
-      timer = setTimeout(() => {
-        setShowInstallBanner(true);
-      }, 2000);
     }
 
     return () => {
-      if (timer) clearTimeout(timer);
       window.removeEventListener('beforeinstallprompt', handleBeforePrompt);
       window.removeEventListener('appinstalled', handleAppInstalledListener);
     };

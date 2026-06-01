@@ -2,7 +2,7 @@ const CACHE_NAME = 'nmc-metrology-portal-v1';
 const ASSETS = [
   '/',
   '/index.html',
-  '/manifest.json',
+  '/manifest.webmanifest',
   '/logo-pwa.png'
 ];
 
@@ -58,8 +58,8 @@ self.addEventListener('fetch', (event) => {
   const isStaticResource = 
     url.pathname === '/' ||
     url.pathname === '/index.html' ||
-    url.pathname === '/manifest.json' ||
-    /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|json)$/i.test(url.pathname);
+    url.pathname === '/manifest.webmanifest' ||
+    /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|json|webmanifest)$/i.test(url.pathname);
 
   if (!isStaticResource) {
     return;
