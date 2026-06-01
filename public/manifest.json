@@ -1,31 +1,17 @@
 {
   "name": "NMC Report",
   "short_name": "NMC Report",
-  "description": "National Metrology Center of Cambodia Report and License Tracking Portal",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0e1e3e",
   "theme_color": "#0e1e3e",
-  "orientation": "any",
   "icons": [
     {
-      "src": "/logo-pwa.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
       "src": "/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
-    },
-    {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
     },
     {
       "src": "/icon-512.png",
@@ -37,7 +23,7 @@
       "src": "/maskable-icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "maskable"
     }
   ]
 }

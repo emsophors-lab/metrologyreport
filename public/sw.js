@@ -1,9 +1,8 @@
-const CACHE_NAME = 'nmc-metrology-portal-v1';
+const CACHE_NAME = 'nmc-report-pwa-v3';
 const ASSETS = [
   '/',
   '/index.html',
   '/manifest.webmanifest',
-  '/logo-pwa.png',
   '/icon-192.png',
   '/icon-512.png',
   '/maskable-icon-512.png'
