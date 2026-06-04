@@ -1,51 +1,91 @@
-const CACHE_NAME = "nmc-report-pwa-v20";
-
-const STATIC_ASSETS = [
-  "/manifest.webmanifest",
-  "/icon-192.png",
-  "/icon-512.png",
-  "/maskable-icon-512.png",
-  "/logo-pwa.png",
-  "/favicon.ico"
+const CACHE_NAME = 'nmc-report-pwa-v7';
+const ASSETS = [
+  '/',
+  '/index.html',
+  '/manifest.webmanifest',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/maskable-icon-512.png'
 ];
 
-self.addEventListener("install", (event) => {
+self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(ASSETS).catch((err) => {
+        console.warn('Pre-cache error:', err);
+      });
+    })
   );
   self.skipWaiting();
 });
 
-self.addEventListener("activate", (event) => {
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) =>
-      Promise.all(
-        cacheNames
-          .filter((name) => name !== CACHE_NAME)
-          .map((name) => caches.delete(name))
-      )
-    )
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.map((key) => {
+          if (key !== CACHE_NAME) {
+            return caches.delete(key);
+          }
+        })
+      );
+    })
   );
   self.clients.claim();
 });
 
-self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-
-  // Never cache Supabase/API/private data
-  if (
-    url.hostname.includes("supabase.co") ||
-    url.pathname.includes("/api/") ||
-    url.pathname.includes("/auth/")
-  ) {
-    event.respondWith(fetch(event.request));
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') {
     return;
   }
 
-  // Cache-first for static assets only, network fallback
+  const url = new URL(event.request.url);
+
+  // Keep API and third-party database calls uncached and secure
+  if (
+    url.hostname.includes('supabase') || 
+    url.pathname.includes('/api/') || 
+    url.pathname.includes('/rest/') || 
+    url.pathname.includes('auth')
+  ) {
+    return;
+  }
+
+  // Only handle same-origin requests
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  // Only cache common static local resources
+  const isStaticResource = 
+    url.pathname === '/' ||
+    url.pathname === '/index.html' ||
+    url.pathname === '/manifest.webmanifest' ||
+    /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|json|webmanifest)$/i.test(url.pathname);
+
+  if (!isStaticResource) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      return cachedResponse || fetch(event.request);
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+      return fetch(event.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+        }
+        return networkResponse;
+      }).catch((err) => {
+        console.warn('SW Match Fail:', err);
+        if (event.request.mode === 'navigate') {
+          return caches.match('/index.html');
+        }
+      });
     })
   );
 });

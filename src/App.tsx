@@ -58,6 +58,7 @@ import ReportForm from './components/ReportForm';
 import DashboardStats from './components/DashboardStats';
 import DeveloperConsole from './components/DeveloperConsole';
 import ReportPrintLayout from './components/ReportPrintLayout';
+import TopServiceCompanies from './components/TopServiceCompanies';
 
 // Import Logo Asset
 import nmcLogo from './components/NMClogo.png';
@@ -1054,6 +1055,14 @@ export default function App() {
                   reports={filteredReportsList} 
                   allUsersCount={activeCompanyList.length}
                 />
+
+                {/* Superadmin Exclusive: Top 3 Company Services Ranking */}
+                {sessionUser.role === 'superadmin' && (
+                  <TopServiceCompanies 
+                    reports={reports} 
+                    users={users} 
+                  />
+                )}
 
                 {/* Dashboard bottom quick insights panel */}
                 <div className="bg-slate-900 rounded-xl p-6 text-slate-100 flex flex-col md:flex-row items-center justify-between gap-6 border border-slate-800 relative overflow-hidden">
