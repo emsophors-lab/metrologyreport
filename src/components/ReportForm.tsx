@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FileSpreadsheet, PlusCircle, Check, HelpCircle, Save, Calendar, Trash2 } from 'lucide-react';
-import { MetrologyReport, MetrologyUser, ServiceType } from '../types';
+import { MetrologyReport, MetrologyUser, ServiceType, generateYearOptions } from '../types';
 
 interface ReportFormProps {
   currentUser: MetrologyUser;
@@ -345,10 +345,9 @@ export default function ReportForm({
               value={reportYear}
               onChange={(e) => setReportYear(e.target.value)}
             >
-              <option value="2025">2025</option>
-              <option value="2026">2026</option>
-              <option value="2027">2027</option>
-              <option value="2028">2028</option>
+              {generateYearOptions(2000, 2050).map(year => (
+                <option key={year} value={String(year)}>{year}</option>
+              ))}
             </select>
           </div>
         </div>

@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 
 // Import Types
-import { MetrologyUser, MetrologyReport, SupabaseConfig, ServiceType } from './types';
+import { MetrologyUser, MetrologyReport, SupabaseConfig, ServiceType, generateYearOptions } from './types';
 
 // Import Demo Data
 import { INITIAL_USERS, INITIAL_REPORTS } from './demoData';
@@ -1216,9 +1216,9 @@ export default function App() {
                           }}
                         >
                           <option value="all">គ្រប់ឆ្នាំទាំងអស់ / All years</option>
-                          <option value="2025">2025</option>
-                          <option value="2026">2026</option>
-                          <option value="2027">2027</option>
+                          {generateYearOptions(2000, 2050).sort((a,b) => b - a).map(year => (
+                            <option key={year} value={String(year)}>{year}</option>
+                          ))}
                         </select>
                       </div>
 

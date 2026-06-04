@@ -49,3 +49,13 @@ export interface SupabaseConfig {
   isConnected: boolean;
   useFallback: boolean;
 }
+
+export function generateYearOptions(startYear = 2020, endYear = 2050): number[] {
+  const years: number[] = [];
+  const start = Math.min(startYear, 2020); // standard safety check
+  for (let year = start; year <= endYear; year++) {
+    years.push(year);
+  }
+  return years;
+}
+

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Trophy, Medal, Building2, Factory, Wrench, Hammer, Award, Calendar, SlidersHorizontal, Info } from 'lucide-react';
-import { MetrologyReport, MetrologyUser } from '../types';
+import { MetrologyReport, MetrologyUser, generateYearOptions } from '../types';
 
 interface TopServiceCompaniesProps {
   reports: MetrologyReport[];
@@ -45,16 +45,8 @@ export default function TopServiceCompanies({ reports, users }: TopServiceCompan
     return String(new Date().getFullYear()); // e.g., '2026'
   });
 
-  // 2. Dynamically extract selectable years from existing report dates, and provide standard fallbacks
-  const reportedYears = Array.from(new Set(reports.map(r => r.report_year).filter(Boolean)));
-  const currentYear = new Date().getFullYear();
-  for (let y = currentYear - 2; y <= currentYear + 1; y++) {
-    const yStr = String(y);
-    if (!reportedYears.includes(yStr)) {
-      reportedYears.push(yStr);
-    }
-  }
-  const yearOptions = reportedYears.sort((a, b) => b.localeCompare(a)); // Sort years descending
+  // 2. Generate selectable years up to 2050 using standard helper
+  const yearOptions = generateYearOptions(2000, 2050).map(String).sort((a, b) => b.localeCompare(a)); // Sort years descending (2050 to 2000)
 
   // 3. Filter reports by selected criteria
   const filteredReports = reports.filter(report => {
