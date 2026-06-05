@@ -85,3 +85,32 @@ CREATE POLICY "Public Read Access for Reports" ON reports
 CREATE POLICY "Public Write Access for Reports" ON reports
   FOR ALL USING (true) WITH CHECK (true);
 
+
+-- -------------------------------------------------------------------------
+-- 4. Create table for login history (security & session logs)
+-- -------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS login_history (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  user_email TEXT NOT NULL,
+  user_role TEXT NOT NULL,
+  company_id TEXT NOT NULL,
+  company_name TEXT NOT NULL,
+  login_status TEXT NOT NULL,
+  ip_address TEXT,
+  user_agent TEXT,
+  device_info TEXT,
+  login_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
+ALTER TABLE login_history ENABLE ROW LEVEL SECURITY;
+
+-- Select policy for login history logs
+CREATE POLICY "Public Read Access for Login History" ON login_history
+  FOR SELECT USING (true);
+
+-- Insert policy for login history logs
+CREATE POLICY "Public Write Access for Login History" ON login_history
+  FOR INSERT WITH CHECK (true);
+
+

@@ -23,15 +23,15 @@ export async function logLoginHistory(user: MetrologyUser): Promise<void> {
     
     const loginHistoryItem: LoginHistory = {
       id: Math.random().toString(36).substring(2, 11) + Date.now().toString(36),
-      user_id: user.id,
-      user_email: user.email || user.username,
-      user_role: user.role,
-      company_id: user.role === 'company' ? user.id : (user.license_number || 'NMC-ADMIN'),
-      company_name: user.company_name_kh || 'គណៈកម្មាធិការមាត្រាសាស្ត្រជាតិ (NMC)',
+      user_id: user.id ? String(user.id) : user.username ? String(user.username) : '',
+      user_email: user.email || user.username || '',
+      user_role: user.role || '',
+      company_id: (user as any).company_id ? String((user as any).company_id) : (user.role === 'company' ? String(user.id) : ''),
+      company_name: user.company_name_kh || (user as any).company_name || (user as any).company || 'គណៈកម្មាធិការមាត្រាសាស្ត្រជាតិ (NMC)',
       login_status: 'success',
-      ip_address: ipAddress,
-      user_agent: navigator.userAgent,
-      device_info: `Language: ${navigator.language} | Platform: ${navigator.platform}`,
+      ip_address: ipAddress || '',
+      user_agent: navigator.userAgent || '',
+      device_info: `${navigator.platform || ""} | ${navigator.language || ""}`,
       login_at: new Date().toISOString()
     };
 
@@ -58,10 +58,28 @@ export async function logLoginHistory(user: MetrologyUser): Promise<void> {
       return;
     }
 
-    const { id, ...supabaseItem } = loginHistoryItem;
-    const { error } = await client.from('login_history').insert([supabaseItem]);
+    // Prepare clean Supabase insert payload WITHOUT 'id' (let Supabase auto-generate its UUID)
+    // and using nulls instead of empty strings for missing credentials
+    const supabasePayload = {
+      user_id: user.id ? String(user.id) : user.username ? String(user.username) : null,
+      user_email: user.email || user.username || null,
+      user_role: user.role || null,
+      company_id: (user as any).company_id ? String((user as any).company_id) : (user.role === 'company' ? String(user.id) : null),
+      company_name: user.company_name_kh || (user as any).company_name || (user as any).company || 'គណៈកម្មាធិការមាត្រាសាស្ត្រជាតិ (NMC)',
+      login_status: 'success',
+      ip_address: ipAddress || null,
+      user_agent: navigator.userAgent || null,
+      device_info: `${navigator.platform || ""} | ${navigator.language || ""}`,
+      login_at: new Date().toISOString()
+    };
+
+    const { error } = await client.from('login_history').insert([supabasePayload]);
     if (error) {
       console.warn('Failed to insert login history row into Supabase:', error);
+      console.error('Detailed Insert Error Msg:', error.message);
+      console.error('Detailed Insert Error Details:', error.details);
+      console.error('Detailed Insert Error Hint:', error.hint);
+      console.error('Detailed Insert Error Code:', error.code);
     } else {
       console.log('Login history recorded successfully in Supabase.');
     }

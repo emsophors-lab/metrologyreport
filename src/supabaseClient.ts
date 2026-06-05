@@ -106,6 +106,30 @@ CREATE POLICY "Owners can delete report if can_delete is true" ON reports
     user_id = auth.uid()::text AND
     (SELECT can_delete FROM users WHERE id = auth.uid()::text) = true
   );
+
+-- 4. Create table for login_history and default policies
+CREATE TABLE IF NOT EXISTS login_history (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  user_email TEXT NOT NULL,
+  user_role TEXT NOT NULL,
+  company_id TEXT NOT NULL,
+  company_name TEXT NOT NULL,
+  login_status TEXT NOT NULL,
+  ip_address TEXT,
+  user_agent TEXT,
+  device_info TEXT,
+  login_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
+ALTER TABLE login_history ENABLE ROW LEVEL SECURITY;
+
+-- Allow public read/write access to login history (similar to simple public model)
+CREATE POLICY "Public select access for login history logs" ON login_history
+  FOR SELECT USING (true);
+
+CREATE POLICY "Public insert access for login history logs" ON login_history
+  FOR INSERT WITH CHECK (true);
 `;
 
 export const GITHUB_DEPLOYMENT_INSTRUCTIONS = `
