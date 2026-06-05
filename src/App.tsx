@@ -59,6 +59,8 @@ import DashboardStats from './components/DashboardStats';
 import DeveloperConsole from './components/DeveloperConsole';
 import ReportPrintLayout from './components/ReportPrintLayout';
 import TopServiceCompanies from './components/TopServiceCompanies';
+import { logLoginHistory, fetchLoginHistory } from './services/loginHistoryService';
+import LoginHistoryView from './components/LoginHistoryView';
 
 // Import Logo Asset
 import nmcLogo from './components/NMClogo.png';
@@ -80,8 +82,8 @@ export default function App() {
   const [users, setUsers] = useState<MetrologyUser[]>([]);
   const [reports, setReports] = useState<MetrologyReport[]>([]);
   
-  // App navigation state: 'dashboard' | 'reports' | 'users' | 'developer'
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'reports' | 'users' | 'developer'>('dashboard');
+  // App navigation state: 'dashboard' | 'reports' | 'users' | 'developer' | 'history'
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'reports' | 'users' | 'developer' | 'history'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   // PWA installation states
@@ -399,6 +401,11 @@ export default function App() {
     setSessionUser(user);
     sessionStorage.setItem('nmc_active_user_session', JSON.stringify(user));
     showToast(`ស្វាគមន៍ការមកកាន់ ឯកឧត្តម/លោក/លោកស្រី៖ ${user.legal_representative || user.username} !`, 'success');
+    
+    // Call logLoginHistory safely in background without blocking login UI
+    logLoginHistory(user).catch(err => {
+      console.warn('Logging session history failed:', err);
+    });
     
     // Automatically redirect to appropriate page
     if (user.role === 'company') {
@@ -805,21 +812,39 @@ export default function App() {
                 </button>
 
                 {sessionUser.role === 'superadmin' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('users');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
-                      activeTab === 'users' 
-                        ? 'bg-gold/10 text-gold border-r-4 border-gold' 
-                        : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
-                    }`}
-                  >
-                    <Users className="h-4 w-4 shrink-0 text-gold" />
-                    <span>គ្រប់គ្រងគណនីក្រុមហ៊ុន (Users)</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('users');
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
+                        activeTab === 'users' 
+                          ? 'bg-gold/10 text-gold border-r-4 border-gold' 
+                          : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
+                      }`}
+                    >
+                      <Users className="h-4 w-4 shrink-0 text-gold" />
+                      <span>គ្រប់គ្រងគណនីក្រុមហ៊ុន (Users)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('history');
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
+                        activeTab === 'history' 
+                          ? 'bg-gold/10 text-gold border-r-4 border-gold' 
+                          : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
+                      }`}
+                    >
+                      <Clock className="h-4 w-4 shrink-0 text-gold" />
+                      <span>ប្រវត្តិចូលប្រើប្រាស់ (Login History)</span>
+                    </button>
+                  </>
                 )}
 
                 {sessionUser.role !== 'company' && sessionUser.role !== 'admin' && sessionUser.role !== 'superadmin' && (
@@ -953,18 +978,33 @@ export default function App() {
 
               {/* User management tab anchor (Restricted to Admins!) */}
               {sessionUser.role === 'superadmin' && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('users')}
-                  className={`w-full flex items-center gap-3 px-5 py-3 text-[13px] font-bold transition-all cursor-pointer justify-start rounded-none ${
-                    activeTab === 'users' 
-                      ? 'bg-white/5 text-white border-r-4 border-gold shadow-xs' 
-                      : 'text-slate-400 hover:bg-white/[0.02] hover:text-white border-r-4 border-transparent'
-                  }`}
-                >
-                  <Users className="h-4 w-4 shrink-0 text-gold" />
-                  <span>គ្រប់គ្រងគណនីក្រុមហ៊ុន (Users)</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('users')}
+                    className={`w-full flex items-center gap-3 px-5 py-3 text-[13px] font-bold transition-all cursor-pointer justify-start rounded-none ${
+                      activeTab === 'users' 
+                        ? 'bg-white/5 text-white border-r-4 border-gold shadow-xs' 
+                        : 'text-slate-400 hover:bg-white/[0.02] hover:text-white border-r-4 border-transparent'
+                    }`}
+                  >
+                    <Users className="h-4 w-4 shrink-0 text-gold" />
+                    <span>គ្រប់គ្រងគណនីក្រុមហ៊ុន (Users)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('history')}
+                    className={`w-full flex items-center gap-3 px-5 py-3 text-[13px] font-bold transition-all cursor-pointer justify-start rounded-none ${
+                      activeTab === 'history' 
+                        ? 'bg-white/5 text-white border-r-4 border-gold shadow-xs' 
+                        : 'text-slate-400 hover:bg-white/[0.02] hover:text-white border-r-4 border-transparent'
+                    }`}
+                  >
+                    <Clock className="h-4 w-4 shrink-0 text-gold" />
+                    <span>ប្រវត្តិចូលប្រើប្រាស់ (Login History)</span>
+                  </button>
+                </>
               )}
 
               {/* Developer integration panel (Hidden for company context) */}
@@ -1426,6 +1466,11 @@ export default function App() {
                 onUpdateConfig={handleUpdateConfig}
                 toastMsg={showToast}
               />
+            )}
+
+            {/* E. LOGIN HISTORY VIEW */}
+            {activeTab === 'history' && sessionUser.role === 'superadmin' && (
+              <LoginHistoryView />
             )}
 
           </main>

@@ -59,3 +59,18 @@ export function generateYearOptions(startYear = 2020, endYear = 2050): number[] 
   return years;
 }
 
+export interface LoginHistory {
+  id?: string;
+  user_id: string;
+  user_email: string;
+  user_role: string;
+  company_id: string;
+  company_name: string;
+  login_status: string;
+  ip_address: string;
+  user_agent: string;
+  device_info: string;
+  login_at: string;
+}
+
+
