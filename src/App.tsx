@@ -232,6 +232,21 @@ export default function App() {
     }, 4500);
   };
 
+  // Defensive navigation guard checking role authorization for restricted views
+  useEffect(() => {
+    if (sessionUser) {
+      if (activeTab === 'users' && sessionUser.role !== 'superadmin') {
+        setActiveTab('dashboard');
+        showToast('សិទ្ធិមិនគ្រប់គ្រាន់ដើម្បីចូលប្រើប្រាស់ទំព័រនេះទេ (Unauthorized access to Users management)', 'error');
+      } else if (activeTab === 'history' && sessionUser.role !== 'superadmin') {
+        setActiveTab('dashboard');
+        showToast('សិទ្ធិមិនគ្រប់គ្រាន់ដើម្បីចូលប្រើប្រាស់ទំព័រនេះទេ (Unauthorized access to Login History)', 'error');
+      } else if (activeTab === 'developer' && sessionUser.role !== 'admin' && sessionUser.role !== 'superadmin') {
+        setActiveTab('dashboard');
+      }
+    }
+  }, [activeTab, sessionUser]);
+
   // 1. Initial State Hydration / Fallback Database
   useEffect(() => {
     // Check for cached dynamic Supabase credentials

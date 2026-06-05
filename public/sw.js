@@ -46,7 +46,18 @@ self.addEventListener('fetch', (event) => {
     url.hostname.includes('supabase') || 
     url.pathname.includes('/api/') || 
     url.pathname.includes('/rest/') || 
-    url.pathname.includes('auth')
+    url.pathname.includes('auth') ||
+    url.pathname.toLowerCase().includes('history') ||
+    url.pathname.toLowerCase().includes('report') ||
+    url.pathname.toLowerCase().includes('user') ||
+    url.pathname.toLowerCase().includes('export') ||
+    url.search.toLowerCase().includes('history') ||
+    url.search.toLowerCase().includes('report') ||
+    url.search.toLowerCase().includes('user') ||
+    url.search.toLowerCase().includes('export') ||
+    url.pathname.toLowerCase().endsWith('.pdf') ||
+    url.pathname.toLowerCase().endsWith('.doc') ||
+    url.pathname.toLowerCase().endsWith('.docx')
   ) {
     return;
   }
