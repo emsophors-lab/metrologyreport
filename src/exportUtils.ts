@@ -1,5 +1,7 @@
 import * as XLSX from 'xlsx';
 import { MetrologyReport, MetrologyUser } from './types';
+import QRCode from 'qrcode';
+import JsBarcode from 'jsbarcode';
 
 // Converts service types to Khmer headings
 export function getServiceTypeKH(type: string): string {
@@ -20,10 +22,41 @@ export function getMonthNameKH(numStr: string): string {
   return months[numStr] || `ខែទី ${numStr}`;
 }
 
-// Generates the official Cambodian QR Code URL with optional verification filters
-export function getReportQRCodeUrl(
+// Local offline generation helpers
+export async function generateLocalQRCode(text: string): Promise<string> {
+  try {
+    return await QRCode.toDataURL(text, {
+      width: 154,
+      margin: 1,
+      errorCorrectionLevel: 'M'
+    });
+  } catch (err) {
+    console.warn('Local QR Code generation failed, falling back to simple server:', err);
+    return `https://api.qrserver.com/v1/create-qr-code/?size=154x154&data=${encodeURIComponent(text)}&ecc=M`;
+  }
+}
+
+export function generateLocalBarcode(text: string): string {
+  try {
+    const canvas = document.createElement('canvas');
+    JsBarcode(canvas, text, {
+      format: 'CODE128',
+      width: 1.5,
+      height: 48,
+      displayValue: true,
+      fontSize: 10,
+      font: 'monospace',
+      margin: 4
+    });
+    return canvas.toDataURL('image/png');
+  } catch (err) {
+    console.warn('Local Barcode generation failed:', err);
+    return '';
+  }
+}
+
+export function getReportVerificationUrl(
   reportId: string, 
-  companyLicense: string, 
   filters?: {
     month?: string;
     year?: string;
@@ -36,7 +69,6 @@ export function getReportQRCodeUrl(
   if (typeof window !== 'undefined' && window.location) {
     origin = window.location.origin;
   }
-  let verificationUrl = '';
   if (reportId === 'filtered' && filters) {
     const params = new URLSearchParams();
     params.set('verifyReport', 'filtered');
@@ -45,11 +77,45 @@ export function getReportQRCodeUrl(
     if (filters.companyId) params.set('companyId', filters.companyId);
     if (filters.serviceType) params.set('serviceType', filters.serviceType);
     if (filters.searchQuery) params.set('searchQuery', filters.searchQuery);
-    verificationUrl = `${origin}/?${params.toString()}`;
+    return `${origin}/?${params.toString()}`;
   } else {
-    verificationUrl = `${origin}/?verifyReport=${reportId}`;
+    return `${origin}/?verifyReport=${reportId}`;
   }
-  const data = encodeURIComponent(verificationUrl);
+}
+
+export function getGeneratedReportNumber(
+  companyId: string | 'all',
+  year: string | undefined,
+  month: string | undefined,
+  licenseNumber?: string
+): string {
+  const cleanYear = year && year !== 'all' ? year : new Date().getFullYear().toString();
+  const cleanMonth = month && month !== 'all' ? String(month).padStart(2, '0') : String(new Date().getMonth() + 1).padStart(2, '0');
+  const runningNum = '0001';
+  
+  if (companyId === 'all') {
+    return `NMC-TR-${cleanYear}-${cleanMonth}-${runningNum}`;
+  } else {
+    const cleanLicense = licenseNumber ? licenseNumber.replace(/[^a-zA-Z0-9]/g, '') : '';
+    const suffix = cleanLicense ? `-${cleanLicense}` : `-${runningNum}`;
+    return `NMC-CR-${cleanYear}-${cleanMonth}${suffix}`;
+  }
+}
+
+// Generates the official Cambodian QR Code URL with optional verification filters
+export function getReportQRCodeUrl(
+  reportId: string, 
+  companyLicense: string, 
+  filters?: {
+    month?: string;
+    year?: string;
+    companyId?: string;
+    serviceType?: string;
+    searchQuery?: string;
+  }
+): string {
+  const url = getReportVerificationUrl(reportId, filters);
+  const data = encodeURIComponent(url);
   return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${data}&ecc=M`;
 }
 
@@ -88,7 +154,7 @@ export function exportReportsToExcel(reports: MetrologyReport[], title: string =
 }
 
 // Export to Microsoft Word utilizing the HTML-to-MIME Doc layout
-export function exportToWordDoc(
+export async function exportToWordDoc(
   reports: MetrologyReport[], 
   selectedUser?: MetrologyUser | null, 
   currentUser?: MetrologyUser | null,
@@ -98,22 +164,50 @@ export function exportToWordDoc(
   searchQuery?: string
 ) {
   const now = new Date();
-  const dateString = `ថ្ងៃទី ${now.getDate()} ខែ ${getMonthNameKH(String(now.getMonth() + 1).padStart(2, '0'))} ឆ្នាំ ${now.getFullYear()}`;
-
-  // Get active company name from either context
-  const displayCompanyName = selectedUser?.company_name_kh || (currentUser?.role === 'company' ? currentUser?.company_name_kh : '');
-
-  // Format month & year for title text just like Print PDF layout
+  
+  // Detached report indicators
+  const isTotalReport = !selectedUser;
+  
+  // Format month and year
   const formatM = (m?: string) => {
     if (!m || m === 'all') return 'all';
     return String(m).padStart(2, '0');
   };
-
+  
   const activeMonth = formatM(filterMonth) !== 'all' ? formatM(filterMonth) : (reports.length > 0 ? formatM(reports[0].report_month) : 'all');
   const activeYear = filterYear && filterYear !== 'all' ? filterYear : (reports.length > 0 ? reports[0].report_year : 'all');
-
+  
   const monthKH = activeMonth !== 'all' ? getMonthNameKH(activeMonth) : '';
   const yearKH = activeYear !== 'all' ? activeYear : '';
+  
+  const dateString = `ថ្ងៃទី ${now.getDate()} ខែ ${getMonthNameKH(String(now.getMonth() + 1).padStart(2, '0'))} ឆ្នាំ ${now.getFullYear()}`;
+
+  // Generate Report Number & QR content offline
+  const reportNumber = getGeneratedReportNumber(
+    isTotalReport ? 'all' : selectedUser.id,
+    filterYear,
+    filterMonth,
+    selectedUser?.license_number
+  );
+
+  const verificationUrl = getReportVerificationUrl(
+    isTotalReport ? 'filtered' : (reports[0]?.id || 'NMC-QR-ALL'),
+    {
+      month: filterMonth,
+      year: filterYear,
+      companyId: selectedUser?.id || 'all',
+      serviceType: filterServiceType,
+      searchQuery: searchQuery
+    }
+  );
+
+  // Generate local images (offline-friendly)
+  const qrCodeBase64 = await generateLocalQRCode(verificationUrl);
+  const barcodeBase64 = generateLocalBarcode(reportNumber);
+
+  // Get active company name
+  const displayCompanyName = selectedUser?.company_name_kh || (currentUser?.role === 'company' ? currentUser?.company_name_kh : '');
+  const activeUserCompanyKH = (currentUser && (currentUser.role === 'admin' || currentUser.role === 'superadmin')) ? currentUser.company_name_kh : '';
 
   let titleText = 'របាយការណ៍ប្រចាំខែស្តីពីការផលិត តំឡើង និងជួសជុលឧបករណ៍មាត្រាសាស្ត្រ';
   if (monthKH && yearKH) {
@@ -171,7 +265,7 @@ export function exportToWordDoc(
     tableRows += `
       <tr style="font-family: 'Khmer OS Battambang', Arial, sans-serif; font-size: 10px;">
         <td style="border: 1px solid #cbd5e1; padding: 6px; text-align: center; color: #64748b;">${index + 1}</td>
-        ${!selectedUser ? `<td style="border: 1px solid #cbd5e1; padding: 6px; font-weight: bold;">${r.company_name_kh}<br><span style="font-size: 8px; color: #64748b; font-family: Arial;">${r.license_number}</span></td>` : ''}
+        ${isTotalReport ? `<td style="border: 1px solid #cbd5e1; padding: 6px; font-weight: bold;">${r.company_name_kh}<br><span style="font-size: 8px; color: #64748b; font-family: Arial;">${r.license_number}</span></td>` : ''}
         <td style="border: 1px solid #cbd5e1; padding: 6px; line-height: 1.4;">
           <b style="color: #0f172a;">${r.customer_name}</b><br>
           <span style="font-size: 8.5px; color: #64748b;">${r.customer_address}</span>
@@ -221,52 +315,70 @@ export function exportToWordDoc(
     </head>
     <body style="padding:20px;">
       
-      <!-- Crown sovereignty header table -->
-      <table style="border: none; width: 100%; margin-bottom: 15px; border-collapse: collapse;">
+      <!-- Crown sovereignty header table with Local QR and Barcode top-right -->
+      <table style="border: none; width: 100%; margin-bottom: 20px; border-collapse: collapse;">
         <tr style="border: none;">
-          <td style="border: none; width: 50%; text-align: left; vertical-align: top; padding: 0; font-family: 'Khmer OS Battambang', Arial, sans-serif;">
-            ${displayCompanyName ? `
+          <td style="border: none; width: 45%; text-align: left; vertical-align: top; padding: 0; font-family: 'Khmer OS Battambang', Arial, sans-serif;">
+            ${isTotalReport ? `
+              <p style="font-size: 11px; font-weight: bold; margin: 0; color: #1e3a8a; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif; line-height: 1.4;">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
+              <p style="font-size: 11px; font-weight: bold; margin: 4px 0 0 0; color: #1e3a8a; text-decoration: underline; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+              ${activeUserCompanyKH ? `<p style="font-size: 10px; font-weight: bold; margin: 6px 0 0 0; color: #334155; font-family: 'Khmer OS Battambang', Arial, sans-serif;">${activeUserCompanyKH}</p>` : ''}
+            ` : `
               <p style="font-size: 10px; font-weight: bold; margin: 0; color: #475569; text-transform: uppercase;">ក្រុមហ៊ុនសេវាកម្មមាត្រាសាស្ត្រ</p>
               <p style="font-size: 12px; font-weight: 800; color: #1e3a8a; text-decoration: underline; margin: 4px 0 0 0;">${displayCompanyName}</p>
-            ` : `
-              <p style="font-size: 10px; font-weight: bold; margin: 0; color: #334155; text-transform: uppercase; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ</p>
-              <p style="font-size: 10px; font-weight: bold; margin: 0; color: #334155; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
-              <p style="font-size: 11px; font-weight: bold; color: #1e3a8a; text-decoration: underline; margin: 4px 0 0 0; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
             `}
           </td>
-          <td style="border: none; width: 50%; text-align: center; vertical-align: top; padding: 0; font-family: 'Khmer OS Battambang', Arial, sans-serif;">
+          <td style="border: none; width: 35%; text-align: center; vertical-align: top; padding: 0; font-family: 'Khmer OS Battambang', Arial, sans-serif;">
             <p style="font-size: 13px; font-weight: bold; margin: 0; letter-spacing: 1px;">ព្រះរាជាណាចក្រកម្ពុជា</p>
             <p style="font-size: 11px; font-weight: bold; margin: 3px 0 0 0; letter-spacing: 1px;">ជាតិ សាសនា ព្រះមហាក្សត្រ</p>
             <p style="margin: 5px 0 0 0; font-size: 10px; color: #94a3b8;">❖ ❖ ❖</p>
           </td>
+          <td style="border: none; width: 20%; text-align: right; vertical-align: top; padding: 0;">
+            <div style="display: inline-block; text-align: center;">
+              ${qrCodeBase64 ? `<img src="${qrCodeBase64}" style="width: 79px; height: 79px; display: block; margin: 0 auto;" />` : ''}
+              ${barcodeBase64 ? `
+                <div style="margin-top: 5px; text-align: center;">
+                  <img src="${barcodeBase64}" style="width: 120px; height: auto;" />
+                </div>
+              ` : ''}
+            </div>
+          </td>
         </tr>
       </table>
 
-      <!-- Document Title & Header Area -->
+      <!-- Document Title & Header Area with Custom Salutation formatting -->
       <div style="text-align: center; margin-top: 15px; margin-bottom: 25px; font-family: 'Khmer OS Battambang', Arial, sans-serif;">
-        <p style="font-size: 12px; font-weight: bold; margin: 0 0 8px 0; color: #1e293b; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">សូមគោរពជូនឯកឧត្តមប្រធានមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
-        <h2 style="font-size: 15px; font-weight: 950; margin: 0; color: #0f172a; line-height: 1.4;">${titleText}</h2>
-        <p style="font-size: 10.5px; color: #64748b; font-style: italic; margin: 4px 0 0 0; font-family: Arial, sans-serif;">
+        <p style="font-size: 12px; font-weight: bold; margin: 0 0 2px 0; color: #000;">សូមគោរពជូន</p>
+        <p style="font-size: 11.5px; font-weight: bold; margin: 0 0 12px 0; color: #000;">ឯកឧត្តមប្រធានមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+        
+        <h2 style="font-size: 14px; font-weight: bold; margin: 0; color: #000; line-height: 1.4; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">
+          ${isTotalReport 
+            ? `របាយការណ៍ប្រចាំខែ ${monthKH || '........'} ឆ្នាំ ${yearKH || '.............'} ស្តីពីការផលិត តំឡើង និងជួសជុលឧបករណ៍មាត្រាសាស្ត្រ`
+            : titleText
+          }
+        </h2>
+        
+        <p style="font-size: 9.5px; color: #64748b; font-style: italic; margin: 4px 0 0 0; font-family: Arial, sans-serif;">
           (Monthly Performance Report on Manufacturing, Installing, and Repairing Metrological Instruments)
         </p>
       </div>
 
-      <!-- Company profile cards info table -->
+      <!-- Company profile metadata / Total description block -->
       ${companyInfoTable}
 
-      <!-- Main Records table -->
+      <!-- Main Records table with appropriate columns -->
       <table style="border: 1px solid #cbd5e1; border-collapse: collapse; width: 100%;">
         <thead>
-          <tr style="background-color: #f1f5f9; font-weight: bold; font-family: 'Khmer OS Battambang', Arial, sans-serif; font-size: 10.5px; color: #334155;">
-            <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; width: 40px;">ល.រ</th>
-            ${!selectedUser ? `<th style="border: 1px solid #cbd5e1; padding: 8px; width: 160px;">ក្រុមហ៊ុនសហគ្រាស</th>` : ''}
-            <th style="border: 1px solid #cbd5e1; padding: 8px; width: 180px;">អតិថិជន និងអាសយដ្ឋាន</th>
-            <th style="border: 1px solid #cbd5e1; padding: 8px; width: 140px;">ឧបករណ៍វាស់វែង</th>
-            <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; width: 100px;">លេខស៊េរីឧបករណ៍</th>
-            <th style="border: 1px solid #cbd5e1; padding: 8px; width: 130px;">វិសាលភាពវាស់ស្ទង់</th>
-            <th style="border: 1px solid #cbd5e1; padding: 8px; width: 140px;">គ្រឿងបន្លាស់ និងលេខស៊េរី</th>
-            <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; width: 100px;">ប្រភេទសេវាកម្ម</th>
-            <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; width: 150px;">កាលបរិច្ឆេទសេវាកម្ម</th>
+          <tr style="background-color: #f1f5f9; font-weight: bold; font-family: 'Khmer OS Battambang', Arial, sans-serif; font-size: 10px; color: #334155;">
+            <th style="border: 1px solid #cbd5e1; padding: 7px; text-align: center; width: 40px;">ល.រ</th>
+            ${isTotalReport ? `<th style="border: 1px solid #cbd5e1; padding: 7px; width: 160px;">ក្រុមហ៊ុនសហគ្រាស</th>` : ''}
+            <th style="border: 1px solid #cbd5e1; padding: 7px; width: 180px;">អតិថិជន និងអាសយដ្ឋាន</th>
+            <th style="border: 1px solid #cbd5e1; padding: 7px; width: 140px;">ឧបករណ៍វាស់វែង</th>
+            <th style="border: 1px solid #cbd5e1; padding: 7px; text-align: center; width: 100px;">លេខស៊េរីឧបករណ៍</th>
+            <th style="border: 1px solid #cbd5e1; padding: 7px; width: 130px;">វិសាលភាពវាស់ស្ទង់</th>
+            <th style="border: 1px solid #cbd5e1; padding: 7px; width: 140px;">គ្រឿងបន្លាស់ និងលេខស៊េរី</th>
+            <th style="border: 1px solid #cbd5e1; padding: 7px; text-align: center; width: 100px;">ប្រភេទសេវាកម្ម</th>
+            <th style="border: 1px solid #cbd5e1; padding: 7px; text-align: center; width: 150px;">កាលបរិច្ឆេទសេវាកម្ម</th>
           </tr>
         </thead>
         <tbody>
@@ -274,15 +386,15 @@ export function exportToWordDoc(
         </tbody>
       </table>
 
-      <!-- Dignified Dotted Signature Block -->
+      <!-- Dignified Dotted Signature Block with zero dynamic name disclosure for Total Reports -->
       <div style="margin-top: 50px; width: 100%;">
         <table style="border: none; width: 100%; border-collapse: collapse;">
           <tr style="border: none;">
             
-            <!-- Left Gov approval column -->
+            <!-- Left Gov/Sovereignty approval column -->
             <td style="border: none; width: 50%; vertical-align: top; text-align: left; padding: 0; font-family: 'Khmer OS Battambang', Arial, sans-serif; font-size: 11px;">
-              <p style="font-size: 11.5px; font-weight: bold; text-transform: uppercase; margin: 0; color: #020617;">បានឃើញ និងឯកភាព</p>
-              ${selectedUser ? `
+              <p style="font-size: 11px; font-weight: bold; text-transform: uppercase; margin: 0; color: #020617;">បានឃើញ និងឯកភាព</p>
+              ${!isTotalReport ? `
                 <p style="font-size: 10.5px; font-weight: bold; margin: 5px 0 0 0; color: #334155;">អគ្គនាយក ឬ អ្នកតំណាងស្របច្បាប់</p>
                 <div style="margin-top: 85px;">
                   <p style="margin: 0; color: #94a3b8;">...............................................................</p>
@@ -292,7 +404,7 @@ export function exportToWordDoc(
               ` : `
                 <p style="font-size: 10.5px; font-weight: bold; margin: 5px 0 0 0; color: #334155;">ប្រធាននាយកដ្ឋាន</p>
                 <div style="margin-top: 85px;">
-                  <p style="margin: 0; color: #94a3b8;">...............................................................</p>
+                  <p style="margin: 0; color: #94a3b8;">..................................................</p>
                   <p style="font-size: 10.5px; color: #64748b; margin: 6px 0 0 0;">(ហត្ថលេខា និងត្រា)</p>
                 </div>
               `}
@@ -300,25 +412,26 @@ export function exportToWordDoc(
 
             <!-- Right preparing compiler column -->
             <td style="border: none; width: 50%; vertical-align: top; text-align: right; padding: 0; font-family: 'Khmer OS Battambang', Arial, sans-serif; font-size: 11px;">
-              <p style="font-size: 10px; font-style: italic; color: #64748b; margin: 0;">${dateString}</p>
-              <p style="font-size: 10.5px; font-weight: bold; margin: 5px 0 0 0; color: #020617;">
-                ${selectedUser ? 'អ្នករៀបចំរបាយការណ៍តំណាងក្រុមហ៊ុន' : 'អ្នករៀបចំរបាយការណ៍របស់នាយកដ្ឋាន'}
-              </p>
-              
-              <!-- QR Verification block -->
-              <div style="margin-top: 15px; text-align: right;">
-                <img src="${getReportQRCodeUrl(selectedUser ? (reports[0]?.id || 'NMC-QR-ALL') : 'filtered', selectedUser?.license_number || 'NMC-LICENSE', { month: filterMonth, year: filterYear, companyId: selectedUser?.id || 'all', serviceType: filterServiceType, searchQuery: searchQuery })}" style="width: 80px; height: 80px; display: inline-block;" />
-                <p style="font-size: 7.5px; color: #94a3b8; font-family: Arial, sans-serif; margin: 3px 0 0 0; text-transform: uppercase;">Scan to Verify Record</p>
-              </div>
-
-              <!-- Signature names above dotted lines -->
-              <div style="margin-top: 25px; text-align: right;">
-                <p style="font-size: 11px; font-weight: bold; color: #020617; margin: 0 0 2px 0;">
-                  ${selectedUser ? selectedUser.legal_representative : (currentUser?.legal_representative || currentUser?.username || 'លោក លី ម៉េង')}
-                </p>
-                <p style="margin: 0; color: #94a3b8;">...............................................................</p>
-                <p style="font-size: 10px; color: #64748b; margin: 4px 0 0 0;">(ហត្ថលេខា និងឈ្មោះអ្នករៀបចំ)</p>
-              </div>
+              ${!isTotalReport ? `
+                <p style="font-size: 10px; font-style: italic; color: #64748b; margin: 0;">${dateString}</p>
+                <p style="font-size: 10.5px; font-weight: bold; margin: 5px 0 0 0; color: #020617;">អ្នករៀបចំរបាយការណ៍តំណាងក្រុមហ៊ុន</p>
+                
+                <div style="margin-top: 85px; text-align: right;">
+                  <p style="font-size: 11px; font-weight: bold; color: #020617; margin: 0 0 2px 0;">
+                    ${selectedUser.legal_representative}
+                  </p>
+                  <p style="margin: 0; color: #94a3b8;">...............................................................</p>
+                  <p style="font-size: 10px; color: #64748b; margin: 4px 0 0 0;">(ហត្ថលេខា និងឈ្មោះអ្នករៀបចំ)</p>
+                </div>
+              ` : `
+                <p style="font-size: 10.5px; font-style: italic; color: #64748b; margin: 0; font-family: 'Khmer OS Battambang', Arial, sans-serif;">រាជធានីភ្នំពេញ, ${dateString}</p>
+                <p style="font-size: 10.5px; font-weight: bold; margin: 5px 0 0 0; color: #020617; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">អ្នករៀបចំរបាយការណ៍របស់នាយកដ្ឋាន</p>
+                
+                <div style="margin-top: 85px; text-align: right;">
+                  <p style="margin: 0; color: #94a3b8;">...............................................................</p>
+                  <p style="font-size: 10px; color: #64748b; margin: 4px 0 0 0;">(ហត្ថលេខា និងឈ្មោះអ្នករៀបចំ)</p>
+                </div>
+              `}
             </td>
 
           </tr>

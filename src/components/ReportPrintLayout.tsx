@@ -1,7 +1,14 @@
 import React from 'react';
-import { X, Printer, Landmark } from 'lucide-react';
+import { X, Printer } from 'lucide-react';
 import { MetrologyReport, MetrologyUser } from '../types';
-import { getServiceTypeKH, getMonthNameKH, getReportQRCodeUrl } from '../exportUtils';
+import { 
+  getServiceTypeKH, 
+  getMonthNameKH, 
+  getReportVerificationUrl, 
+  getGeneratedReportNumber,
+  generateLocalQRCode,
+  generateLocalBarcode 
+} from '../exportUtils';
 
 interface ReportPrintLayoutProps {
   reports: MetrologyReport[];
@@ -59,6 +66,39 @@ export default function ReportPrintLayout({
     titleText = `របាយការណ៍ប្រចាំឆ្នាំ ${yearKH} ស្តីពីការផលិត តំឡើង និងជួសជុលឧបករណ៍មាត្រាសាស្ត្រ`;
   }
 
+  // State variables for local offline QR & Barcode base64 strings
+  const [qrCodeDataUrl, setQrCodeDataUrl] = React.useState<string>('');
+  const [barcodeDataUrl, setBarcodeDataUrl] = React.useState<string>('');
+
+  React.useEffect(() => {
+    const run = async () => {
+      const isTotal = !selectedUser;
+      const reportNumber = getGeneratedReportNumber(
+        isTotal ? 'all' : (selectedUser?.id || 'all'),
+        filterYear,
+        filterMonth,
+        selectedUser?.license_number
+      );
+
+      const verificationUrl = getReportVerificationUrl(
+        isTotal ? 'filtered' : (reports[0]?.id || 'NMC-QR-ALL'),
+        {
+          month: filterMonth,
+          year: filterYear,
+          companyId: selectedUser?.id || 'all',
+          serviceType: filterServiceType,
+          searchQuery: searchQuery
+        }
+      );
+
+      const qr = await generateLocalQRCode(verificationUrl);
+      const bar = generateLocalBarcode(reportNumber);
+      setQrCodeDataUrl(qr);
+      setBarcodeDataUrl(bar);
+    };
+    run();
+  }, [reports, selectedUser, filterMonth, filterYear, filterServiceType, searchQuery]);
+
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto print:p-0 print:bg-white print:absolute">
       
@@ -81,7 +121,7 @@ export default function ReportPrintLayout({
           <div className="flex items-center gap-2">
             <button
               onClick={handlePrint}
-              className={`px-4 py-1.5 text-white rounded-lg text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer ${isPublicVerify ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+              className={`px-4 py-1.5 text-white rounded-lg text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer bg-indigo-600 hover:bg-indigo-700`}
             >
               <Printer className="h-4 w-4" />
               បោះពុម្ព / Print PDF
@@ -98,41 +138,80 @@ export default function ReportPrintLayout({
         {/* Printable document page section */}
         <div id="printable-area" className="p-10 md:p-12 overflow-y-auto space-y-6 print:overflow-visible print:p-0 select-all">
           
-          {/* Official Royal Sovereignty Header */}
-          <div className="text-center space-y-1 relative">
-            <h1 className="text-sm font-bold text-slate-900 tracking-wider">ព្រះរាជាណាចក្រកម្ពុជា</h1>
-            <p className="text-xs font-bold text-slate-700 tracking-wider">ជាតិ សាសនា ព្រះមហាក្សត្រ</p>
-            <div className="flex justify-center py-1">
-              <span className="text-xs text-slate-400">❖ ❖ ❖</span>
-            </div>
-            
-            {/* Institution Badge & Logo layout */}
-            <div className="pt-2 text-left absolute top-0 left-0 hidden md:block print:block">
-              {displayCompanyName ? (
-                <>
-                  <p className="text-[9px] font-bold text-slate-800 uppercase tracking-tight">ក្រុមហ៊ុនសេវាកម្មមាត្រាសាស្ត្រ</p>
-                  <p className="text-[11px] font-extrabold text-indigo-900 underline mt-1">{displayCompanyName}</p>
-                </>
+          {/* Top official banner section */}
+          <div className="flex flex-col md:flex-row print:flex-row justify-between items-start border-b border-slate-100 pb-6">
+
+            {/* Left: Ministry / Company Badge info */}
+            <div className="w-full md:w-[45%] print:w-[45%] text-left space-y-1">
+              {!selectedUser ? (
+                <div className="space-y-0.5">
+                  <p className="text-[10px] md:text-[11px] font-bold text-slate-900 leading-snug">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
+                  <p className="text-[10.5px] md:text-[11.5px] font-bold text-indigo-900 underline font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+                  {currentUser && (currentUser.role === 'admin' || currentUser.role === 'superadmin') && currentUser.company_name_kh && (
+                    <p className="text-[10px] md:text-[11px] font-bold text-slate-700 mt-1 pb-0.5 border-b border-dashed border-slate-200">{currentUser.company_name_kh}</p>
+                  )}
+                </div>
               ) : (
-                <div className="font-muol">
-                  <p className="text-[10px] font-bold text-slate-800 uppercase tracking-tight leading-normal">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ</p>
-                  <p className="text-[10px] font-bold text-slate-800 uppercase -mt-0.5 leading-normal">បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
-                  <p className="text-[11px] font-bold text-indigo-900 underline mt-1 leading-normal">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+                <div className="space-y-0.5">
+                  <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tight">ក្រុមហ៊ុនសេវាកម្មមាត្រាសាស្ត្រ</p>
+                  <p className="text-[11px] font-extrabold text-indigo-900 underline">{displayCompanyName}</p>
                 </div>
               )}
             </div>
+
+            {/* Center: Official Sovereignty Text with custom spacing */}
+            <div className="w-full md:w-[35%] print:w-[35%] text-center mt-4 md:mt-0 print:mt-0 space-y-1">
+              <h1 className="text-xs sm:text-sm font-bold text-slate-900 tracking-wider">ព្រះរាជាណាចក្រកម្ពុជា</h1>
+              <p className="text-[10px] sm:text-xs font-bold text-slate-700 tracking-wider">ជាតិ សាសនា ព្រះមហាក្សត្រ</p>
+              <div className="flex justify-center py-0.5">
+                <span className="text-[10px] text-slate-400">❖ ❖ ❖</span>
+              </div>
+            </div>
+
+            {/* Right: Local Barcode & QR Code placed beautifully near "ជាតិ សាសនា ព្រះមហាក្សត្រ" */}
+            <div className="w-full md:w-[20%] print:w-[20%] flex md:justify-end print:justify-end mt-4 md:mt-0 print:mt-0">
+               <div className="flex flex-col items-center text-center space-y-1 border border-slate-150 p-2 rounded bg-slate-50/50">
+                {qrCodeDataUrl ? (
+                   <img
+                    src={qrCodeDataUrl}
+                    alt="Verification QR"
+                    className="w-16 h-16 border border-slate-200 bg-white p-0.5"
+                  />
+                ) : (
+                  <div className="w-16 h-16 bg-slate-100 flex items-center justify-center text-[8px] text-slate-400">QR Loading</div>
+                )}
+                {barcodeDataUrl && (
+                  <img
+                    src={barcodeDataUrl}
+                    alt="Report Barcode"
+                    className="h-9 w-28 object-contain mt-1"
+                  />
+                )}
+              </div>
+            </div>
+
           </div>
 
-          <div className="text-center pt-6 pb-2">
-            <p className="text-xs sm:text-sm font-extrabold text-slate-800 mb-2 leading-relaxed select-all">
-              សូមគោរពជូនឯកឧត្តមប្រធានមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ
+          {/* Salutation and Title details */}
+          <div className="text-center pt-6 pb-2 space-y-1.5">
+            <p className="text-xs sm:text-sm font-bold text-slate-800 leading-none">
+              សូមគោរពជូន
             </p>
-            <h2 className="text-base font-black text-slate-900">
-              {titleText}
-            </h2>
-            <p className="text-xs text-slate-500 font-medium italic mt-1 font-sans">
-              (Monthly Performance Report on Manufacturing, Installing, and Repairing Metrological Instruments)
+            <p className="text-xs sm:text-sm font-bold text-slate-800 leading-none">
+              ឯកឧត្តមប្រធានមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ
             </p>
+            
+            <div className="pt-2">
+              <h2 className="text-sm sm:text-base font-bold text-slate-900 leading-normal">
+                {!selectedUser 
+                  ? `របាយការណ៍ប្រចាំខែ ${monthKH || '........'} ឆ្នាំ ${yearKH || '.............'} ស្តីពីការផលិត តំឡើង និងជួសជុលឧបករណ៍មាត្រាសាស្ត្រ`
+                  : titleText
+                }
+              </h2>
+              <p className="text-[10px] text-slate-500 font-medium italic mt-1 font-sans">
+                (Monthly Performance Report on Manufacturing, Installing, and Repairing Metrological Instruments)
+              </p>
+            </div>
           </div>
 
           {/* Company licensing and profile card block - Section 10.1 */}
@@ -243,15 +322,15 @@ export default function ReportPrintLayout({
             </table>
           </div>
 
-          {/* Official Signatures and QR Code area */}
-          <div className="pt-12 grid grid-cols-1 md:grid-cols-2 gap-8 text-xs font-semibold">
+          {/* Signature Sections */}
+          <div className="pt-10 grid grid-cols-1 md:grid-cols-2 gap-8 text-xs font-semibold">
             
             {/* Left signature column: Government Approval */}
             <div className="space-y-1 text-left">
-              <p className="text-slate-900 font-extrabold text-[11px] uppercase tracking-tight">បានឃើញ និងឯកភាព</p>
+              <p className="text-slate-950 font-extrabold text-[11px] uppercase tracking-tight">បានឃើញ និងឯកភាព</p>
               {selectedUser ? (
                 <div className="space-y-1">
-                  <p className="text-slate-900 font-bold text-[10px] tracking-tight">អគ្គនាយក ឬ អ្នកតំណាងស្របច្បាប់</p>
+                  <p className="text-slate-950 font-bold text-[10px] tracking-tight">អគ្គនាយក ឬ អ្នកតំណាងស្របច្បាប់</p>
                   <div className="h-28 flex items-end">
                     <div>
                       <p className="text-slate-300">........................................................................</p>
@@ -273,43 +352,34 @@ export default function ReportPrintLayout({
               )}
             </div>
 
-            {/* Right signature column: Enterprise representative / Department compiler + QR system */}
+            {/* Right signature column */}
             <div className="text-right space-y-1 flex flex-col items-end">
-              <p className="text-slate-500 italic font-mono text-[10px]">{dateString}</p>
-              <p className="text-slate-900 font-bold text-[10px] uppercase">
-                {selectedUser ? 'អ្នករៀបចំរបាយការណ៍តំណាងក្រុមហ៊ុន' : 'អ្នករៀបចំរបាយការណ៍របស់នាយកដ្ឋាន'}
-              </p>
-              
-              {/* Dynamic QR block */}
-              <div className="pt-2 pb-2 flex flex-col items-center">
-                <img
-                  referrerPolicy="no-referrer"
-                  src={getReportQRCodeUrl(
-                    selectedUser ? (reports[0]?.id || 'NMC-QR-ALL') : 'filtered',
-                    selectedUser?.license_number || 'NMC-LICENSE',
-                    {
-                      month: filterMonth,
-                      year: filterYear,
-                      companyId: selectedUser?.id || 'all',
-                      serviceType: filterServiceType,
-                      searchQuery: searchQuery
-                    }
-                  )}
-                  alt="Metrology report QR"
-                  className="w-20 h-20 border border-slate-200 p-1 bg-white rounded shadow-xs"
-                />
-                <span className="text-[7.5px] font-mono font-semibold text-slate-400 mt-1 uppercase">Scan to Verify Record</span>
-              </div>
-
-              <div className="h-24 flex flex-col justify-end items-center min-w-[220px]">
-                <p className="text-[11px] text-slate-950 font-extrabold mb-1">
-                  {selectedUser ? selectedUser.legal_representative : (currentUser?.legal_representative || currentUser?.username || 'លោក លី ម៉េង')}
-                </p>
-                <p className="text-slate-300 leading-none">........................................................................</p>
-                <p className="text-[10px] text-slate-500 font-bold mt-1 text-center">(ហត្ថលេខា និងឈ្មោះអ្នករៀបចំ)</p>
-              </div>
+              {!selectedUser ? (
+                <>
+                  <p className="text-slate-500 italic font-mono text-[10px]">រាជធានីភ្នំពេញ, {dateString}</p>
+                  <p className="text-slate-900 font-bold text-[10px] uppercase">អ្នករៀបចំរបាយការណ៍របស់នាយកដ្ឋាន</p>
+                  <div className="h-28 flex flex-col justify-end items-center min-w-[220px]">
+                    <p className="text-slate-300 leading-none">........................................................................</p>
+                    <p className="text-[10px] text-slate-500 font-bold mt-1 text-center">(ហត្ថលេខា និងឈ្មោះអ្នករៀបចំ)</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-slate-500 italic font-mono text-[10px]">{dateString}</p>
+                  <p className="text-slate-900 font-bold text-[10px] uppercase">អ្នករៀបចំរបាយការណ៍តំណាងក្រុមហ៊ុន</p>
+                  <div className="h-28 flex flex-col justify-end items-center min-w-[220px]">
+                    <p className="text-[11px] text-slate-950 font-extrabold mb-1">
+                      {selectedUser.legal_representative}
+                    </p>
+                    <p className="text-slate-300 leading-none">........................................................................</p>
+                    <p className="text-[10px] text-slate-500 font-bold mt-1 text-center">(ហត្ថលេខា និងឈ្មោះអ្នករៀបចំ)</p>
+                  </div>
+                </>
+              )}
             </div>
+
           </div>
+
         </div>
       </div>
     </div>

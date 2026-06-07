@@ -636,13 +636,13 @@ export default function App() {
     showToast('សំណុំទិន្នន័យ Excel ត្រូវបានបង្កើត និងទាញយក!', 'success');
   };
 
-  const handleExportWord = () => {
+  const handleExportWord = async () => {
     const selectedCompany = sessionUser?.role === 'company' 
       ? sessionUser 
       : filterCompanyId !== 'all' 
         ? users.find(u => u.id === filterCompanyId) || null 
         : null;
-    exportToWordDoc(
+    await exportToWordDoc(
       filteredReportsList, 
       selectedCompany, 
       sessionUser, 
