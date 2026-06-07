@@ -328,9 +328,9 @@ export async function exportToWordDoc(
               <p style="font-size: 12px; font-weight: 800; color: #1e3a8a; text-decoration: underline; margin: 4px 0 0 0;">${displayCompanyName}</p>
             `}
           </td>
-          <td style="border: none; width: 35%; text-align: center; vertical-align: top; padding: 0; font-family: 'Khmer OS Battambang', Arial, sans-serif;">
-            <p style="font-size: 13px; font-weight: bold; margin: 0; letter-spacing: 1px;">ព្រះរាជាណាចក្រកម្ពុជា</p>
-            <p style="font-size: 11px; font-weight: bold; margin: 3px 0 0 0; letter-spacing: 1px;">ជាតិ សាសនា ព្រះមហាក្សត្រ</p>
+          <td style="border: none; width: 35%; text-align: center; vertical-align: top; padding: 0;">
+            <p style="font-size: 13px; font-weight: bold; margin: 0; letter-spacing: 1px; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">ព្រះរាជាណាចក្រកម្ពុជា</p>
+            <p style="font-size: 11px; font-weight: bold; margin: 3px 0 0 0; letter-spacing: 1px; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">ជាតិ សាសនា ព្រះមហាក្សត្រ</p>
             <p style="margin: 5px 0 0 0; font-size: 10px; color: #94a3b8;">❖ ❖ ❖</p>
           </td>
           <td style="border: none; width: 20%; text-align: right; vertical-align: top; padding: 0;">
@@ -347,9 +347,9 @@ export async function exportToWordDoc(
       </table>
 
       <!-- Document Title & Header Area with Custom Salutation formatting -->
-      <div style="text-align: center; margin-top: 15px; margin-bottom: 25px; font-family: 'Khmer OS Battambang', Arial, sans-serif;">
-        <p style="font-size: 12px; font-weight: bold; margin: 0 0 2px 0; color: #000;">សូមគោរពជូន</p>
-        <p style="font-size: 11.5px; font-weight: bold; margin: 0 0 12px 0; color: #000;">ឯកឧត្តមប្រធានមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+      <div style="text-align: center; margin-top: 15px; margin-bottom: 25px;">
+        <p style="font-size: 12px; font-weight: bold; margin: 0 0 2px 0; color: #000; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">សូមគោរពជូន</p>
+        <p style="font-size: 11.5px; font-weight: bold; margin: 0 0 12px 0; color: #000; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">ឯកឧត្តមប្រធានមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
         
         <h2 style="font-size: 14px; font-weight: bold; margin: 0; color: #000; line-height: 1.4; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">
           ${isTotalReport 
@@ -532,9 +532,9 @@ export function exportUsersToWordDoc(users: MetrologyUser[]) {
             <p style="font-size: 10px; font-weight: bold; margin: 0; color: #334155;">បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
             <p style="font-size: 11px; font-weight: bold; color: #1e3a8a; text-decoration: underline; margin: 4px 0 0 0;">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
           </td>
-          <td style="border: none; width: 50%; text-align: center; vertical-align: top; padding: 0; font-family: 'Khmer OS Battambang', Arial, sans-serif;">
-            <p style="font-size: 13px; font-weight: bold; margin: 0; letter-spacing: 1px;">ព្រះរាជាណាចក្រកម្ពុជា</p>
-            <p style="font-size: 11px; font-weight: bold; margin: 3px 0 0 0; letter-spacing: 1px;">ជាតិ សាសនា ព្រះមហាក្សត្រ</p>
+          <td style="border: none; width: 50%; text-align: center; vertical-align: top; padding: 0;">
+            <p style="font-size: 13px; font-weight: bold; margin: 0; letter-spacing: 1px; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">ព្រះរាជាណាចក្រកម្ពុជា</p>
+            <p style="font-size: 11px; font-weight: bold; margin: 3px 0 0 0; letter-spacing: 1px; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">ជាតិ សាសនា ព្រះមហាក្សត្រ</p>
             <p style="margin: 5px 0 0 0; font-size: 10px; color: #94a3b8;">❖ ❖ ❖</p>
           </td>
         </tr>

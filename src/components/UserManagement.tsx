@@ -871,7 +871,7 @@ export default function UserManagement({
                     <p className="text-xs font-bold text-indigo-900 underline mt-0.5">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
                     <p className="text-[9px] text-slate-400 mt-0.5">ទម្រង់លក្ខណៈឯកសារផ្លូវការរបស់មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
                   </div>
-                  <div className="text-center font-sans text-right">
+                  <div className="text-center text-right" style={{ fontFamily: '"Khmer OS Muol Light", "Moul", "Khmer OS Muol", serif' }}>
                     <h1 className="text-xs font-bold tracking-widest text-slate-900">ព្រះរាជាណាចក្រកម្ពុជា</h1>
                     <p className="text-[10px] font-bold text-slate-800 tracking-wider mt-0.5">ជាតិ សាសនា ព្រះមហាក្សត្រ</p>
                     <p className="text-[10px] text-slate-400 mt-0.5">❖ ❖ ❖</p>

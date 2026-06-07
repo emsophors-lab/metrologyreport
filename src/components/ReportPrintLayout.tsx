@@ -160,7 +160,7 @@ export default function ReportPrintLayout({
             </div>
 
             {/* Center: Official Sovereignty Text with custom spacing */}
-            <div className="w-full md:w-[35%] print:w-[35%] text-center mt-4 md:mt-0 print:mt-0 space-y-1">
+            <div className="w-full md:w-[35%] print:w-[35%] text-center mt-4 md:mt-0 print:mt-0 space-y-1" style={{ fontFamily: '"Khmer OS Muol Light", "Moul", "Khmer OS Muol", serif' }}>
               <h1 className="text-xs sm:text-sm font-bold text-slate-900 tracking-wider">ព្រះរាជាណាចក្រកម្ពុជា</h1>
               <p className="text-[10px] sm:text-xs font-bold text-slate-700 tracking-wider">ជាតិ សាសនា ព្រះមហាក្សត្រ</p>
               <div className="flex justify-center py-0.5">
@@ -193,11 +193,11 @@ export default function ReportPrintLayout({
           </div>
 
           {/* Salutation and Title details */}
-          <div className="text-center pt-6 pb-2 space-y-1.5">
-            <p className="text-xs sm:text-sm font-bold text-slate-800 leading-none">
+          <div className="text-center pt-6 pb-2 space-y-1.5" style={{ fontFamily: '"Khmer OS Muol Light", "Moul", "Khmer OS Muol", serif' }}>
+            <p className="text-xs sm:text-xs font-bold text-slate-800 leading-normal">
               សូមគោរពជូន
             </p>
-            <p className="text-xs sm:text-sm font-bold text-slate-800 leading-none">
+            <p className="text-xs sm:text-xs font-bold text-slate-800 leading-normal">
               ឯកឧត្តមប្រធានមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ
             </p>
             
