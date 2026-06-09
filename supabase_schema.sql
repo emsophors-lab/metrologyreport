@@ -27,8 +27,22 @@ CREATE TABLE IF NOT EXISTS users (
   can_edit BOOLEAN NOT NULL DEFAULT TRUE,
   can_save BOOLEAN NOT NULL DEFAULT TRUE,
   can_delete BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+  admin_can_add_company_user BOOLEAN DEFAULT FALSE,
+  admin_can_add_admin_user BOOLEAN DEFAULT FALSE,
+  admin_can_edit_users BOOLEAN DEFAULT FALSE,
+  admin_can_deactivate_users BOOLEAN DEFAULT FALSE,
+  admin_can_view_all_users BOOLEAN DEFAULT FALSE,
+  is_active BOOLEAN DEFAULT TRUE
 );
+
+-- Note: For existing databases, you can apply these schema adjustments by running the following commands in Supabase SQL Editor:
+-- ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_can_add_company_user BOOLEAN DEFAULT FALSE;
+-- ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_can_add_admin_user BOOLEAN DEFAULT FALSE;
+-- ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_can_edit_users BOOLEAN DEFAULT FALSE;
+-- ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_can_deactivate_users BOOLEAN DEFAULT FALSE;
+-- ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_can_view_all_users BOOLEAN DEFAULT FALSE;
+-- ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
 
 -- -------------------------------------------------------------------------
 -- 2. Create table for monthly reports

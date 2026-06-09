@@ -167,6 +167,11 @@ export default function UserManagement({
   };
 
   const handleSelectUser = (user: MetrologyUser) => {
+    if (currentUser.role === 'admin' && user.role === 'superadmin') {
+      toastMsg('អ្នកមិនមានសិទ្ធិកែសម្រួលគណនី Superadmin ឡើយ! / You do not have permission to edit Superadmin accounts.', 'error');
+      return;
+    }
+
     setUserId(user.id);
     setLicenseNumber(user.license_number);
     setCompanyNameKh(user.company_name_kh);
@@ -204,8 +209,41 @@ export default function UserManagement({
 
     // Only superadmin can create/manage users with higher roles, but admin can make standard companies
     if (currentUser.role !== 'superadmin' && userRole === 'superadmin') {
-      toastMsg('អ្នកមិនមានសិទ្ធិបង្កើតគណនី Super Admin បានទេ!', 'error');
+      toastMsg('អ្នកមិនមានសិទ្ធិបង្កើតគណនី Super Admin បានទេ! (Cannot create Superadmin accounts)', 'error');
       return;
+    }
+
+    // Role, creation and editing controls for Admin
+    if (currentUser.role === 'admin') {
+      if (!isEditing) {
+        if (userRole === 'company' && !currentUser.admin_can_add_company_user) {
+          toastMsg('អ្នកមិនមានសិទ្ធិបង្កើតគណនីក្រុមហ៊ុនទេ! (No permission to create company users)', 'error');
+          return;
+        }
+        if (userRole === 'admin' && !currentUser.admin_can_add_admin_user) {
+          toastMsg('អ្នកមិនមានសិទ្ធិបង្កើតគណនីមន្ត្រីទេ! (No permission to create admin users)', 'error');
+          return;
+        }
+      } else {
+        if (!currentUser.admin_can_edit_users) {
+          toastMsg('អ្នកមិនមានសិទ្ធិកែប្រែព័ត៌មានគណនីទេ! (No permission to edit users)', 'error');
+          return;
+        }
+
+        const existingTarget = usersList.find(u => u.id === userId);
+        if (existingTarget?.role === 'superadmin') {
+          toastMsg('អ្នកមិនអាចកែប្រែគណនី Superadmin ได้ទេ! (Cannot modify Superadmin accounts)', 'error');
+          return;
+        }
+
+        // Deactivation checks
+        if (existingTarget && existingTarget.is_active !== false && isActive === false) {
+          if (!currentUser.admin_can_deactivate_users) {
+            toastMsg('អ្នកមិនមានសិទ្ធិផ្អាកដំណើរការគណនីទេ! (No permission to deactivate users)', 'error');
+            return;
+          }
+        }
+      }
     }
 
     // Check duplicate username if writing a new user
@@ -330,17 +368,14 @@ export default function UserManagement({
 
           {/* If admin is trying to add user but does not have permission, show permission blocked message */}
           {currentUser.role === 'admin' && !adminCanAdd && !isEditing ? (
-            <div className="p-12 text-center bg-rose-50 border border-rose-200 rounded-xl text-rose-800 space-y-4 my-6">
+            <div className="p-12 text-center bg-rose-50 border border-rose-200 rounded-xl text-rose-850 space-y-4 my-6">
               <div className="inline-flex p-3 bg-rose-100 rounded-full text-rose-600">
                 <Shield className="h-8 w-8 animate-bounce" />
               </div>
               <div className="space-y-1">
-                <h4 className="font-bold text-base">អ្នកមិនមានសិទ្ធិធ្វើសកម្មភាពនេះទេ។</h4>
-                <p className="text-xs text-rose-600 font-medium">You do not have permission to perform this action.</p>
+                <h4 className="font-bold text-base text-rose-800">អ្នកមិនមានសិទ្ធិបង្កើតអ្នកប្រើប្រាស់ទេ។ សូមទាក់ទង Superadmin។</h4>
+                <p className="text-xs text-rose-600 font-semibold">You do not have permission to create users. Please contact Superadmin.</p>
               </div>
-              <p className="text-[11px] text-slate-500 max-w-md mx-auto leading-relaxed">
-                គណនីមន្ត្រីរបស់លោកអ្នកពុំមានសិទ្ធិទិដ្ឋិការបង្កើតគណនីថ្មីក្នុងប្រព័ន្ធឡើយ។ សូមទាក់ទងមកកាន់ Super Admin ដើម្បីកែសម្រួលសិទ្ធិ។
-              </p>
             </div>
           ) : currentUser.role === 'admin' && !adminCanEdit && isEditing ? (
             <div className="p-12 text-center bg-rose-50 border border-rose-200 rounded-xl text-rose-800 space-y-4 my-6">
@@ -388,10 +423,10 @@ export default function UserManagement({
                     onChange={(e) => setUserRole(e.target.value as UserRole)}
                     disabled={isEditing && userId === currentUser.id} // cannot change their own role!
                   >
-                    {(currentUser.role === 'superadmin' || currentUser.admin_can_add_company_user) && (
+                    {(currentUser.role === 'superadmin' || currentUser.admin_can_add_company_user || (isEditing && userRole === 'company')) && (
                       <option value="company">សហគ្រាស/ក្រុមហ៊ុនអាជ្ញាប័ណ្ណ (Company)</option>
                     )}
-                    {(currentUser.role === 'superadmin' || currentUser.admin_can_add_admin_user) && (
+                    {(currentUser.role === 'superadmin' || currentUser.admin_can_add_admin_user || (isEditing && userRole === 'admin')) && (
                       <option value="admin">មន្ត្រីត្រួតពិនិត្យ (NMC Admin)</option>
                     )}
                     {currentUser.role === 'superadmin' && (
@@ -715,66 +750,68 @@ export default function UserManagement({
 
         {/* Right Sidebar Column with both Telegram Settings and Guidance */}
         <div className="space-y-6">
-          {/* Telegram Notification Settings Card */}
-          <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 relative overflow-hidden">
-            <div className="flex items-center gap-2 mb-3 border-b border-slate-100 pb-3">
-              <Send className="h-4 w-4 text-sky-500 animate-pulse" />
-              <h3 className="text-sm font-bold text-slate-800">ការកំណត់ Telegram Notification</h3>
+          {/* Telegram Notification Settings Card - Exclude for Admin clients */}
+          {currentUser.role !== 'admin' && (
+            <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 relative overflow-hidden">
+              <div className="flex items-center gap-2 mb-3 border-b border-slate-100 pb-3">
+                <Send className="h-4 w-4 text-sky-500 animate-pulse" />
+                <h3 className="text-sm font-bold text-slate-800">ការកំណត់ Telegram Notification</h3>
+              </div>
+              <p className="text-[11px] text-slate-500 mb-4 leading-relaxed">
+                ប្រព័ន្ធនឹងបញ្ជូនរបាយការណ៍ជា PDF និងព័ត៌មានលម្អិតទៅ Telegram របស់លោកអ្នករាល់ពេលមានប្រតិបត្តិការបញ្ជូន ឬកែប្រែរបាយការណ៍។
+              </p>
+              <div className="space-y-3.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-750 mb-1">Telegram Bot Token</label>
+                  <input
+                    type="text"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono focus:bg-white focus:outline-none focus:ring-1 focus:ring-sky-400"
+                    placeholder="ឧ. 123456789:ABCdef-..."
+                    value={telegramBotToken}
+                    onChange={(e) => setTelegramBotToken(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-750 mb-1">Telegram Chat ID</label>
+                  <input
+                    type="text"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono focus:bg-white focus:outline-none focus:ring-1 focus:ring-sky-400"
+                    placeholder="ឧ. -1001234567890"
+                    value={telegramChatId}
+                    onChange={(e) => setTelegramChatId(e.target.value)}
+                  />
+                </div>
+                <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-lg border border-slate-100 mt-2">
+                  <span className="text-xs text-slate-600 font-semibold select-none">
+                    បើកដំណើរការ (Enable Notify)
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 text-sky-500 focus:ring-sky-450 h-4 w-4 cursor-pointer"
+                    checked={telegramEnabled}
+                    onChange={(e) => setTelegramEnabled(e.target.checked)}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleTestTelegram}
+                    disabled={isTestingTelegram}
+                    className="w-full py-1.5 bg-slate-100 hover:bg-slate-200 focus:outline-none disabled:opacity-50 text-slate-700 text-[11px] font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    {isTestingTelegram ? 'សាកល្បង...' : 'សាកល្បង (Test)'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveTelegramConfig}
+                    className="w-full py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1"
+                  >
+                    រក្សាទុក (Save)
+                  </button>
+                </div>
+              </div>
             </div>
-            <p className="text-[11px] text-slate-500 mb-4 leading-relaxed">
-              ប្រព័ន្ធនឹងបញ្ជូនរបាយការណ៍ជា PDF និងព័ត៌មានលម្អិតទៅ Telegram របស់លោកអ្នករាល់ពេលមានប្រតិបត្តិការបញ្ជូន ឬកែប្រែរបាយការណ៍។
-            </p>
-            <div className="space-y-3.5">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-750 mb-1">Telegram Bot Token</label>
-                <input
-                  type="text"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono focus:bg-white focus:outline-none focus:ring-1 focus:ring-sky-400"
-                  placeholder="ឧ. 123456789:ABCdef-..."
-                  value={telegramBotToken}
-                  onChange={(e) => setTelegramBotToken(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-slate-750 mb-1">Telegram Chat ID</label>
-                <input
-                  type="text"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono focus:bg-white focus:outline-none focus:ring-1 focus:ring-sky-400"
-                  placeholder="ឧ. -1001234567890"
-                  value={telegramChatId}
-                  onChange={(e) => setTelegramChatId(e.target.value)}
-                />
-              </div>
-              <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-lg border border-slate-100 mt-2">
-                <span className="text-xs text-slate-600 font-semibold select-none">
-                  បើកដំណើរការ (Enable Notify)
-                </span>
-                <input
-                  type="checkbox"
-                  className="rounded border-slate-300 text-sky-500 focus:ring-sky-450 h-4 w-4 cursor-pointer"
-                  checked={telegramEnabled}
-                  onChange={(e) => setTelegramEnabled(e.target.checked)}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={handleTestTelegram}
-                  disabled={isTestingTelegram}
-                  className="w-full py-1.5 bg-slate-100 hover:bg-slate-200 focus:outline-none disabled:opacity-50 text-slate-700 text-[11px] font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  {isTestingTelegram ? 'សាកល្បង...' : 'សាកល្បង (Test)'}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveTelegramConfig}
-                  className="w-full py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1"
-                >
-                  រក្សាទុក (Save)
-                </button>
-              </div>
-            </div>
-          </div>
+          )}
 
           {/* Informational Guidance sidebar card */}
           <div className="bg-navy text-slate-100 rounded-xl p-6 flex flex-col justify-between shadow-md border border-slate-800 relative overflow-hidden">
@@ -815,6 +852,23 @@ export default function UserManagement({
             
             {/* Download/Print Action buttons */}
             <div className="flex flex-wrap items-center gap-2">
+              {/* If Admin has permission, show Add User button */}
+              {adminCanAdd && (
+                <button
+                  type="button"
+                  onClick={clearForm}
+                  className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer border ${
+                    !isEditing 
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-550 shadow-xs' 
+                      : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                  }`}
+                  title="ចុះឈ្មោះសហគ្រាស/មន្ត្រីថ្មី (Create New User Profile)"
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  បង្កើតអ្នកប្រើប្រាស់ថ្មី (Add User)
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => exportUsersToWordDoc(filteredUsers)}

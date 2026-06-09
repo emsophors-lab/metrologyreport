@@ -1654,7 +1654,7 @@ export default function App() {
             )}
 
             {/* C. USER ACCOUNTS MANAGER */}
-            {activeTab === 'users' && sessionUser.role === 'superadmin' && (
+            {activeTab === 'users' && (sessionUser.role === 'superadmin' || sessionUser.role === 'admin') && (
               <UserManagement 
                 currentUser={sessionUser}
                 usersList={users}
