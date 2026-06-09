@@ -38,6 +38,14 @@ export default function UserManagement({
   const [canSave, setCanSave] = useState(true);
   const [canDelete, setCanDelete] = useState(true);
 
+  // Admin and Account Status Properties (Role/Permission Admin Control)
+  const [adminCanAddCompanyUser, setAdminCanAddCompanyUser] = useState(false);
+  const [adminCanAddAdminUser, setAdminCanAddAdminUser] = useState(false);
+  const [adminCanEditUsers, setAdminCanEditUsers] = useState(false);
+  const [adminCanDeactivateUsers, setAdminCanDeactivateUsers] = useState(false);
+  const [adminCanViewAllUsers, setAdminCanViewAllUsers] = useState(false);
+  const [isActive, setIsActive] = useState(true);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
   const [filterDate, setFilterDate] = useState('');
@@ -148,6 +156,14 @@ export default function UserManagement({
     setCanSave(true);
     setCanDelete(true);
     setIsEditing(false);
+
+    // Reset admin detailed permissions
+    setAdminCanAddCompanyUser(false);
+    setAdminCanAddAdminUser(false);
+    setAdminCanEditUsers(false);
+    setAdminCanDeactivateUsers(false);
+    setAdminCanViewAllUsers(false);
+    setIsActive(true);
   };
 
   const handleSelectUser = (user: MetrologyUser) => {
@@ -168,6 +184,14 @@ export default function UserManagement({
     setCanSave(user.can_save);
     setCanDelete(user.can_delete);
     setIsEditing(true);
+
+    // Populate admin detailed permissions
+    setAdminCanAddCompanyUser(user.admin_can_add_company_user || false);
+    setAdminCanAddAdminUser(user.admin_can_add_admin_user || false);
+    setAdminCanEditUsers(user.admin_can_edit_users || false);
+    setAdminCanDeactivateUsers(user.admin_can_deactivate_users || false);
+    setAdminCanViewAllUsers(user.admin_can_view_all_users || false);
+    setIsActive(user.is_active !== false);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -212,6 +236,14 @@ export default function UserManagement({
       can_save: canSave,
       can_delete: canDelete,
       created_at: new Date().toISOString(),
+
+      // Apply detailed admin permissions only if registering/saving an admin role
+      admin_can_add_company_user: userRole === 'admin' ? adminCanAddCompanyUser : false,
+      admin_can_add_admin_user: userRole === 'admin' ? adminCanAddAdminUser : false,
+      admin_can_edit_users: userRole === 'admin' ? adminCanEditUsers : false,
+      admin_can_deactivate_users: userRole === 'admin' ? adminCanDeactivateUsers : false,
+      admin_can_view_all_users: userRole === 'admin' ? adminCanViewAllUsers : false,
+      is_active: isActive
     };
 
     onSaveUser(newUser);
@@ -238,6 +270,17 @@ export default function UserManagement({
     // Filter out global system config records
     if (u.id === 'telegram_config') return false;
 
+    // View filter constraints for admin role (Role/Permission Admin Control)
+    if (currentUser.role === 'admin') {
+      if (!currentUser.admin_can_view_all_users) {
+        // Can view only company users
+        if (u.role !== 'company') return false;
+      } else {
+        // Can view admin and company, but let's hide superadmin to be safe
+        if (u.role === 'superadmin') return false;
+      }
+    }
+
     const term = searchQuery.toLowerCase();
     const locTerm = filterLocation.toLowerCase();
     
@@ -263,6 +306,13 @@ export default function UserManagement({
     return matchesMain && matchesLoc && matchesDate;
   });
 
+  // Verify admin actions permission bounds (Role/Permission Admin Control)
+  const adminCanAdd = currentUser.role === 'superadmin' || 
+    (currentUser.role === 'admin' && (!!currentUser.admin_can_add_company_user || !!currentUser.admin_can_add_admin_user));
+
+  const adminCanEdit = currentUser.role === 'superadmin' || 
+    (currentUser.role === 'admin' && !!currentUser.admin_can_edit_users);
+
   return (
     <div id="user-management-section" className="space-y-6">
       
@@ -278,264 +328,389 @@ export default function UserManagement({
             </h3>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              
-              {/* License Number block */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  លេខអាជ្ញាប័ណ្ណសហគ្រាស
-                </label>
-                <input
-                  type="text"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
-                  placeholder="ឧ. LIC-2026-098"
-                  value={licenseNumber}
-                  onChange={(e) => setLicenseNumber(e.target.value)}
-                />
+          {/* If admin is trying to add user but does not have permission, show permission blocked message */}
+          {currentUser.role === 'admin' && !adminCanAdd && !isEditing ? (
+            <div className="p-12 text-center bg-rose-50 border border-rose-200 rounded-xl text-rose-800 space-y-4 my-6">
+              <div className="inline-flex p-3 bg-rose-100 rounded-full text-rose-600">
+                <Shield className="h-8 w-8 animate-bounce" />
               </div>
-
-              {/* User role */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  ប្រភេទគណនី (User Role)
-                </label>
-                <select
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
-                  value={userRole}
-                  onChange={(e) => setUserRole(e.target.value as UserRole)}
-                >
-                  <option value="company">សហគ្រាស/ក្រុមហ៊ុនអាជ្ញាប័ណ្ណ (Company)</option>
-                  <option value="admin">មន្ត្រីត្រួតពិនិត្យ (NMC Admin)</option>
-                  {currentUser.role === 'superadmin' && (
-                    <option value="superadmin">Super Admin (អ្នកគ្រប់គ្រងជាន់ខ្ពស់)</option>
-                  )}
-                </select>
+              <div className="space-y-1">
+                <h4 className="font-bold text-base">អ្នកមិនមានសិទ្ធិធ្វើសកម្មភាពនេះទេ។</h4>
+                <p className="text-xs text-rose-600 font-medium">You do not have permission to perform this action.</p>
               </div>
-
-              {/* Company Name Khmer */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  ឈ្មោះសហគ្រាស (ភាសាខ្មែរ) *
-                </label>
-                <input
-                  type="text"
-                  required
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
-                  placeholder="ឧ. ក្រុមហ៊ុនទទួលបានអាជ្ញាប័ណ្ណ មាត្រាសាស្ត្រកម្ពុជា"
-                  value={companyNameKh}
-                  onChange={(e) => setCompanyNameKh(e.target.value)}
-                />
+              <p className="text-[11px] text-slate-500 max-w-md mx-auto leading-relaxed">
+                គណនីមន្ត្រីរបស់លោកអ្នកពុំមានសិទ្ធិទិដ្ឋិការបង្កើតគណនីថ្មីក្នុងប្រព័ន្ធឡើយ។ សូមទាក់ទងមកកាន់ Super Admin ដើម្បីកែសម្រួលសិទ្ធិ។
+              </p>
+            </div>
+          ) : currentUser.role === 'admin' && !adminCanEdit && isEditing ? (
+            <div className="p-12 text-center bg-rose-50 border border-rose-200 rounded-xl text-rose-800 space-y-4 my-6">
+              <div className="inline-flex p-3 bg-rose-100 rounded-full text-rose-600">
+                <Shield className="h-8 w-8" />
               </div>
-
-              {/* Company Name English */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  ឈ្មោះសហគ្រាស (ភាសាអង់គ្លេស)
-                </label>
-                <input
-                  type="text"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
-                  placeholder="ឧ. Cambodia Metrology Licensing Co., Ltd"
-                  value={companyNameEn}
-                  onChange={(e) => setCompanyNameEn(e.target.value)}
-                />
+              <div className="space-y-1">
+                <h4 className="font-bold text-base">អ្នកមិនមានសិទ្ធិកែប្រែព័ត៌មានគណនីទេ។</h4>
+                <p className="text-xs text-rose-600 font-medium">You do not have permission to edit user profiles.</p>
               </div>
-
-              {/* Address */}
-              <div className="md:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  អាសយដ្ឋានសហគ្រាស
-                </label>
-                <input
-                  type="text"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
-                  placeholder="ឧ. ផ្លូវលេខ ៣០ ភូមិ១ សង្កាត់ទឹកល្អក់ទី២ ខណ្ឌទួលគោក ភ្នំពេញ"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                />
-              </div>
-
-              {/* Phone */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  លេខទូរស័ព្ទសហគ្រាស
-                </label>
-                <input
-                  type="text"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
-                  placeholder="ឧ. 012 345 678"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                />
-              </div>
-
-              {/* Email */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  អ៊ីម៉ែលទាក់ទង
-                </label>
-                <input
-                  type="email"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
-                  placeholder="ឧ. license@company.com.kh"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-
-              {/* Legal Representative */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  ឈ្មោះអ្នកតំណាងស្របច្បាប់
-                </label>
-                <input
-                  type="text"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
-                  placeholder="ឧ. លោក សុខ ជា"
-                  value={legalRepresentative}
-                  onChange={(e) => setLegalRepresentative(e.target.value)}
-                />
-              </div>
-
-              {/* Representative position */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  តួនាទីអ្នកតំណាងស្របច្បាប់
-                </label>
-                <input
-                  type="text"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
-                  placeholder="ឧ. អគ្គនាយក ឬ នាយកប្រតិបត្តិ"
-                  value={representativePosition}
-                  onChange={(e) => setRepresentativePosition(e.target.value)}
-                />
-              </div>
-
-              {/* Account Credentials divider */}
-              <div className="md:col-span-2 border-t border-slate-200 pt-3 mt-1">
-                <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5 mb-2">
-                  <Key className="h-3.5 w-3.5 text-gold" />
-                  គណនីចូលប្រព័ន្ធ (Credentials for Logging in)
-                </p>
-              </div>
-
-              {/* Username input */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  ឈ្មោះគណនីចូល (Username) *
-                </label>
-                <input
-                  type="text"
-                  required
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
-                  placeholder="ឧ. ly_company"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                />
-              </div>
-
-              {/* Password input */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  លេខសម្ងាត់សម្រាប់គណនី (Password)
-                </label>
-                <div className="relative">
+              <button 
+                type="button" 
+                onClick={clearForm}
+                className="px-4 py-2 bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg hover:bg-slate-300 transition-colors cursor-pointer"
+              >
+                ត្រឡប់ទៅការចុះឈ្មោះ / Return to Add
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* License Number block */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    លេខអាជ្ញាប័ណ្ណសហគ្រាស
+                  </label>
                   <input
-                    type={showPassword ? 'text' : 'password'}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 pr-10 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
-                    placeholder="លំនាំដើម៖ តាមលេខអាជ្ញាប័ណ្ណ"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    type="text"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
+                    placeholder="ឧ. LIC-2026-098"
+                    value={licenseNumber}
+                    onChange={(e) => setLicenseNumber(e.target.value)}
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                </div>
+
+                {/* User role */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    ប្រភេទគណនី (User Role)
+                  </label>
+                  <select
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
+                    value={userRole}
+                    onChange={(e) => setUserRole(e.target.value as UserRole)}
+                    disabled={isEditing && userId === currentUser.id} // cannot change their own role!
                   >
-                    {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                  </button>
+                    {(currentUser.role === 'superadmin' || currentUser.admin_can_add_company_user) && (
+                      <option value="company">សហគ្រាស/ក្រុមហ៊ុនអាជ្ញាប័ណ្ណ (Company)</option>
+                    )}
+                    {(currentUser.role === 'superadmin' || currentUser.admin_can_add_admin_user) && (
+                      <option value="admin">មន្ត្រីត្រួតពិនិត្យ (NMC Admin)</option>
+                    )}
+                    {currentUser.role === 'superadmin' && (
+                      <option value="superadmin">Super Admin (អ្នកគ្រប់គ្រងជាន់ខ្ពស់)</option>
+                    )}
+                  </select>
+                </div>
+
+                {/* Company Name Khmer */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    ឈ្មោះសហគ្រាស (ភាសាខ្មែរ) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
+                    placeholder="ឧ. ក្រុមហ៊ុនទទួលបានអាជ្ញាប័ណ្ណ មាត្រាសាស្ត្រកម្ពុជា"
+                    value={companyNameKh}
+                    onChange={(e) => setCompanyNameKh(e.target.value)}
+                  />
+                </div>
+
+                {/* Company Name English */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    ឈ្មោះសហគ្រាស (ភាសាអង់គ្លេស)
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
+                    placeholder="ឧ. Cambodia Metrology Licensing Co., Ltd"
+                    value={companyNameEn}
+                    onChange={(e) => setCompanyNameEn(e.target.value)}
+                  />
+                </div>
+
+                {/* Address */}
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    អាសយដ្ឋានសហគ្រាស
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
+                    placeholder="ឧ. ផ្លូវលេខ ៣០ ភូមិ១ សង្កាត់ទឹកល្អក់ទី២ ខណ្ឌទួលគោក ភ្នំពេញ"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                  />
+                </div>
+
+                {/* Phone */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    លេខទូរស័ព្ទសហគ្រាស
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
+                    placeholder="ឧ. 012 345 678"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                  />
+                </div>
+
+                {/* Email */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    អ៊ីម៉ែលទាក់ទង
+                  </label>
+                  <input
+                    type="email"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
+                    placeholder="ឧ. license@company.com.kh"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+
+                {/* Legal Representative */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    ឈ្មោះអ្នកតំណាងស្របច្បាប់
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
+                    placeholder="ឧ. លោក សុខ ជា"
+                    value={legalRepresentative}
+                    onChange={(e) => setLegalRepresentative(e.target.value)}
+                  />
+                </div>
+
+                {/* Representative position */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    តួនាទីអ្នកតំណាងស្របច្បាប់
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
+                    placeholder="ឧ. អគ្គនាយក ឬ នាយកប្រតិបត្តិ"
+                    value={representativePosition}
+                    onChange={(e) => setRepresentativePosition(e.target.value)}
+                  />
+                </div>
+
+                {/* Account Credentials divider */}
+                <div className="md:col-span-2 border-t border-slate-200 pt-3 mt-1">
+                  <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5 mb-2">
+                    <Key className="h-3.5 w-3.5 text-gold" />
+                    គណនីចូលប្រព័ន្ធ (Credentials for Logging in)
+                  </p>
+                </div>
+
+                {/* Username input */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    ឈ្មោះគណនីចូល (Username) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
+                    placeholder="ឧ. ly_company"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                  />
+                </div>
+
+                {/* Password input */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    លេខសម្ងាត់សម្រាប់គណនី (Password)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 pr-10 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
+                      placeholder="លំនាំដើម៖ តាមលេខអាជ្ញាប័ណ្ណ"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Account Status / toggling for deactivate (Role/Permission Admin Control) */}
+                {isEditing && (currentUser.role === 'superadmin' || !!currentUser.admin_can_deactivate_users) && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      ស្ថានភាពគណនី (Account Status)
+                    </label>
+                    <select
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold"
+                      value={isActive ? 'active' : 'inactive'}
+                      onChange={(e) => setIsActive(e.target.value === 'active')}
+                      disabled={userId === currentUser.id || (usersList.find(u => u.id === userId)?.role === 'superadmin' && currentUser.role !== 'superadmin')}
+                    >
+                      <option value="active">ដំណើរការធម្មតា (Active)</option>
+                      <option value="inactive">ផ្អាកដំណើរការ (Deactivated)</option>
+                    </select>
+                  </div>
+                )}
+
+              </div>
+
+              {/* Permissions system (Checkboxes) as requested */}
+              <div className="border-t border-slate-200 pt-3">
+                <p className="text-xs font-bold text-slate-800 mb-2">
+                  កំណត់សិទ្ធិប្រតិបត្តិការងារ (Permissions Role Setup)
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <label className="flex items-center gap-2 text-xs text-slate-700 font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-gold focus:ring-gold h-4 w-4"
+                      checked={canView}
+                      onChange={(e) => setCanView(e.target.checked)}
+                    />
+                    សិទ្ធិមើលភារកិច្ច (View)
+                  </label>
+                  
+                  <label className="flex items-center gap-2 text-xs text-slate-700 font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-gold focus:ring-gold h-4 w-4"
+                      checked={canEdit}
+                      onChange={(e) => setCanEdit(e.target.checked)}
+                    />
+                    សិទ្ធិកែប្រែ (Edit)
+                  </label>
+
+                  <label className="flex items-center gap-2 text-xs text-slate-700 font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-gold focus:ring-gold h-4 w-4"
+                      checked={canSave}
+                      onChange={(e) => setCanSave(e.target.checked)}
+                    />
+                    សិទ្ធិរក្សាទុក (Save)
+                  </label>
+
+                  <label className="flex items-center gap-2 text-xs text-slate-700 font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300 text-gold focus:ring-gold h-4 w-4"
+                      checked={canDelete}
+                      onChange={(e) => setCanDelete(e.target.checked)}
+                    />
+                    សិទ្ធិលុបព័ត៌មាន (Delete)
+                  </label>
                 </div>
               </div>
-            </div>
 
-            {/* Permissions system (Checkboxes) as requested */}
-            <div className="border-t border-slate-200 pt-3">
-              <p className="text-xs font-bold text-slate-800 mb-2">
-                កំណត់សិទ្ធិប្រតិបត្តិការងារ (Permissions Role Setup)
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <label className="flex items-center gap-2 text-xs text-slate-700 font-medium cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="rounded border-slate-300 text-gold focus:ring-gold h-4 w-4"
-                    checked={canView}
-                    onChange={(e) => setCanView(e.target.checked)}
-                  />
-                  សិទ្ធិមើលភារកិច្ច (View)
-                </label>
-                
-                <label className="flex items-center gap-2 text-xs text-slate-700 font-medium cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="rounded border-slate-300 text-gold focus:ring-gold h-4 w-4"
-                    checked={canEdit}
-                    onChange={(e) => setCanEdit(e.target.checked)}
-                  />
-                  សិទ្ធិកែប្រែ (Edit)
-                </label>
+              {/* Admin-only Permission Settings (rendered if userRole is admin AND currentUser is superadmin) */}
+              {userRole === 'admin' && currentUser.role === 'superadmin' && (
+                <div className="border-t border-slate-200 pt-3" id="admin-permission-settings-box">
+                  <p className="text-xs font-bold text-slate-800 mb-1">
+                    កំណត់សិទ្ធិអ្នកគ្រប់គ្រង (Admin Permission Settings)
+                  </p>
+                  <p className="text-[10px] text-slate-400 mb-2 leading-tight">
+                    កំណត់ទំហំសិទ្ធិសម្រាប់គណនីមន្ត្រីត្រួតពិនិត្យ (Admin) ក្នុងការគ្រប់គ្រងអ្នកប្រើប្រាស់មន្ត្រី និងសហគ្រាស
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-indigo-50/50 p-4 rounded-lg border border-indigo-200/50">
+                    <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 shadow-xs"
+                        checked={adminCanAddCompanyUser}
+                        onChange={(e) => setAdminCanAddCompanyUser(e.target.checked)}
+                        disabled={isEditing && userId === currentUser.id} // cannot change self
+                      />
+                      សិទ្ធិបង្កើតគណនីក្រុមហ៊ុន (Can add company user)
+                    </label>
+                    
+                    <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 shadow-xs"
+                        checked={adminCanAddAdminUser}
+                        onChange={(e) => setAdminCanAddAdminUser(e.target.checked)}
+                        disabled={isEditing && userId === currentUser.id} // cannot change self
+                      />
+                      សិទ្ធិបង្កើតគណនីមន្ត្រី (Can add admin user)
+                    </label>
 
-                <label className="flex items-center gap-2 text-xs text-slate-700 font-medium cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="rounded border-slate-300 text-gold focus:ring-gold h-4 w-4"
-                    checked={canSave}
-                    onChange={(e) => setCanSave(e.target.checked)}
-                  />
-                  សិទ្ធិរក្សាទុក (Save)
-                </label>
+                    <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 shadow-xs"
+                        checked={adminCanEditUsers}
+                        onChange={(e) => setAdminCanEditUsers(e.target.checked)}
+                        disabled={isEditing && userId === currentUser.id} // cannot change self
+                      />
+                      សិទ្ធិកែប្រែព័ត៌មានគណនី (Can edit users)
+                    </label>
 
-                <label className="flex items-center gap-2 text-xs text-slate-700 font-medium cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="rounded border-slate-300 text-gold focus:ring-gold h-4 w-4"
-                    checked={canDelete}
-                    onChange={(e) => setCanDelete(e.target.checked)}
-                  />
-                  សិទ្ធិលុបព័ត៌មាន (Delete)
-                </label>
-              </div>
-            </div>
+                    <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 shadow-xs"
+                        checked={adminCanDeactivateUsers}
+                        onChange={(e) => setAdminCanDeactivateUsers(e.target.checked)}
+                        disabled={isEditing && userId === currentUser.id} // cannot change self
+                      />
+                      សិទ្ធិផ្អាកដំណើរការគណនី (Can deactivate users)
+                    </label>
 
-            {/* Custom action buttons */}
-            <div className="flex flex-wrap items-center justify-end gap-2 pt-4 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={clearForm}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-              >
-                សម្អាតទម្រង់ (Clear)
-              </button>
-              
-              {isEditing && (
+                    <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer md:col-span-2">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 shadow-xs"
+                        checked={adminCanViewAllUsers}
+                        onChange={(e) => setAdminCanViewAllUsers(e.target.checked)}
+                        disabled={isEditing && userId === currentUser.id} // cannot change self
+                      />
+                      សិទ្ធិមើលគណនីទាំងអស់ (Can view all users - other admins etc.)
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Custom action buttons */}
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-4 border-t border-slate-200">
                 <button
                   type="button"
-                  onClick={() => handleDelete(userId)}
-                  className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                  onClick={clearForm}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  លុបគណនី (Delete User)
+                  សម្អាតទម្រង់ (Clear)
                 </button>
-              )}
-              
-              <button
-                type="submit"
-                className="px-5 py-2 bg-navy hover:bg-navy/90 text-white text-xs font-bold rounded-lg transition-all shadow-xs cursor-pointer active:scale-95"
-              >
-                {isEditing ? 'រក្សាទុកការកែប្រែ (Update User)' : 'ចុះឈ្មោះភ្លាមៗ (Save User)'}
-              </button>
-            </div>
-          </form>
+                
+                {isEditing && currentUser.role === 'superadmin' && (
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(userId)}
+                    className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    លុបគណនី (Delete User)
+                  </button>
+                )}
+                
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-navy hover:bg-navy/90 text-white text-xs font-bold rounded-lg transition-all shadow-xs cursor-pointer active:scale-95"
+                >
+                  {isEditing ? 'រក្សាទុកការកែប្រែ (Update User)' : 'ចុះឈ្មោះភ្លាមៗ (Save User)'}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
 
         {/* Right Sidebar Column with both Telegram Settings and Guidance */}
@@ -776,6 +951,11 @@ export default function UserManagement({
                     >
                       {u.role === 'superadmin' ? 'Superadmin' : u.role === 'admin' ? 'NMC Admin' : 'Company'}
                     </span>
+                    {u.is_active === false && (
+                      <span className="inline-block bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ml-1.5 animate-pulse">
+                        Suspended
+                      </span>
+                    )}
                   </td>
                   <td className="p-4">
                     <div className="flex flex-wrap items-center justify-center gap-1 max-w-xs mx-auto">
@@ -793,24 +973,35 @@ export default function UserManagement({
                       </span>
                     </div>
                   </td>
-                  <td className="p-4 text-center">
+                  <td className="p-4 text-center border-l border-slate-100">
                     <div className="flex items-center justify-center gap-1.5">
-                      <button
-                        type="button"
-                        title="កែសម្រួលគណនី"
-                        onClick={() => handleSelectUser(u)}
-                        className="p-1 px-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded transition-colors cursor-pointer"
-                      >
-                        <Edit2 className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        title="លុបគណនី"
-                        onClick={() => handleDelete(u.id)}
-                        className="p-1 px-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded transition-colors cursor-pointer"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      {/* Edit button: Superadmin can edit anyone; Admin can edit others only if they have admin_can_edit_users AND target isn't superadmin */}
+                      {(currentUser.role === 'superadmin' || (currentUser.role === 'admin' && !!currentUser.admin_can_edit_users && u.role !== 'superadmin')) ? (
+                        <button
+                          type="button"
+                          title="កែសម្រួលគណនី"
+                          onClick={() => handleSelectUser(u)}
+                          className="p-1 px-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded transition-colors cursor-pointer"
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                      ) : (
+                        <span className="p-1 text-slate-300 cursor-not-allowed" title="គ្មានសិទ្ធិកែប្រែ (No permission to edit)">
+                          <Edit2 className="h-3.5 w-3.5 text-slate-250" />
+                        </span>
+                      )}
+
+                      {/* Delete button: Superadmin only */}
+                      {currentUser.role === 'superadmin' ? (
+                        <button
+                          type="button"
+                          title="លុបគណនី"
+                          onClick={() => handleDelete(u.id)}
+                          className="p-1 px-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

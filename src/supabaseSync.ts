@@ -236,7 +236,13 @@ export async function saveUserToSupabase(user: MetrologyUser): Promise<void> {
     can_edit: user.can_edit,
     can_save: user.can_save,
     can_delete: user.can_delete,
-    created_at: user.created_at || new Date().toISOString()
+    created_at: user.created_at || new Date().toISOString(),
+    admin_can_add_company_user: user.admin_can_add_company_user ?? false,
+    admin_can_add_admin_user: user.admin_can_add_admin_user ?? false,
+    admin_can_edit_users: user.admin_can_edit_users ?? false,
+    admin_can_deactivate_users: user.admin_can_deactivate_users ?? false,
+    admin_can_view_all_users: user.admin_can_view_all_users ?? false,
+    is_active: user.is_active ?? true
   };
 
   try {

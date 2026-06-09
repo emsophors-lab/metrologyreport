@@ -18,6 +18,14 @@ export interface MetrologyUser {
   can_save: boolean;
   can_delete: boolean;
   created_at: string;
+  
+  // Admin permission settings (added for Role/Permission Admin Control)
+  admin_can_add_company_user?: boolean;
+  admin_can_add_admin_user?: boolean;
+  admin_can_edit_users?: boolean;
+  admin_can_deactivate_users?: boolean;
+  admin_can_view_all_users?: boolean;
+  is_active?: boolean;
 }
 
 export type ServiceType = 'Manufacture' | 'Installation' | 'Repair';

@@ -422,15 +422,52 @@ export default function LoginHistoryView() {
 
                         {/* Login operation status column */}
                         <td className="p-4 text-center whitespace-nowrap">
-                          {item.login_status === 'success' ? (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-150/30 text-emerald-800 border border-emerald-500/20 uppercase tracking-widest">
-                              SUCCESS
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-50 text-rose-700 border border-rose-200 uppercase tracking-widest">
-                              FAILED
-                            </span>
-                          )}
+                          {(() => {
+                            switch(item.login_status) {
+                              case 'success':
+                                return (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-150/30 text-emerald-800 border border-emerald-500/20 uppercase tracking-widest">
+                                    SUCCESS
+                                  </span>
+                                );
+                              case 'ADMIN_PERMISSION_UPDATED':
+                                return (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-100 text-amber-800 border border-amber-300 uppercase tracking-wider font-sans">
+                                    PERM UPDATE
+                                  </span>
+                                );
+                              case 'USER_CREATED_BY_ADMIN':
+                                return (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-blue-100 text-blue-800 border border-blue-300 uppercase tracking-wider font-sans">
+                                    CREATE BY ADMIN
+                                  </span>
+                                );
+                              case 'USER_CREATED_BY_SUPERADMIN':
+                                return (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-indigo-100 text-indigo-800 border border-indigo-300 uppercase tracking-wider font-sans">
+                                    CREATE BY SA
+                                  </span>
+                                );
+                              case 'UNAUTHORIZED_USER_CREATE_ATTEMPT':
+                                return (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-100 text-rose-800 border border-rose-300 uppercase tracking-wider font-sans">
+                                    UNAUTHORIZED
+                                  </span>
+                                );
+                              case 'USER_DEACTIVATED':
+                                return (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-orange-100 text-orange-850 border border-orange-300 uppercase tracking-wider font-sans">
+                                    DEACTIVATED
+                                  </span>
+                                );
+                              default:
+                                return (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-50 text-rose-700 border border-rose-200 uppercase tracking-widest">
+                                    {item.login_status || 'FAILED'}
+                                  </span>
+                                );
+                            }
+                          })()}
                         </td>
                       </tr>
                     );

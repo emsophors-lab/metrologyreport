@@ -39,6 +39,10 @@ export default function LoginScreen({ onLoginSuccess, usersList }: LoginScreenPr
     );
 
     if (matchedUser) {
+      if (matchedUser.is_active === false) {
+        setErrorMessage('គណនីរបស់លោកអ្នកត្រូវផ្អាកបណ្តោះអាសន្ន! / This account has been deactivated!');
+        return;
+      }
       setErrorMessage('');
       onLoginSuccess(matchedUser);
     } else {

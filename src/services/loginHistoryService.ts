@@ -88,6 +88,76 @@ export async function logLoginHistory(user: MetrologyUser): Promise<void> {
   }
 }
 
+/**
+ * Log administrative audit activities (added per national requirements)
+ */
+export async function logAuditEvent(
+  actorUser: MetrologyUser,
+  actionType: 'ADMIN_PERMISSION_UPDATED' | 'USER_CREATED_BY_ADMIN' | 'USER_CREATED_BY_SUPERADMIN' | 'UNAUTHORIZED_USER_CREATE_ATTEMPT' | 'USER_DEACTIVATED',
+  details: string,
+  targetUserId?: string,
+  targetUsername?: string
+): Promise<void> {
+  try {
+    const ipAddress = await fetchIpAddressSafe();
+    
+    // Create the structure matching the LoginHistory type
+    const auditItem: LoginHistory = {
+      id: Math.random().toString(36).substring(2, 11) + Date.now().toString(36),
+      user_id: actorUser.id ? String(actorUser.id) : actorUser.username ? String(actorUser.username) : '',
+      user_email: actorUser.email || actorUser.username || '',
+      user_role: actorUser.role || '',
+      company_id: targetUserId ? String(targetUserId) : '',
+      company_name: `[AUDIT: ${actionType}] ${details}`,
+      login_status: actionType,
+      ip_address: ipAddress || '127.0.0.1',
+      user_agent: navigator.userAgent || '',
+      device_info: targetUsername ? `Target: @${targetUsername}` : `System Activity`,
+      login_at: new Date().toISOString()
+    };
+
+    // 1. Save to local storage cache
+    const localStored = localStorage.getItem('nmc_login_history');
+    let localHistoryList: LoginHistory[] = [];
+    if (localStored) {
+      try {
+        localHistoryList = JSON.parse(localStored);
+      } catch (e) {
+        // Ignored
+      }
+    }
+    localHistoryList.unshift(auditItem);
+    if (localHistoryList.length > 300) {
+      localHistoryList = localHistoryList.slice(0, 300);
+    }
+    localStorage.setItem('nmc_login_history', JSON.stringify(localHistoryList));
+
+    // 2. Save directly to Supabase if config is connected
+    const client = getActiveSupabaseClient();
+    if (!client) return;
+
+    const supabasePayload = {
+      user_id: actorUser.id ? String(actorUser.id) : actorUser.username ? String(actorUser.username) : null,
+      user_email: actorUser.email || actorUser.username || null,
+      user_role: actorUser.role || null,
+      company_id: targetUserId ? String(targetUserId) : null,
+      company_name: `[AUDIT: ${actionType}] ${details}`,
+      login_status: actionType,
+      ip_address: ipAddress || null,
+      user_agent: navigator.userAgent || null,
+      device_info: targetUsername ? `Target: @${targetUsername}` : `System Activity`,
+      login_at: new Date().toISOString()
+    };
+
+    const { error } = await client.from('login_history').insert([supabasePayload]);
+    if (error) {
+      console.warn('Failed to insert audit log to Supabase:', error.message);
+    }
+  } catch (err) {
+    console.warn('Error inside logAuditEvent:', err);
+  }
+}
+
 export async function fetchLoginHistory(): Promise<LoginHistory[]> {
   try {
     const client = getActiveSupabaseClient();

@@ -38,6 +38,12 @@ export const INITIAL_USERS: MetrologyUser[] = [
     can_save: true,
     can_delete: true,
     created_at: '2026-01-02T00:00:00Z',
+    admin_can_add_company_user: true,
+    admin_can_add_admin_user: true,
+    admin_can_edit_users: true,
+    admin_can_deactivate_users: true,
+    admin_can_view_all_users: true,
+    is_active: true,
   },
   {
     id: 'user-co-001',

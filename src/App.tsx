@@ -60,7 +60,7 @@ import DashboardStats from './components/DashboardStats';
 import DeveloperConsole from './components/DeveloperConsole';
 import ReportPrintLayout from './components/ReportPrintLayout';
 import TopServiceCompanies from './components/TopServiceCompanies';
-import { logLoginHistory, fetchLoginHistory } from './services/loginHistoryService';
+import { logLoginHistory, fetchLoginHistory, logAuditEvent } from './services/loginHistoryService';
 import LoginHistoryView from './components/LoginHistoryView';
 
 // Import Logo Asset
@@ -237,7 +237,7 @@ export default function App() {
   // Defensive navigation guard checking role authorization for restricted views
   useEffect(() => {
     if (sessionUser) {
-      if (activeTab === 'users' && sessionUser.role !== 'superadmin') {
+      if (activeTab === 'users' && sessionUser.role !== 'superadmin' && sessionUser.role !== 'admin') {
         setActiveTab('dashboard');
         showToast('សិទ្ធិមិនគ្រប់គ្រាន់ដើម្បីចូលប្រើប្រាស់ទំព័រនេះទេ (Unauthorized access to Users management)', 'error');
       } else if (activeTab === 'history' && sessionUser.role !== 'superadmin') {
@@ -440,7 +440,109 @@ export default function App() {
 
   // User Management callbacks (Superadmin)
   const handleSaveOrUpdateUser = async (newUser: MetrologyUser) => {
+    if (!sessionUser) return;
+
     const exists = users.some(u => u.id === newUser.id);
+    const existingUser = users.find(u => u.id === newUser.id);
+
+    // Security check & Role validation
+    if (sessionUser.role === 'admin') {
+      if (!exists) {
+        // Adding new user
+        if (newUser.role === 'company' && !sessionUser.admin_can_add_company_user) {
+          await logAuditEvent(sessionUser, 'UNAUTHORIZED_USER_CREATE_ATTEMPT', `Admin tried to create company user without permission: @${newUser.username}`);
+          showToast('អ្នកមិនមានសិទ្ធិបង្កើតគណនីក្រុមហ៊ុនទេ! / You have no permission to create company users.', 'error');
+          return;
+        }
+        if (newUser.role === 'admin' && !sessionUser.admin_can_add_admin_user) {
+          await logAuditEvent(sessionUser, 'UNAUTHORIZED_USER_CREATE_ATTEMPT', `Admin tried to create admin user without permission: @${newUser.username}`);
+          showToast('អ្នកមិនមានសិទ្ធិបង្កើតគណនីមន្ត្រីទេ! / You have no permission to create admin users.', 'error');
+          return;
+        }
+      } else {
+        // Editing existing user
+        if (!sessionUser.admin_can_edit_users) {
+          await logAuditEvent(sessionUser, 'UNAUTHORIZED_USER_CREATE_ATTEMPT', `Admin tried to edit user without permission: @${newUser.username}`);
+          showToast('អ្នកមិនមានសិទ្ធិកែប្រែព័ត៌មានគណនីទេ! / You do not have permission to edit users.', 'error');
+          return;
+        }
+
+        // Prevent editing Superadmin accounts by Admins
+        if (existingUser?.role === 'superadmin') {
+          await logAuditEvent(sessionUser, 'UNAUTHORIZED_USER_CREATE_ATTEMPT', `Admin tried to edit Superadmin account: @${existingUser.username}`);
+          showToast('អ្នកមិនអាចកែប្រែគណនី Super Admin បានទេ! / Admin cannot modify Superadmin accounts.', 'error');
+          return;
+        }
+
+        // Prevent Admin from changing their own role or permissions
+        if (newUser.id === sessionUser.id) {
+          if (newUser.role !== sessionUser.role || 
+              newUser.admin_can_add_company_user !== sessionUser.admin_can_add_company_user ||
+              newUser.admin_can_add_admin_user !== sessionUser.admin_can_add_admin_user ||
+              newUser.admin_can_edit_users !== sessionUser.admin_can_edit_users ||
+              newUser.admin_can_deactivate_users !== sessionUser.admin_can_deactivate_users ||
+              newUser.admin_can_view_all_users !== sessionUser.admin_can_view_all_users) {
+            await logAuditEvent(sessionUser, 'UNAUTHORIZED_USER_CREATE_ATTEMPT', `Admin tried to modify their own role/permissions: @${newUser.username}`);
+            showToast('អ្នកមិនអាចកែប្រែតួនាទី ឬសិទ្ធិផ្ទាល់ខ្លួនបានទេ! / You cannot edit your own role or permissions.', 'error');
+            return;
+          }
+        }
+
+        // Prevent deactivating Superadmin
+        if (existingUser?.role === 'superadmin' && newUser.is_active === false) {
+          await logAuditEvent(sessionUser, 'UNAUTHORIZED_USER_CREATE_ATTEMPT', `Admin tried to deactivate Superadmin account: @${existingUser.username}`);
+          showToast('អ្នកមិនអាចផ្អាកគណនី Super Admin បានទេ! / Cannot deactivate Superadmin account.', 'error');
+          return;
+        }
+
+        // Admin deactivating users check
+        if (existingUser && existingUser.is_active !== false && newUser.is_active === false) {
+          if (!sessionUser.admin_can_deactivate_users) {
+            await logAuditEvent(sessionUser, 'UNAUTHORIZED_USER_CREATE_ATTEMPT', `Admin tried to deactivate user @${newUser.username} without permission.`);
+            showToast('អ្នកមិនមានសិទ្ធិផ្អាកដំណើរការគណនីទេ! / You do not have permission to deactivate users.', 'error');
+            return;
+          }
+        }
+      }
+
+      // Admins cannot create Superadmins!
+      if (newUser.role === 'superadmin') {
+        await logAuditEvent(sessionUser, 'UNAUTHORIZED_USER_CREATE_ATTEMPT', `Admin tried to create or upgrade user @${newUser.username} to superadmin`);
+        showToast('អ្នកមិនអាចបង្កើត ឬដំឡើងឋានៈជា Super Admin បានទេ! / Cannot escalate privileges to Superadmin.', 'error');
+        return;
+      }
+    }
+
+    // Capture Audit trail events
+    if (!exists) {
+      if (sessionUser.role === 'superadmin') {
+        await logAuditEvent(sessionUser, 'USER_CREATED_BY_SUPERADMIN', `Superadmin created user account: @${newUser.username}`, newUser.id, newUser.username);
+      } else if (sessionUser.role === 'admin') {
+        await logAuditEvent(sessionUser, 'USER_CREATED_BY_ADMIN', `Admin created user account: @${newUser.username}`, newUser.id, newUser.username);
+      }
+    } else {
+      if (existingUser) {
+        // Detect Deactivation
+        if (existingUser.is_active !== false && newUser.is_active === false) {
+          await logAuditEvent(sessionUser, 'USER_DEACTIVATED', `Deactivated user account: @${newUser.username}`, newUser.id, newUser.username);
+        }
+
+        // Detect Permission Updates for Admin by Superadmin
+        if (newUser.role === 'admin' && sessionUser.role === 'superadmin') {
+          const permChanged = 
+            existingUser.admin_can_add_company_user !== newUser.admin_can_add_company_user ||
+            existingUser.admin_can_add_admin_user !== newUser.admin_can_add_admin_user ||
+            existingUser.admin_can_edit_users !== newUser.admin_can_edit_users ||
+            existingUser.admin_can_deactivate_users !== newUser.admin_can_deactivate_users ||
+            existingUser.admin_can_view_all_users !== newUser.admin_can_view_all_users;
+            
+          if (permChanged) {
+            await logAuditEvent(sessionUser, 'ADMIN_PERMISSION_UPDATED', `Superadmin updated permissions for Admin: @${newUser.username}`, newUser.id, newUser.username);
+          }
+        }
+      }
+    }
+
     let updatedList: MetrologyUser[] = [];
     if (exists) {
       updatedList = users.map(u => u.id === newUser.id ? newUser : u);
@@ -869,40 +971,40 @@ export default function App() {
                   <span>របាយការណ៍ប្រចាំខែ (Reports)</span>
                 </button>
 
-                {sessionUser.role === 'superadmin' && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('users');
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
-                        activeTab === 'users' 
-                          ? 'bg-gold/10 text-gold border-r-4 border-gold' 
-                          : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
-                      }`}
-                    >
-                      <Users className="h-4 w-4 shrink-0 text-gold" />
-                      <span>គ្រប់គ្រងគណនីក្រុមហ៊ុន (Users)</span>
-                    </button>
+                {(sessionUser.role === 'superadmin' || sessionUser.role === 'admin') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('users');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
+                      activeTab === 'users' 
+                        ? 'bg-gold/10 text-gold border-r-4 border-gold' 
+                        : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
+                    }`}
+                  >
+                    <Users className="h-4 w-4 shrink-0 text-gold" />
+                    <span>គ្រប់គ្រងគណនីក្រុមហ៊ុន (Users)</span>
+                  </button>
+                )}
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('history');
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
-                        activeTab === 'history' 
-                          ? 'bg-gold/10 text-gold border-r-4 border-gold' 
-                          : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
-                      }`}
-                    >
-                      <Clock className="h-4 w-4 shrink-0 text-gold" />
-                      <span>ប្រវត្តិចូលប្រើប្រាស់ (Login History)</span>
-                    </button>
-                  </>
+                {sessionUser.role === 'superadmin' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('history');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
+                      activeTab === 'history' 
+                        ? 'bg-gold/10 text-gold border-r-4 border-gold' 
+                        : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
+                    }`}
+                  >
+                    <Clock className="h-4 w-4 shrink-0 text-gold" />
+                    <span>ប្រវត្តិចូលប្រើប្រាស់ (Login History)</span>
+                  </button>
                 )}
 
                 {sessionUser.role !== 'company' && sessionUser.role !== 'admin' && sessionUser.role !== 'superadmin' && (
@@ -1035,34 +1137,34 @@ export default function App() {
               </button>
 
               {/* User management tab anchor (Restricted to Admins!) */}
-              {sessionUser.role === 'superadmin' && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('users')}
-                    className={`w-full flex items-center gap-3 px-5 py-3 text-[13px] font-bold transition-all cursor-pointer justify-start rounded-none ${
-                      activeTab === 'users' 
-                        ? 'bg-white/5 text-white border-r-4 border-gold shadow-xs' 
-                        : 'text-slate-400 hover:bg-white/[0.02] hover:text-white border-r-4 border-transparent'
-                    }`}
-                  >
-                    <Users className="h-4 w-4 shrink-0 text-gold" />
-                    <span>គ្រប់គ្រងគណនីក្រុមហ៊ុន (Users)</span>
-                  </button>
+              {(sessionUser.role === 'superadmin' || sessionUser.role === 'admin') && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('users')}
+                  className={`w-full flex items-center gap-3 px-5 py-3 text-[13px] font-bold transition-all cursor-pointer justify-start rounded-none ${
+                    activeTab === 'users' 
+                      ? 'bg-white/5 text-white border-r-4 border-gold shadow-xs' 
+                      : 'text-slate-400 hover:bg-white/[0.02] hover:text-white border-r-4 border-transparent'
+                  }`}
+                >
+                  <Users className="h-4 w-4 shrink-0 text-gold" />
+                  <span>គ្រប់គ្រងគណនីក្រុមហ៊ុន (Users)</span>
+                </button>
+              )}
 
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('history')}
-                    className={`w-full flex items-center gap-3 px-5 py-3 text-[13px] font-bold transition-all cursor-pointer justify-start rounded-none ${
-                      activeTab === 'history' 
-                        ? 'bg-white/5 text-white border-r-4 border-gold shadow-xs' 
-                        : 'text-slate-400 hover:bg-white/[0.02] hover:text-white border-r-4 border-transparent'
-                    }`}
-                  >
-                    <Clock className="h-4 w-4 shrink-0 text-gold" />
-                    <span>ប្រវត្តិចូលប្រើប្រាស់ (Login History)</span>
-                  </button>
-                </>
+              {sessionUser.role === 'superadmin' && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('history')}
+                  className={`w-full flex items-center gap-3 px-5 py-3 text-[13px] font-bold transition-all cursor-pointer justify-start rounded-none ${
+                    activeTab === 'history' 
+                      ? 'bg-white/5 text-white border-r-4 border-gold shadow-xs' 
+                      : 'text-slate-400 hover:bg-white/[0.02] hover:text-white border-r-4 border-transparent'
+                  }`}
+                >
+                  <Clock className="h-4 w-4 shrink-0 text-gold" />
+                  <span>ប្រវត្តិចូលប្រើប្រាស់ (Login History)</span>
+                </button>
               )}
 
               {/* Developer integration panel (Hidden for company context) */}
