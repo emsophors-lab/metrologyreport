@@ -55,6 +55,7 @@ import {
 import LoginScreen from './components/LoginScreen';
 import UserManagement from './components/UserManagement';
 import ReportForm from './components/ReportForm';
+import ExcelReportUpload from './components/ExcelReportUpload';
 import DashboardStats from './components/DashboardStats';
 import DeveloperConsole from './components/DeveloperConsole';
 import ReportPrintLayout from './components/ReportPrintLayout';
@@ -102,6 +103,7 @@ export default function App() {
 
   // Active items state
   const [selectedEditReport, setSelectedEditReport] = useState<MetrologyReport | null>(null);
+  const [addReportMethod, setAddReportMethod] = useState<'manual' | 'excel'>('manual');
   const [selectedPrintReport, setSelectedPrintReport] = useState<MetrologyReport | null>(null);
   const [isPrintAllPreview, setIsPrintAllPreview] = useState(false);
 
@@ -500,6 +502,47 @@ export default function App() {
 
     // Trigger Telegram Push Notification in the background asynchronously
     sendTelegramNotification(newRecord, exists, users, (msg, type) => showToast(msg, type));
+  };
+
+  const handleImportExcelSuccess = async (importedList: MetrologyReport[], summaryText: string) => {
+    // 1. Bulk combine reports to state and local storage registry
+    const updatedList = [...importedList, ...reports];
+    saveReportsToStore(updatedList);
+
+    // 2. Synchronize reports to Supabase Cloud on successful local persistence
+    try {
+      for (const rep of importedList) {
+        await saveReportToSupabase(rep);
+      }
+    } catch (e) {
+      console.warn('Supabase sync bulk load error:', e);
+    }
+
+    // 3. Register standard IMPORT_EXCEL_REPORT log
+    const storedLogs = localStorage.getItem('nmc_import_history');
+    let historyList: any[] = [];
+    if (storedLogs) {
+      try {
+        historyList = JSON.parse(storedLogs);
+      } catch (e) {
+        // ignore
+      }
+    }
+    const logItem = {
+      id: 'import_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now(),
+      user_id: sessionUser?.id || 'unknown',
+      user_email: sessionUser?.email || sessionUser?.username || 'unknown',
+      action: 'IMPORT_EXCEL_REPORT',
+      description: 'User imported reports from Excel template',
+      total_rows: importedList.length,
+      success_rows: importedList.length,
+      failed_rows: 0,
+      timestamp: new Date().toISOString()
+    };
+    historyList.unshift(logItem);
+    localStorage.setItem('nmc_import_history', JSON.stringify(historyList.slice(0, 150)));
+
+    showToast(`ជោគជ័យ៖ បាននាំចូលរបាយការណ៍ចំនួន ${importedList.length} ជួរ!`, 'success');
   };
 
   const handleDeleteReport = async (id: string) => {
@@ -1184,8 +1227,34 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Form column based on permission view */}
-                {((sessionUser.can_save && !selectedEditReport) || (selectedEditReport && sessionUser.can_edit)) ? (
+                {/* Addition Switch Toggles */}
+                {sessionUser.can_save && !selectedEditReport && (
+                  <div className="flex bg-slate-100 p-1 rounded-lg max-w-sm">
+                    <button
+                      onClick={() => setAddReportMethod('manual')}
+                      className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                        addReportMethod === 'manual'
+                          ? 'bg-white text-slate-800 shadow-xs border border-slate-200/50'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      បញ្ចូលម្តងមួយ / Add One by One
+                    </button>
+                    <button
+                      onClick={() => setAddReportMethod('excel')}
+                      className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                        addReportMethod === 'excel'
+                          ? 'bg-white text-emerald-700 shadow-xs border border-slate-200/50'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      Upload Excel Template
+                    </button>
+                  </div>
+                )}
+
+                {/* Form or Excel Upload column based on permission view */}
+                {selectedEditReport ? (
                   <ReportForm 
                     currentUser={sessionUser}
                     selectedReport={selectedEditReport}
@@ -1194,6 +1263,25 @@ export default function App() {
                     onClearActiveEdit={() => setSelectedEditReport(null)}
                     toastMsg={showToast}
                   />
+                ) : sessionUser.can_save ? (
+                  addReportMethod === 'excel' ? (
+                    <ExcelReportUpload
+                      currentUser={sessionUser}
+                      allUsers={users}
+                      existingReports={reports}
+                      onImportSuccess={handleImportExcelSuccess}
+                      toastMsg={showToast}
+                    />
+                  ) : (
+                    <ReportForm 
+                      currentUser={sessionUser}
+                      selectedReport={null}
+                      onSubmitReport={handleSaveOrUpdateReport}
+                      onDeleteReport={handleDeleteReport}
+                      onClearActiveEdit={() => setSelectedEditReport(null)}
+                      toastMsg={showToast}
+                    />
+                  )
                 ) : (
                   <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl text-xs text-slate-500 font-medium">
                     ⚠️ គណនីរបស់អ្នកត្រូវបានកំណត់សិទ្ធិមិនឱ្យបំពេញ ឬកែព័ត៌មានថ្មីឡើយ។ ប្រសិនបើត្រូវការសិទ្ធិបន្ថែម សូមទាក់ទងមកមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ។
