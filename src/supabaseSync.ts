@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { MetrologyUser, MetrologyReport, SupabaseConfig } from './types';
-import { INITIAL_USERS, INITIAL_REPORTS } from './demoData';
+import { INITIAL_USERS, INITIAL_REPORTS, isDemoDataEnabled } from './demoData';
 
 // Dynamic config cache
 let supabaseInstance: SupabaseClient | null = null;
@@ -125,7 +125,7 @@ export async function seedSupabaseIfEmpty(client: SupabaseClient) {
       .from('reports')
       .select('*', { count: 'exact', head: true });
 
-    if (!rErr && (reportCount === 0 || reportCount === null)) {
+    if (!rErr && (reportCount === 0 || reportCount === null) && isDemoDataEnabled()) {
       console.log('Supabase reports table is empty. Seeding INITIAL_REPORTS...');
       const mappedReports = INITIAL_REPORTS.map(r => ({
         id: r.id,
@@ -331,8 +331,11 @@ export async function fetchReportsFromSupabase(): Promise<MetrologyReport[]> {
     }
 
     // Seed database if positive empty response returned
-    await seedSupabaseIfEmpty(client);
-    return INITIAL_REPORTS;
+    if (isDemoDataEnabled()) {
+      await seedSupabaseIfEmpty(client);
+      return INITIAL_REPORTS;
+    }
+    return [];
   } catch (e) {
     console.warn('Falling back to local storage databases on Supabase reports fetch failure:', e);
     throw e;

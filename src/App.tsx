@@ -29,7 +29,7 @@ import {
 import { MetrologyUser, MetrologyReport, SupabaseConfig, ServiceType, generateYearOptions } from './types';
 
 // Import Demo Data
-import { INITIAL_USERS, INITIAL_REPORTS } from './demoData';
+import { INITIAL_USERS, INITIAL_REPORTS, isDemoDataEnabled } from './demoData';
 
 // Import Export Utils
 import { 
@@ -274,12 +274,12 @@ export default function App() {
     setUsers(initialUsers);
 
     const cachedReports = localStorage.getItem('nmc_reports');
-    let initialReports = INITIAL_REPORTS;
+    let initialReports = isDemoDataEnabled() ? INITIAL_REPORTS : [];
     if (cachedReports) {
       try {
         initialReports = JSON.parse(cachedReports);
       } catch (e) {
-        initialReports = INITIAL_REPORTS;
+        initialReports = isDemoDataEnabled() ? INITIAL_REPORTS : [];
       }
     }
     setReports(initialReports);
@@ -314,7 +314,7 @@ export default function App() {
 
         // Sync metrology reports from Supabase
         const cloudReports = await fetchReportsFromSupabase();
-        if (cloudReports && cloudReports.length > 0) {
+        if (cloudReports) {
           setReports(cloudReports);
           localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
         }
@@ -343,7 +343,7 @@ export default function App() {
     if (verifyId) {
       setVerifyReportId(verifyId);
       
-      const reportsSource = (reports && reports.length > 0) ? reports : INITIAL_REPORTS;
+      const reportsSource = (reports && reports.length > 0) ? reports : (isDemoDataEnabled() ? INITIAL_REPORTS : []);
       const usersSource = (users && users.length > 0) ? users : INITIAL_USERS;
       
       if (verifyId === 'filtered') {
@@ -390,7 +390,7 @@ export default function App() {
           setVerifiedReport(rep);
           const comp = usersSource.find(u => u.license_number === rep.license_number || u.company_name_kh === rep.company_name_kh);
           setVerifiedCompany(comp || null);
-        } else if (INITIAL_REPORTS && INITIAL_REPORTS.length > 0) {
+        } else if (isDemoDataEnabled() && INITIAL_REPORTS && INITIAL_REPORTS.length > 0) {
           const backupRep = INITIAL_REPORTS.find(r => r.id === verifyId);
           if (backupRep) {
             setVerifiedReport(backupRep);
@@ -648,15 +648,28 @@ export default function App() {
   };
 
   const handleDeleteReport = async (id: string) => {
-    const updated = reports.filter(r => r.id !== id);
-    saveReportsToStore(updated);
-    setSelectedEditReport(null);
-
-    // Synchronize report deletion to Supabase Cloud
     try {
+      // Synchronize report deletion to Supabase Cloud first
       await deleteReportFromSupabase(id);
+
+      // Remove from UI only after Supabase delete succeeds
+      const updated = reports.filter(r => r.id !== id);
+      saveReportsToStore(updated);
+      setSelectedEditReport(null);
+      showToast('លុបរបាយការណ៍បានជោគជ័យ! / Deleted report successfully!', 'success');
+
+      // After delete, refetch reports from Supabase to keep state in sync
+      const activeCfg = getActiveSupabaseConfig();
+      if (activeCfg.url && activeCfg.anonKey && !activeCfg.url.includes('YOUR_SUPABASE_URL')) {
+        const cloudReports = await fetchReportsFromSupabase();
+        if (cloudReports) {
+          setReports(cloudReports);
+          localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
+        }
+      }
     } catch (e) {
-      console.warn('Supabase reports deletion sync issue:', e);
+      console.error('Supabase reports deletion sync issue:', e);
+      showToast('លុបរបាយការណ៍មិនបានជោគជ័យ៖ សេវាអ៊ីនធឺណិតមានបញ្ហា! / Could not delete report!', 'error');
     }
   };
 
@@ -678,7 +691,7 @@ export default function App() {
         }
 
         const cloudReports = await fetchReportsFromSupabase();
-        if (cloudReports && cloudReports.length > 0) {
+        if (cloudReports) {
           setReports(cloudReports);
           localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
         }
@@ -707,9 +720,9 @@ export default function App() {
 
       const cachedReports = localStorage.getItem('nmc_reports');
       if (cachedReports) {
-        try { setReports(JSON.parse(cachedReports)); } catch (e) { setReports(INITIAL_REPORTS); }
+        try { setReports(JSON.parse(cachedReports)); } catch (e) { setReports(isDemoDataEnabled() ? INITIAL_REPORTS : []); }
       } else {
-        setReports(INITIAL_REPORTS);
+        setReports(isDemoDataEnabled() ? INITIAL_REPORTS : []);
       }
     }
   };
@@ -1613,7 +1626,14 @@ export default function App() {
                         {paginatedReports.length === 0 && (
                           <tr>
                             <td colSpan={sessionUser.role !== 'company' ? 9 : 8} className="text-center py-12 text-slate-400 font-sans">
-                              មិនមានទិន្នន័យរបាយការណ៍បំពេញស្របនឹងការចម្រោះរបស់អ្នកឡើយ!
+                              {reports.length === 0 ? (
+                                <div className="space-y-1">
+                                  <p className="font-bold text-slate-600">មិនទាន់មានរបាយការណ៍ទេ</p>
+                                  <p className="text-xs text-slate-400 font-mono font-medium">No reports found</p>
+                                </div>
+                              ) : (
+                                "មិនមានទិន្នន័យរបាយការណ៍បំពេញស្របនឹងការចម្រោះរបស់អ្នកឡើយ!"
+                              )}
                             </td>
                           </tr>
                         )}

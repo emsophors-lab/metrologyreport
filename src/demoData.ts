@@ -187,3 +187,24 @@ export const INITIAL_REPORTS: MetrologyReport[] = [
     updated_at: '2026-05-22T04:10:00Z',
   },
 ];
+
+export function isDemoDataEnabled(): boolean {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'metrologyreport.vercel.app') {
+      return false;
+    }
+    if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.')) {
+      return true;
+    }
+  }
+  const meta = import.meta as any;
+  if (meta.env?.DEV === true) {
+    return true;
+  }
+  if (meta.env?.VITE_ENABLE_DEMO_DATA === 'true') {
+    return true;
+  }
+  return false;
+}
+
