@@ -125,7 +125,7 @@ export default function DeveloperConsole({ config, onUpdateConfig, toastMsg }: D
       {/* Tab navigation headers */}
       <div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Settings className="h-5 w-5 text-indigo-600" />
+          <Settings className="h-5 w-5 text-[#353C96]" />
           <h3 className="font-bold text-slate-800 text-sm">Supabase Link & Developer Studio (ប្រព័ន្ធតភ្ជាប់)</h3>
         </div>
 
@@ -155,25 +155,25 @@ export default function DeveloperConsole({ config, onUpdateConfig, toastMsg }: D
       <div className="flex border-b border-slate-200">
         <button
           onClick={() => setActiveTab('setup')}
-          className={`flex-1 py-2.5 text-center text-xs font-bold border-b-2 transition-colors ${activeTab === 'setup' ? 'border-indigo-600 text-indigo-600 bg-indigo-50/10' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+          className={`flex-1 py-2.5 text-center text-xs font-bold border-b-2 transition-colors ${activeTab === 'setup' ? 'border-indigo-600 text-[#353C96] bg-slate-50/10' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
         >
           ១. ភ្ជាប់ Supabase Credentials
         </button>
         <button
           onClick={() => setActiveTab('sql')}
-          className={`flex-1 py-2.5 text-center text-xs font-bold border-b-2 transition-colors ${activeTab === 'sql' ? 'border-indigo-600 text-indigo-600 bg-indigo-50/10' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+          className={`flex-1 py-2.5 text-center text-xs font-bold border-b-2 transition-colors ${activeTab === 'sql' ? 'border-indigo-600 text-[#353C96] bg-slate-50/10' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
         >
           ២. SQL Database Script
         </button>
         <button
           onClick={() => setActiveTab('github')}
-          className={`flex-1 py-2.5 text-center text-xs font-bold border-b-2 transition-colors ${activeTab === 'github' ? 'border-indigo-600 text-indigo-600 bg-indigo-50/10' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+          className={`flex-1 py-2.5 text-center text-xs font-bold border-b-2 transition-colors ${activeTab === 'github' ? 'border-indigo-600 text-[#353C96] bg-slate-50/10' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
         >
           ៣. របៀប Deploy Vercel
         </button>
         <button
           onClick={() => setActiveTab('export')}
-          className={`flex-1 py-2.5 text-center text-xs font-bold border-b-2 transition-colors ${activeTab === 'export' ? 'border-indigo-600 text-indigo-600 bg-indigo-50/10' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+          className={`flex-1 py-2.5 text-center text-xs font-bold border-b-2 transition-colors ${activeTab === 'export' ? 'border-indigo-600 text-[#353C96] bg-slate-50/10' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
         >
           ៤. ទាញយកឯកសារមួយគត់ (index.html)
         </button>
@@ -185,8 +185,8 @@ export default function DeveloperConsole({ config, onUpdateConfig, toastMsg }: D
         {/* Setup parameters tab */}
         {activeTab === 'setup' && (
           <div className="space-y-4">
-            <div className="bg-indigo-50 text-indigo-950 p-4 rounded-xl border border-indigo-100 flex gap-3 text-xs leading-relaxed">
-              <Info className="h-5 w-5 text-indigo-500 shrink-0 mt-0.5" />
+            <div className="bg-slate-50 text-indigo-950 p-4 rounded-xl border border-[#C9D2E3] flex gap-3 text-xs leading-relaxed">
+              <Info className="h-5 w-5 text-[#353C96] shrink-0 mt-0.5" />
               <div>
                 <p className="font-bold mb-1">ព័ត៌មានបន្ថែមស្តីការតភ្ជាប់ ៖</p>
                 <p>តាមលំនាំដើម ប្រព័ន្ធកំពង់ស្ថិតក្នុង <b>"Local Storage fall-back"</b> ដែលរក្សាទុកទិន្នន័យរាល់ព័ត៌មាន និងឈ្មោះក្រុមហ៊ុន ដែលអ្នកបានបង្កើតក្នុង browser storage ដាច់ដោយឡែក។ ប្រសិនបើចង់តភ្ជាប់ទៅកាន់ផលិតផល Database Server ពិតប្រាកដ សូមបញ្ចូល URL និង Anon API Key របស់ Supabase Project របស់អ្នកខាងក្រោមរួចចុចរក្សាទុក!</p>
@@ -200,7 +200,7 @@ export default function DeveloperConsole({ config, onUpdateConfig, toastMsg }: D
                 </label>
                 <input
                   type="text"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono text-slate-700"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96] font-mono text-slate-700"
                   placeholder="https://your-project-id.supabase.co"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
@@ -213,7 +213,7 @@ export default function DeveloperConsole({ config, onUpdateConfig, toastMsg }: D
                 </label>
                 <input
                   type="text"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono text-slate-700"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96] font-mono text-slate-700"
                   placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.your-key-goes-here..."
                   value={anonKey}
                   onChange={(e) => setAnonKey(e.target.value)}
@@ -223,7 +223,7 @@ export default function DeveloperConsole({ config, onUpdateConfig, toastMsg }: D
               <div className="md:col-span-2 flex justify-end gap-2 pt-3">
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+                  className="px-5 py-2.5 bg-[#353C96] hover:bg-[#2D327F] text-white rounded-lg text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
                 >
                   <Cpu className="h-4 w-4" />
                   រក្សាទុកព័ត៌មានភ្ជាប់ (Save Credentials)
@@ -258,12 +258,12 @@ export default function DeveloperConsole({ config, onUpdateConfig, toastMsg }: D
         {/* Github guidance tab */}
         {activeTab === 'github' && (
           <div className="space-y-4">
-            <div className="flex items-center gap-2 text-indigo-950 bg-indigo-50 p-4 rounded-xl border border-indigo-100 text-xs font-semibold">
+            <div className="flex items-center gap-2 text-indigo-950 bg-slate-50 p-4 rounded-xl border border-[#C9D2E3] text-xs font-semibold">
               <Github className="h-5 w-5 text-slate-600" />
               <span>សេចក្ដីណែនាំអំពីការដាក់បញ្ជូនកូដទៅកាន់ GitHub និង Deploy Vercel</span>
             </div>
             <div className="text-xs text-slate-600 leading-relaxed font-sans space-y-3">
-              <p className="font-bold underline text-indigo-700">របៀបងាយស្រួលបំផុតដើម្បីឡើងគម្រោងទៅកាន់ Cloud:</p>
+              <p className="font-bold underline text-[#2D327F]">របៀបងាយស្រួលបំផុតដើម្បីឡើងគម្រោងទៅកាន់ Cloud:</p>
               <div className="prose bg-slate-50 p-4 rounded-lg text-slate-700 text-[11px] font-mono whitespace-pre-wrap border border-slate-100 leading-snug">
                 {GITHUB_DEPLOYMENT_INSTRUCTIONS}
               </div>

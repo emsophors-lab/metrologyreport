@@ -1,4 +1,5 @@
 import { MetrologyReport, MetrologyUser } from './types';
+import { getApiAuthHeaders } from './apiAuth';
 
 /**
  * Dispatches a real-time Telegram notification with detailed text summary
@@ -13,14 +14,10 @@ export async function sendTelegramNotification(
   // Try to find the synchronized system configuration from the user database (Supabase)
   const dbTelegramConfig = users.find(u => u.id === 'telegram_config');
 
-  const botToken = dbTelegramConfig?.company_name_kh || localStorage.getItem('nmc_telegram_bot_token');
-  const chatId = dbTelegramConfig?.company_name_en || localStorage.getItem('nmc_telegram_chat_id');
-  const isEnabled = dbTelegramConfig 
-    ? (dbTelegramConfig.address === 'true') 
-    : (localStorage.getItem('nmc_telegram_enabled') !== 'false');
+  const isEnabled = dbTelegramConfig ? (dbTelegramConfig.address === 'true') : true;
 
   // Return silently if notifications are disabled or missing credential details
-  if (!isEnabled || !botToken || !chatId) {
+  if (!isEnabled) {
     return;
   }
 
@@ -134,25 +131,22 @@ export async function sendTelegramNotification(
     `✅ បានបង្កើត និងផ្ញើរបាយការណ៍ PDF រួចរាល់។`;
 
   try {
-    // 2. Dispatch JSON Request to Telegram API (sendMessage instead of sendDocument)
-    const tgResponse = await fetch(`https://api.telegram.org/bot${botToken.trim()}/sendMessage`, {
+    // 2. Dispatch through backend so Telegram bot tokens never run in browser-side requests.
+    const tgResponse = await fetch('/api/test-telegram-reminder', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: await getApiAuthHeaders(),
       body: JSON.stringify({
-        chat_id: chatId.trim(),
-        text: captionText,
-        parse_mode: 'HTML'
+        botPurpose: 'report_group',
+        customMessage: captionText
       })
     });
 
     const data = await tgResponse.json();
-    if (data.ok) {
+    if (tgResponse.ok) {
       console.log('NMC Official Notification successfully dispatched to Telegram group!');
     } else {
-      console.error('Telegram endpoint response failure:', data.description);
-      showToast(`Telegram Warn: ${data.description}`, 'error');
+      console.error('Telegram endpoint response failure:', data.error);
+      showToast(`Telegram Warn: ${data.error || 'Send failed'}`, 'error');
     }
   } catch (err: any) {
     console.error('Failed executing Telegram dispatch service:', err);

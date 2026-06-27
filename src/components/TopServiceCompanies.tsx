@@ -192,7 +192,7 @@ export default function TopServiceCompanies({ reports, users }: TopServiceCompan
             </p>
           </div>
         </div>
-        <div className="px-3 py-1 bg-indigo-50 border border-indigo-100 rounded-full text-[10px] font-bold text-indigo-700 flex items-center gap-1">
+        <div className="px-3 py-1 bg-slate-50 border border-[#C9D2E3] rounded-full text-[10px] font-bold text-[#2D327F] flex items-center gap-1">
           <Award className="h-3.5 w-3.5" />
           <span>ទិន្នន័យរួមទូទាំងប្រទេស</span>
         </div>
@@ -202,7 +202,7 @@ export default function TopServiceCompanies({ reports, users }: TopServiceCompan
       <div className="bg-slate-50 border border-slate-100 rounded-xl p-4.5 space-y-4">
         {/* Title line */}
         <div className="flex items-center gap-2 text-xs text-slate-700 font-bold">
-          <SlidersHorizontal className="h-4 w-4 text-indigo-600" />
+          <SlidersHorizontal className="h-4 w-4 text-[#353C96]" />
           <span>ជម្រើសចម្រោះលទ្ធផល / Filter Controls</span>
         </div>
 
@@ -270,9 +270,9 @@ export default function TopServiceCompanies({ reports, users }: TopServiceCompan
 
         {/* Current status display label bar */}
         <div className="flex items-center gap-2 bg-white rounded-lg px-3.5 py-2.5 border border-slate-100 text-[10.5px] font-semibold text-slate-600">
-          <Info className="h-4 w-4 text-indigo-500 shrink-0" />
+          <Info className="h-4 w-4 text-[#353C96] shrink-0" />
           <span className="leading-tight">
-            ចំណាត់ថ្នាក់សកម្ម៖ <span className="text-indigo-700 font-bold underline decoration-indigo-300 underline-offset-2">{getActiveFilterLabel()}</span>
+            ចំណាត់ថ្នាក់សកម្ម៖ <span className="text-[#2D327F] font-bold underline decoration-indigo-300 underline-offset-2">{getActiveFilterLabel()}</span>
           </span>
         </div>
       </div>
@@ -315,7 +315,7 @@ export default function TopServiceCompanies({ reports, users }: TopServiceCompan
                     <span className={`text-[10px] font-bold uppercase tracking-wider ${style.textAccent} font-muol`}>
                       ចំណាត់ថ្នាក់ {style.rankLabel}
                     </span>
-                    <h5 className="font-bold text-slate-800 text-xs leading-relaxed max-w-[80%] uppercase group-hover:text-indigo-900 transition-colors">
+                    <h5 className="font-bold text-slate-800 text-xs leading-relaxed max-w-[80%] uppercase group-hover:text-[#2D327F] transition-colors">
                       {company.companyNameKh}
                     </h5>
                     <p className="text-[10px] text-slate-400 font-medium font-mono">

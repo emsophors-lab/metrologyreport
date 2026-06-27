@@ -122,7 +122,7 @@ export default function LoginHistoryView() {
       case 'admin':
         return {
           label: 'Admin',
-          classes: 'bg-indigo-50 border-indigo-200 text-indigo-700'
+          classes: 'bg-slate-50 border-[#C9D2E3] text-[#2D327F]'
         };
       case 'company':
         return {
@@ -219,7 +219,7 @@ export default function LoginHistoryView() {
                 <p className="text-2xl font-black font-mono text-slate-800 leading-none">{totalLoginsCount}</p>
                 <p className="text-[9px] text-slate-400 font-medium font-sans">ទិន្នន័យស្របតាមជម្រើសចម្រោះ</p>
               </div>
-              <div className="h-11 w-11 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-500 shrink-0 border border-indigo-100">
+              <div className="h-11 w-11 bg-slate-50 rounded-lg flex items-center justify-center text-[#353C96] shrink-0 border border-[#C9D2E3]">
                 <Activity className="h-5.5 w-5.5" />
               </div>
             </div>
@@ -240,7 +240,7 @@ export default function LoginHistoryView() {
             <div className="bg-white rounded-xl border border-slate-100 p-4.5 flex items-center justify-between shadow-xs">
               <div className="space-y-1">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">សហគ្រាស/មន្ត្រីផ្សេងគ្នា</p>
-                <p className="text-2xl font-black font-mono text-indigo-600 leading-none">{uniqueUsersCount}</p>
+                <p className="text-2xl font-black font-mono text-[#353C96] leading-none">{uniqueUsersCount}</p>
                 <p className="text-[9px] text-slate-400 font-medium font-sans">គណនី active ក្នុងបញ្ជីឡុក</p>
               </div>
               <div className="h-11 w-11 bg-amber-50 rounded-lg flex items-center justify-center text-amber-500 shrink-0 border border-amber-100">
@@ -253,7 +253,7 @@ export default function LoginHistoryView() {
           {/* Interactive filter controls toolbar */}
           <div className="bg-white rounded-xl border border-slate-100 p-5 space-y-4 shadow-xs">
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-              <Filter className="h-4 w-4 text-indigo-600" />
+              <Filter className="h-4 w-4 text-[#353C96]" />
               <h3 className="text-xs font-bold text-slate-700 font-muol">ស្វែងរកលម្អិត និងចម្រោះលទ្ធផល (Log Query Controls)</h3>
             </div>
 
@@ -347,8 +347,8 @@ export default function LoginHistoryView() {
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse min-w-[800px]">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                    <th className="p-4 text-center w-12 select-none">ល.រ</th>
+                  <tr className="bg-[#353C96] text-white text-[10px] font-bold uppercase tracking-wider">
+                    <th className="p-4 text-center w-12 select-none text-white">ល.រ</th>
                     <th className="p-4">កាលបរិច្ឆេទ & ម៉ោង (Date & Time)</th>
                     <th className="p-4">គណនី / អ៊ីមែល (User / Email)</th>
                     <th className="p-4">តួនាទី (Role)</th>
@@ -444,7 +444,7 @@ export default function LoginHistoryView() {
                                 );
                               case 'USER_CREATED_BY_SUPERADMIN':
                                 return (
-                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-indigo-100 text-indigo-800 border border-indigo-300 uppercase tracking-wider font-sans">
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-slate-100 text-indigo-800 border border-indigo-300 uppercase tracking-wider font-sans">
                                     CREATE BY SA
                                   </span>
                                 );

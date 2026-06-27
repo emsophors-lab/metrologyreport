@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { UserPlus, Edit2, Trash2, CheckCircle, Shield, Key, Eye, EyeOff, X, Send, FileDown, Printer, MapPin, CalendarDays, FileText } from 'lucide-react';
 import { MetrologyUser, UserRole } from '../types';
 import { exportUsersToWordDoc, getMonthNameKH } from '../exportUtils';
+import { getApiAuthHeaders } from '../apiAuth';
 
 interface UserManagementProps {
   currentUser: MetrologyUser;
@@ -54,9 +55,9 @@ export default function UserManagement({
   const [showPassword, setShowPassword] = useState(false);
 
   // Telegram Notifications State Settings
-  const [telegramBotToken, setTelegramBotToken] = useState(() => localStorage.getItem('nmc_telegram_bot_token') || '');
-  const [telegramChatId, setTelegramChatId] = useState(() => localStorage.getItem('nmc_telegram_chat_id') || '');
-  const [telegramEnabled, setTelegramEnabled] = useState(() => localStorage.getItem('nmc_telegram_enabled') !== 'false');
+  const [telegramBotToken, setTelegramBotToken] = useState('');
+  const [telegramChatId, setTelegramChatId] = useState('');
+  const [telegramEnabled, setTelegramEnabled] = useState(true);
   const [isTestingTelegram, setIsTestingTelegram] = useState(false);
 
   // Synchronize component input states with the database when usersList updates
@@ -72,34 +73,13 @@ export default function UserManagement({
   const handleSaveTelegramConfig = () => {
     const trimmedBotToken = telegramBotToken.trim();
     const trimmedChatId = telegramChatId.trim();
-    const enabledStr = telegramEnabled ? 'true' : 'false';
 
-    localStorage.setItem('nmc_telegram_bot_token', trimmedBotToken);
-    localStorage.setItem('nmc_telegram_chat_id', trimmedChatId);
-    localStorage.setItem('nmc_telegram_enabled', enabledStr);
+    if (!trimmedBotToken || !trimmedChatId) {
+      toastMsg('សូមបំពេញ Bot Token និង Chat ID ជាមុនសិន។', 'error');
+      return;
+    }
 
-    // Save and synchronize database configuration records with Supabase
-    onSaveUser({
-      id: 'telegram_config',
-      license_number: 'SYSTEM_CONFIG',
-      company_name_kh: trimmedBotToken,
-      company_name_en: trimmedChatId,
-      address: enabledStr,
-      phone: 'SYSTEM',
-      email: 'telegram@system.config',
-      legal_representative: 'System Configuration',
-      representative_position: 'System Settings',
-      username: 'telegram_config',
-      password: 'N/A',
-      role: 'admin',
-      can_view: false,
-      can_edit: false,
-      can_save: false,
-      can_delete: false,
-      created_at: new Date().toISOString()
-    });
-
-    toastMsg('បានរក្សាទុកការកំណត់ Telegram ដោយជោគជ័យ!', 'success');
+    toastMsg('សូមប្រើផ្ទាំង License Registry > Telegram Bot Settings ដើម្បីរក្សាទុក Token ដោយសុវត្ថិភាព។', 'error');
   };
 
   const handleTestTelegram = async () => {
@@ -109,20 +89,20 @@ export default function UserManagement({
     }
     setIsTestingTelegram(true);
     try {
-      const response = await fetch(`https://api.telegram.org/bot${telegramBotToken.trim()}/sendMessage`, {
+      const response = await fetch('/api/test-telegram-reminder', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await getApiAuthHeaders(),
         body: JSON.stringify({
-          chat_id: telegramChatId.trim(),
-          text: `🔔 <b>NMC Telegram Test Connection</b>\n\nប្រព័ន្ធគ្រប់គ្រងរបាយការណ៍ NMC ត្រូវបានតភ្ជាប់ដោយជោគជ័យជាមួយ Telegram! ពេលវេលាផ្ទៀងផ្ទាត់៖ ${new Date().toLocaleString()}`,
-          parse_mode: 'HTML'
+          botToken: telegramBotToken.trim(),
+          chatId: telegramChatId.trim(),
+          customMessage: `🔔 <b>NMC Telegram Test Connection</b>\n\nប្រព័ន្ធគ្រប់គ្រងរបាយការណ៍ NMC ត្រូវបានតភ្ជាប់ដោយជោគជ័យជាមួយ Telegram! ពេលវេលាផ្ទៀងផ្ទាត់៖ ${new Date().toLocaleString()}`
         })
       });
       const data = await response.json();
-      if (data.ok) {
+      if (response.ok) {
         toastMsg('សាកល្បងជោគជ័យ! សារសាកល្បងត្រូវបានបញ្ជូនទៅកាន់ Telegram Host App ។', 'success');
       } else {
-        toastMsg(`បរាជ័យ៖ ${data.description || 'កូដខុស ឬ Chat ID មិនត្រឹមត្រូវ'}`, 'error');
+        toastMsg(`បរាជ័យ៖ ${data.error || 'កូដខុស ឬ Chat ID មិនត្រឹមត្រូវ'}`, 'error');
       }
     } catch (err: any) {
       toastMsg(`បរាជ័យក្នុងការតភ្ជាប់៖ ${err.message}`, 'error');
@@ -256,6 +236,9 @@ export default function UserManagement({
       return;
     }
 
+    const existingTargetForPassword = usersList.find(u => u.id === userId);
+    const passwordWasChangedByAdmin = !!existingTargetForPassword && password !== (existingTargetForPassword.password || '');
+
     const newUser: MetrologyUser = {
       id: userId || 'user_' + Date.now(),
       license_number: licenseNumber || 'N/A',
@@ -268,6 +251,10 @@ export default function UserManagement({
       representative_position: representativePosition || 'N/A',
       username: username.trim(),
       password: password || licenseNumber || '123456',
+      password_hash: passwordWasChangedByAdmin ? null : (existingTargetForPassword?.password_hash || null),
+      password_updated_at: passwordWasChangedByAdmin ? null : (existingTargetForPassword?.password_updated_at || null),
+      must_change_password: existingTargetForPassword?.must_change_password ?? false,
+      last_password_change_by: passwordWasChangedByAdmin ? null : (existingTargetForPassword?.last_password_change_by || null),
       role: userRole,
       can_view: canView,
       can_edit: canEdit,
@@ -657,11 +644,11 @@ export default function UserManagement({
                   <p className="text-[10px] text-slate-400 mb-2 leading-tight">
                     កំណត់ទំហំសិទ្ធិសម្រាប់គណនីមន្ត្រីត្រួតពិនិត្យ (Admin) ក្នុងការគ្រប់គ្រងអ្នកប្រើប្រាស់មន្ត្រី និងសហគ្រាស
                   </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-indigo-50/50 p-4 rounded-lg border border-indigo-200/50">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50/50 p-4 rounded-lg border border-[#C9D2E3]/50">
                     <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
                       <input
                         type="checkbox"
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 shadow-xs"
+                        className="rounded border-slate-300 text-[#353C96] focus:ring-[#353C96] h-4 w-4 shadow-xs"
                         checked={adminCanAddCompanyUser}
                         onChange={(e) => setAdminCanAddCompanyUser(e.target.checked)}
                         disabled={isEditing && userId === currentUser.id} // cannot change self
@@ -672,7 +659,7 @@ export default function UserManagement({
                     <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
                       <input
                         type="checkbox"
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 shadow-xs"
+                        className="rounded border-slate-300 text-[#353C96] focus:ring-[#353C96] h-4 w-4 shadow-xs"
                         checked={adminCanAddAdminUser}
                         onChange={(e) => setAdminCanAddAdminUser(e.target.checked)}
                         disabled={isEditing && userId === currentUser.id} // cannot change self
@@ -683,7 +670,7 @@ export default function UserManagement({
                     <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
                       <input
                         type="checkbox"
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 shadow-xs"
+                        className="rounded border-slate-300 text-[#353C96] focus:ring-[#353C96] h-4 w-4 shadow-xs"
                         checked={adminCanEditUsers}
                         onChange={(e) => setAdminCanEditUsers(e.target.checked)}
                         disabled={isEditing && userId === currentUser.id} // cannot change self
@@ -694,7 +681,7 @@ export default function UserManagement({
                     <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
                       <input
                         type="checkbox"
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 shadow-xs"
+                        className="rounded border-slate-300 text-[#353C96] focus:ring-[#353C96] h-4 w-4 shadow-xs"
                         checked={adminCanDeactivateUsers}
                         onChange={(e) => setAdminCanDeactivateUsers(e.target.checked)}
                         disabled={isEditing && userId === currentUser.id} // cannot change self
@@ -705,7 +692,7 @@ export default function UserManagement({
                     <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer md:col-span-2">
                       <input
                         type="checkbox"
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 shadow-xs"
+                        className="rounded border-slate-300 text-[#353C96] focus:ring-[#353C96] h-4 w-4 shadow-xs"
                         checked={adminCanViewAllUsers}
                         onChange={(e) => setAdminCanViewAllUsers(e.target.checked)}
                         disabled={isEditing && userId === currentUser.id} // cannot change self
@@ -750,8 +737,8 @@ export default function UserManagement({
 
         {/* Right Sidebar Column with both Telegram Settings and Guidance */}
         <div className="space-y-6">
-          {/* Telegram Notification Settings Card - Exclude for Admin clients */}
-          {currentUser.role !== 'admin' && (
+          {/* Legacy Telegram Notification Settings Card - disabled; use License Registry > Telegram Bot Settings. */}
+          {false && currentUser.role === 'superadmin' && (
             <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6 relative overflow-hidden">
               <div className="flex items-center gap-2 mb-3 border-b border-slate-100 pb-3">
                 <Send className="h-4 w-4 text-sky-500 animate-pulse" />
@@ -964,8 +951,8 @@ export default function UserManagement({
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                <th className="p-4 text-center w-12">ល.រ</th>
+              <tr className="bg-[#353C96] text-white text-[10px] font-bold uppercase tracking-wider">
+                <th className="p-4 text-center w-12 text-white">ល.រ</th>
                 <th className="p-4">ឈ្មោះសហគ្រាស និងលេខអាជ្ញាប័ណ្ណ</th>
                 <th className="p-4">អ្នកតំណាង / ទំនាក់ទំនង</th>
                 <th className="p-4">គណនី / ប្រភេទអ្នកប្រើ</th>
@@ -1113,7 +1100,7 @@ export default function UserManagement({
                 <div className="flex justify-between items-start border-b border-slate-300 pb-4 mb-6">
                   <div className="font-sans text-left">
                     <p className="text-[10px] font-bold text-slate-800 uppercase tracking-wide">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
-                    <p className="text-xs font-bold text-indigo-900 underline mt-0.5">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+                    <p className="text-xs font-bold text-[#2D327F] underline mt-0.5">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
                     <p className="text-[9px] text-slate-400 mt-0.5">ទម្រង់លក្ខណៈឯកសារផ្លូវការរបស់មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
                   </div>
                   <div className="text-center text-right" style={{ fontFamily: '"Khmer OS Muol Light", "Moul", "Khmer OS Muol", serif' }}>
