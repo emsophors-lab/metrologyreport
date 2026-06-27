@@ -1,6 +1,7 @@
 export default async function handler(req: any, res: any) {
   try {
-    const { default: app } = await import('../server.ts');
+    const serverModule = await import('../dist/server.cjs');
+    const app = serverModule.default?.default || serverModule.default || serverModule;
     return app(req, res);
   } catch (err: any) {
     console.error('Vercel API boot failed:', err);

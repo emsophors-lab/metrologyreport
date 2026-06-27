@@ -31,5 +31,10 @@
       "path": "/api/license-reminders",
       "schedule": "0 1 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "api/[...path].ts": {
+      "includeFiles": "dist/server.cjs"
+    }
+  }
 }
