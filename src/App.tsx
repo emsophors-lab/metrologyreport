@@ -73,7 +73,7 @@ import EnterpriseLicensingRegistry from './components/EnterpriseLicensingRegistr
 import ChangePasswordModal from './components/ChangePasswordModal';
 
 // Import Logo Asset
-import nmcLogo from './components/NMClogo.png';
+import nmcLogo from './NMClogo.png';
 
 // Import Telegram Utils
 import { sendTelegramNotification } from './telegramUtils';
@@ -1390,17 +1390,9 @@ export default function App() {
         <div className="nmc-sidebar md:hidden bg-navy text-slate-200 border-b border-slate-800 flex flex-col select-none shrink-0 w-full">
           <div className="p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="h-8 w-9 flex items-center justify-center shrink-0 overflow-hidden relative">
-                <img 
-                  src={nmcLogo} 
-                  alt="NMC logo" 
-                  className="h-full w-auto object-contain"
-                />
-              </div>
               <div>
-                <p className="text-[8px] text-slate-300 font-bold leading-snug">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
-                <h4 className="font-bold text-[10px] text-gold tracking-wide font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</h4>
-                <p className="text-[8px] text-slate-400 font-medium tracking-wide">National Metrology Center of Cambodia</p>
+                <h4 className="font-bold text-[11px] text-gold tracking-wide font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</h4>
+                <p className="text-[9px] text-slate-400 font-medium tracking-wide">National Metrology Center of Cambodia</p>
               </div>
             </div>
             
@@ -1602,35 +1594,10 @@ export default function App() {
         {/* Navigation Sidebar Drawer - Section 13 */}
         <aside className="nmc-sidebar hidden md:flex md:w-64 bg-navy text-slate-300 flex-col justify-between border-r border-slate-800/80 shrink-0 select-none">
           <div>
-            {/* Traditional Emblem Logo Header */}
-            <div className="p-5 border-b border-slate-850 flex items-center gap-3 bg-black/10">
-              <div className="h-10 w-11 flex items-center justify-center shrink-0 overflow-hidden relative">
-                <img 
-                  src={nmcLogo} 
-                  alt="NMC logo" 
-                  className="h-full w-auto object-contain hidden animate-fade-in"
-                  onLoad={(e) => {
-                    e.currentTarget.classList.remove('hidden');
-                    const fallbackElement = document.getElementById('sidebar-landmark-fallback');
-                    if (fallbackElement) {
-                      fallbackElement.classList.add('hidden');
-                    }
-                  }}
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                    const fallbackElement = document.getElementById('sidebar-landmark-fallback');
-                    if (fallbackElement) {
-                      fallbackElement.classList.remove('hidden');
-                    }
-                  }}
-                />
-                <div id="sidebar-landmark-fallback" className="absolute inset-0 flex items-center justify-center bg-navy rounded-lg border border-gold/30">
-                  <Landmark className="h-5 w-5 text-gold" />
-                </div>
-              </div>
+            {/* National Metrology Center sidebar brand */}
+            <div className="p-5 border-b border-slate-850 bg-black/10">
               <div>
-                <p className="text-[8px] text-slate-300 font-bold leading-snug">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
-                <h4 className="font-bold text-[10px] text-gold tracking-wide font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</h4>
+                <h4 className="font-bold text-[12px] text-gold tracking-wide font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</h4>
                 <p className="text-[9px] text-slate-400 font-medium tracking-wide">National Metrology Center of Cambodia</p>
               </div>
             </div>
@@ -1804,14 +1771,14 @@ export default function App() {
               <img 
                 src={nmcLogo} 
                 alt="NMC Logo" 
-                className="nmc-official-header__logo h-16 w-16 object-contain shrink-0 filter brightness-110 drop-shadow-md" 
+                className="nmc-official-header__logo object-contain shrink-0 drop-shadow-md" 
                 referrerPolicy="no-referrer"
               />
               <div className="space-y-1">
-                <h1 className="nmc-official-header__title-kh text-sm md:text-base font-bold font-muol tracking-wide text-white drop-shadow-xs">
+                <h1 className="nmc-official-header__title-kh font-bold tracking-wide text-white drop-shadow-xs" style={{ fontFamily: '"Khmer OS Muol Light", "Khmer OS Moul Light", "Khmer OS Muol", "Noto Serif Khmer", serif' }}>
                   ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍
                 </h1>
-                <h2 className="nmc-official-header__title-en text-[11px] md:text-xs font-semibold text-slate-100/90 font-muol tracking-wide leading-relaxed">
+                <h2 className="nmc-official-header__title-en font-semibold text-slate-100/90 font-muol tracking-wide leading-relaxed">
                   មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ - National Metrology Center of Cambodia
                 </h2>
               </div>
