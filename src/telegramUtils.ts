@@ -1,6 +1,16 @@
 import { MetrologyReport, MetrologyUser } from './types';
 import { getApiAuthHeaders } from './apiAuth';
 
+async function readResponseJsonSafely(response: Response): Promise<any> {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text, message: text };
+  }
+}
+
 /**
  * Dispatches a real-time Telegram notification with detailed text summary
  * and a professionally generated PDF report file attachment.
@@ -141,12 +151,18 @@ export async function sendTelegramNotification(
       })
     });
 
-    const data = await tgResponse.json();
+    const data = await readResponseJsonSafely(tgResponse);
     if (tgResponse.ok) {
       console.log('NMC Official Notification successfully dispatched to Telegram group!');
     } else {
-      console.error('Telegram endpoint response failure:', data.error);
-      showToast(`Telegram Warn: ${data.error || 'Send failed'}`, 'error');
+      const message = data?.message || data?.error || 'Send failed';
+      console.error('Telegram endpoint response failure:', message);
+      showToast(
+        message === 'Report Group Notification Bot is inactive or missing configuration.'
+          ? message
+          : `Telegram Warn: ${message}`,
+        'error'
+      );
     }
   } catch (err: any) {
     console.error('Failed executing Telegram dispatch service:', err);

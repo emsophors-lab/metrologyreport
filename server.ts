@@ -104,18 +104,19 @@ async function sendTelegramMessage(botToken: string, chatId: string, text: strin
       parse_mode: 'HTML'
     })
   });
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Telegram sendMessage API error: ${errText}`);
+  const body = await readResponseBodySafely(response);
+  if (!response.ok || body?.ok === false) {
+    const description = body?.description || body?.raw || `HTTP ${response.status}`;
+    throw new Error(`Telegram sendMessage API error: ${sanitizeTelegramError(description, botToken)}`);
   }
-  return await response.json();
+  return body;
 }
 
 async function testTelegramBotIdentity(botToken: string) {
   const response = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
-  const body = await response.json().catch(() => ({}));
+  const body = await readResponseBodySafely(response);
   if (!response.ok || !body.ok) {
-    throw new Error(body.description || 'Telegram getMe API connection failed.');
+    throw new Error(sanitizeTelegramError(body.description || body.raw || 'Telegram getMe API connection failed.', botToken));
   }
   return body.result;
 }
@@ -140,7 +141,7 @@ function getPurposeCandidates(purpose: TelegramBotPurpose) {
 
 function getPurposeMissingMessage(purpose: TelegramBotPurpose) {
   return normalizeBotPurpose(purpose) === 'report_group'
-    ? 'Please configure an active Report Group Notification Bot or a bot with purpose Both.'
+    ? 'Report Group Notification Bot is inactive or missing configuration.'
     : 'Please configure an active License Reminder Bot or a bot with purpose Both.';
 }
 
@@ -154,6 +155,22 @@ function apiError(res: any, status: number, message: string, extra: Record<strin
 
 function apiSuccess(res: any, body: Record<string, any> = {}) {
   return res.json({ success: true, ...body });
+}
+
+async function readResponseBodySafely(response: Response): Promise<any> {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
+}
+
+function sanitizeTelegramError(message: string, botToken?: string | null) {
+  let safe = String(message || 'Telegram API request failed.');
+  if (botToken) safe = safe.split(botToken).join('[REDACTED]');
+  return safe.replace(/bot\d+:[A-Za-z0-9_-]+/g, 'bot[REDACTED]');
 }
 
 function isProtectedSecretValue(value?: string | null) {
@@ -239,9 +256,13 @@ async function getActiveBot(purpose: TelegramBotPurpose = 'license_reminder') {
       .limit(10);
 
     if (!error && data && data.length > 0) {
-      const usableCandidates = data.filter((bot: any) => String(bot.bot_token_encrypted || '').trim() && String(bot.bot_username || '').trim());
+      const usableCandidates = data.filter((bot: any) =>
+        String(bot.bot_token_encrypted || '').trim() &&
+        !isProtectedSecretValue(bot.bot_token_encrypted) &&
+        String(bot.bot_username || '').trim()
+      );
       const usable = normalizeBotPurpose(purpose) === 'report_group'
-        ? (usableCandidates.find((bot: any) => getBotGroupChatId(bot)) || usableCandidates[0])
+        ? usableCandidates.find((bot: any) => getBotGroupChatId(bot))
         : usableCandidates[0];
       if (usable) return usable;
     }
@@ -900,9 +921,9 @@ app.post('/api/set-telegram-webhook', async (req, res) => {
       body: JSON.stringify({ url: webhookUrl })
     });
 
-    const body = await response.json().catch(() => ({}));
+    const body = await readResponseBodySafely(response);
     if (!response.ok || !body.ok) {
-      throw new Error(body.description || 'Telegram setWebhook failed');
+      throw new Error(sanitizeTelegramError(body.description || body.raw || 'Telegram setWebhook failed', botToken));
     }
 
     // Update database
@@ -964,7 +985,7 @@ app.get('/api/get-telegram-webhook-status', async (req, res) => {
     }
 
     const response = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
-    const body = await response.json();
+    const body = await readResponseBodySafely(response);
 
     if (response.ok && body.ok) {
       const info = body.result;
@@ -992,7 +1013,7 @@ app.get('/api/get-telegram-webhook-status', async (req, res) => {
     return res.json({ status: 'Failed', reason: 'Telegram API returned failure status' });
   } catch (err: any) {
     console.error('getWebhookInfo error:', err);
-    return res.status(500).json({ error: err?.message || 'Failed to query Telegram webhook info' });
+    return apiError(res, 500, err?.message || 'Failed to query Telegram webhook info');
   }
 });
 
@@ -1002,10 +1023,10 @@ app.get('/api/get-telegram-webhook-status', async (req, res) => {
  */
 app.post('/api/test-telegram-reminder', async (req, res) => {
   try {
-    if (!(await requireApiRole(req, res, ['superadmin', 'admin']))) return;
-
     const { licenseId, chatId, customMessage, botToken: bodyBotToken, botUsername: bodyBotUsername, botId, botPurpose } = req.body;
     const requestedPurpose: TelegramBotPurpose = (botPurpose === 'report_group' || botPurpose === 'report_notification') ? 'report_group' : 'license_reminder';
+
+    if (requestedPurpose !== 'report_group' && !(await requireApiRole(req, res, ['superadmin', 'admin']))) return;
     
     let botToken = bodyBotToken;
     let botUsername = bodyBotUsername || 'Custom Bot';
@@ -1024,13 +1045,22 @@ app.post('/api/test-telegram-reminder', async (req, res) => {
         botUsername = data.bot_username;
         activeBotId = data.id;
         targetChatId = targetChatId || (normalizeBotPurpose(data.bot_purpose) === 'report_group' || data.bot_purpose === 'both' ? getBotGroupChatId(data) : data.default_chat_id);
+        if (requestedPurpose === 'report_group') {
+          const botReady = data.is_active === true &&
+            getPurposeCandidates('report_group').includes(data.bot_purpose) &&
+            !isProtectedSecretValue(data.bot_token_encrypted) &&
+            !!getBotGroupChatId(data);
+          if (!botReady) {
+            return apiError(res, 400, getPurposeMissingMessage(requestedPurpose));
+          }
+        }
       }
     }
 
     if (!botToken) {
       const activeBot = await getActiveBot(requestedPurpose);
       if (!activeBot) {
-        return res.status(400).json({ error: getPurposeMissingMessage(requestedPurpose) });
+        return apiError(res, 400, getPurposeMissingMessage(requestedPurpose));
       }
       botToken = activeBot.bot_token_encrypted;
       botUsername = activeBot.bot_username;
@@ -1039,17 +1069,42 @@ app.post('/api/test-telegram-reminder', async (req, res) => {
     }
 
     if (!targetChatId) {
-      return res.status(400).json({
-        error: normalizeBotPurpose(requestedPurpose) === 'report_group'
+      return apiError(
+        res,
+        400,
+        normalizeBotPurpose(requestedPurpose) === 'report_group'
           ? 'Default Group Chat ID is required for Report Group notifications.'
           : 'Missing required target Telegram Chat ID'
-      });
+      );
+    }
+
+    if (!botToken || isProtectedSecretValue(botToken)) {
+      return apiError(res, 400, getPurposeMissingMessage(requestedPurpose));
     }
 
     // bilingual test message
     const msg = customMessage || `🧪 <b>សាកល្បងតេឡេក្រាមរំលឹក / Telegram Reminder Connection Test</b>\n\nសហគ្រាសរបស់អ្នកបានបំពេញការភ្ជាប់ប្រព័ន្ធជូនដំណឹងជាស្វ័យប្រវត្តិនៃមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិដោយជោគជ័យ។\nYour enterprise has successfully verified reminders connection to the National Metrology Center system.`;
 
     await sendTelegramMessage(botToken, String(targetChatId), msg);
+
+    let updatedBotForClient: any = null;
+    if (supabaseAdmin && activeBotId && activeBotId !== 'env-fallback') {
+      const statusUpdate = {
+        connection_status: 'connected',
+        last_test_status: 'Success',
+        last_test_message: normalizeBotPurpose(requestedPurpose) === 'report_group'
+          ? 'Telegram group sendMessage verified successfully.'
+          : 'Telegram test message sent successfully.',
+        last_error: null,
+        last_tested_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      await supabaseAdmin
+        .from('telegram_bot_settings')
+        .update(statusUpdate)
+        .eq('id', activeBotId);
+      updatedBotForClient = sanitizeBotForClient({ id: activeBotId, bot_username: botUsername, ...statusUpdate });
+    }
 
     if (supabaseAdmin && licenseId) {
       // Save reminder log to DB
@@ -1077,11 +1132,37 @@ app.post('/api/test-telegram-reminder', async (req, res) => {
       } catch {}
     }
 
-    return res.json({ status: 'success', message: 'Test message sent successfully!' });
+    return apiSuccess(res, { status: 'success', message: 'Test message sent successfully!', bot: updatedBotForClient });
   } catch (err: any) {
-    console.error('Failed to send test reminder:', err);
-    return res.status(500).json({ error: err?.message || 'Test reminder dispatch failed' });
+    const safeMessage = sanitizeTelegramError(err?.message || 'Test reminder dispatch failed');
+    console.error('Failed to send test reminder:', safeMessage);
+    const botId = req.body?.botId || req.body?.bot_id || null;
+    if (supabaseAdmin && botId) {
+      await supabaseAdmin
+        .from('telegram_bot_settings')
+        .update({
+          connection_status: 'error',
+          last_test_status: 'Failed',
+          last_test_message: 'Telegram sendMessage failed.',
+          last_error: safeMessage,
+          last_tested_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', botId);
+    }
+    return apiError(res, 500, safeMessage);
   }
+});
+
+app.use('/api', (req, res) => {
+  return apiError(res, 404, `API route not found: ${req.method} ${req.originalUrl}`);
+});
+
+app.use((err: any, req: any, res: any, next: any) => {
+  if (req.path?.startsWith('/api')) {
+    return apiError(res, 500, err?.message || 'Internal API error');
+  }
+  return next(err);
 });
 
 // ==========================================

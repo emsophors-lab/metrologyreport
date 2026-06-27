@@ -1595,8 +1595,8 @@ export default function EnterpriseLicensingRegistry({
           }
         }
       } else {
-        const errData = await response.json();
-        toastMsg(`ផ្ញើសារសាកល្បងបរាជ័យ៖ ${errData.error || 'Server error'}`, 'error');
+        const errData = await readResponseJsonSafely(response);
+        toastMsg(`ផ្ញើសារសាកល្បងបរាជ័យ៖ ${errData?.message || errData?.error || 'Server error'}`, 'error');
       }
     } catch (err: any) {
       console.error(err);
@@ -1861,7 +1861,7 @@ export default function EnterpriseLicensingRegistry({
         headers: await getApiAuthHeaders(),
       });
       if (response.ok) {
-        const data = await response.json();
+        const data = await readResponseJsonSafely(response);
         setWebhookStatuses(prev => ({
           ...prev,
           [botId]: {
@@ -1932,10 +1932,6 @@ export default function EnterpriseLicensingRegistry({
       toastMsg('សូមកំណត់ Active Bot ដែលមាន Bot Username និង Bot Token ជាមុនសិន។ / Please configure an active bot with both Bot Username and Bot Token first.', 'error');
       return;
     }
-    if (!hasUsableBotToken(bot)) {
-      toastMsg('Bot token missing. Please edit this bot and enter the real Bot Token for local testing.', 'error');
-      return;
-    }
 
     const updateConnectionState = async (updates: Partial<TelegramBotSetting>) => {
       const safeUpdates = {
@@ -1955,6 +1951,52 @@ export default function EnterpriseLicensingRegistry({
         console.warn('Unable to save Telegram Bot connection metadata:', err?.message || err);
       }
     };
+
+    if (botRequiresGroupChat(bot)) {
+      if (!getBotGroupChatId(bot)) {
+        toastMsg('Bot connected, but Default Group Chat ID is missing for group notifications.', 'error');
+        return;
+      }
+
+      toastMsg('Sending Telegram group test message...', 'success');
+      try {
+        const groupResponse = await fetch('/api/test-telegram-reminder', {
+          method: 'POST',
+          headers: await getApiAuthHeaders(),
+          body: JSON.stringify({
+            botId: bot.id,
+            botPurpose: 'report_group',
+            customMessage: `<b>NMC Report Group Notification Test</b>\n\nSystem linked successfully with bot @${bot.bot_username}.`
+          })
+        });
+
+        const groupData = await readResponseJsonSafely(groupResponse);
+        if (!groupResponse.ok) {
+          throw new Error(groupData?.message || groupData?.error || `Request failed: ${groupResponse.status}`);
+        }
+
+        await updateConnectionState({
+          connection_status: 'connected',
+          last_test_status: 'Success',
+          last_test_message: 'Telegram group sendMessage verified successfully.',
+          last_error: null,
+          last_tested_at: new Date().toISOString()
+        });
+        toastMsg('បានផ្ញើសារសាកល្បងទៅក្រុម Telegram ដោយជោគជ័យ។ / Group notification test sent successfully.', 'success');
+        loadRegistryData();
+      } catch (err: any) {
+        const safeMessage = sanitizeTelegramError(err?.message || String(err || 'Telegram group sendMessage failed.'));
+        await updateConnectionState({
+          connection_status: 'error',
+          last_test_status: 'Failed',
+          last_test_message: 'Telegram sendMessage failed.',
+          last_error: safeMessage,
+          last_tested_at: new Date().toISOString()
+        });
+        toastMsg(safeMessage, 'error');
+      }
+      return;
+    }
 
     const testDirectlyWithTelegramGetMe = async () => {
       toastMsg('មិនមាន API endpoint សម្រាប់សាកល្បង Telegram Bot នៅ local development ទេ។ ប្រព័ន្ធនឹងសាកល្បងដោយផ្ទាល់តាម Telegram getMe។ / Local API endpoint for Telegram Bot test is unavailable. The system will test directly using Telegram getMe.', 'success');
@@ -2013,7 +2055,6 @@ export default function EnterpriseLicensingRegistry({
       
       if (response.ok) {
         toastMsg('បានតភ្ជាប់ Telegram Bot ដោយជោគជ័យ។ / Telegram Bot connected successfully.', 'success');
-        return;
         if (botRequiresGroupChat(bot)) {
           if (!getBotGroupChatId(bot)) {
             toastMsg('Bot connected, but Default Group Chat ID is missing for group notifications.', 'error');
@@ -2031,17 +2072,30 @@ export default function EnterpriseLicensingRegistry({
               })
             });
 
-            const groupData = await groupResponse.json();
+            const groupData = await readResponseJsonSafely(groupResponse);
             if (groupResponse.ok) {
+              if (groupData?.bot) {
+                setBotSettings(prev => prev.map(item => item.id === bot.id ? { ...item, ...groupData.bot } : item));
+              } else {
+                setBotSettings(prev => prev.map(item => item.id === bot.id ? {
+                  ...item,
+                  connection_status: 'connected',
+                  last_test_status: 'Success',
+                  last_test_message: 'Telegram group sendMessage verified successfully.',
+                  last_error: null,
+                  last_tested_at: new Date().toISOString()
+                } : item));
+              }
               toastMsg('បានផ្ញើសារសាកល្បងទៅក្រុម Telegram ដោយជោគជ័យ។ / Group notification test sent successfully.', 'success');
             } else {
-              toastMsg(`Bot connected, but group notification failed: ${groupData.error || 'Send failed'}`, 'error');
+              toastMsg(`Bot connected, but group notification failed: ${groupData?.message || groupData?.error || 'Send failed'}`, 'error');
             }
           } catch (groupErr: any) {
             console.error('Telegram group notification test failed:', groupErr?.message || groupErr);
             toastMsg(`Bot connected, but group notification failed: ${groupErr?.message || 'Network error'}`, 'error');
           }
         }
+        loadRegistryData();
       } else {
         toastMsg('មិនអាចតភ្ជាប់ Telegram Bot បានទេ។ សូមពិនិត្យ Bot Token។ / Unable to connect Telegram Bot. Please check the Bot Token.', 'error');
       }
@@ -2150,10 +2204,10 @@ export default function EnterpriseLicensingRegistry({
                 customMessage: textMsg
               })
             });
-            const tgData = await tgResponse.json();
+            const tgData = await readResponseJsonSafely(tgResponse);
             if (!tgResponse.ok) {
               currentSendStatus = 'Failed';
-              currentErrorMessage = tgData.error || 'API send error';
+              currentErrorMessage = tgData?.message || tgData?.error || 'API send error';
               console.warn('Simulated scheduler: Telegram message send failed:', currentErrorMessage);
             }
           } catch (err: any) {
@@ -3740,7 +3794,7 @@ export default function EnterpriseLicensingRegistry({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {botSettings.map((bot) => {
                   const botConnectionStatus = getBotConnectionStatus(bot);
-                  const botIsConfiguredActive = hasUsableBotIdentity(bot);
+                  const botIsConfiguredActive = hasUsableBotIdentity(bot, true);
                   const activeBadgeLabel = bot.is_active ? (botIsConfiguredActive ? 'Active' : 'Active - Missing Config') : 'Inactive';
 
                   return (
@@ -3878,10 +3932,21 @@ export default function EnterpriseLicensingRegistry({
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2 border-t font-sans">
+                      {botRequiresGroupChat(bot) && (
+                        <button
+                          type="button"
+                          onClick={() => handleTestBotConnection(bot)}
+                          disabled={!botIsConfiguredActive}
+                          className="p-1.5 text-[10px] font-bold text-sky-700 hover:bg-sky-50 border border-sky-200 rounded transition-colors cursor-pointer font-sans"
+                        >
+                          Send Test Group Message
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => handleTestBotConnection(bot)}
                         disabled={!botIsConfiguredActive}
+                        style={{ display: botRequiresGroupChat(bot) ? 'none' : undefined }}
                         className="p-1.5 text-[10px] font-bold text-sky-700 hover:bg-sky-50 border border-sky-200 rounded transition-colors cursor-pointer font-sans"
                       >
                         តេស្តការតភ្ជាប់ (Test Connection)
