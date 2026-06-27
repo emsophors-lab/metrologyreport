@@ -106,6 +106,19 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
         return;
       }
 
+      if (localMatched) {
+        if (localMatched.is_active === false) {
+          setErrorMessage('គណនីរបស់លោកអ្នកត្រូវផ្អាកបណ្តោះអាសន្ន! / This account has been deactivated!');
+          setIsAuthenticating(false);
+          return;
+        }
+
+        setErrorMessage('');
+        onLoginSuccess(localMatched);
+        setIsAuthenticating(false);
+        return;
+      }
+
       if (client) {
         // Active Supabase connection configured! Use Production Supabase Auth.
         const usernameOrEmail = username.trim();
