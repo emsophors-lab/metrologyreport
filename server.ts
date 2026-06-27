@@ -172,6 +172,20 @@ function getBotGroupChatId(bot: any) {
   return String(bot?.default_group_chat_id || bot?.default_chat_id || '').trim();
 }
 
+const TELEGRAM_INVALID_BOT_ID_MESSAGE = 'Invalid Telegram bot ID. Please refresh bot settings from Supabase.';
+
+function isUuid(value?: string | null) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+}
+
+function requireValidTelegramBotId(res: any, botId?: string | null) {
+  if (!botId || !isUuid(botId)) {
+    apiError(res, 400, TELEGRAM_INVALID_BOT_ID_MESSAGE);
+    return false;
+  }
+  return true;
+}
+
 function apiError(res: any, status: number, message: string, extra: Record<string, any> = {}) {
   return res.status(status).json({ success: false, message, error: message, ...extra });
 }
@@ -215,8 +229,8 @@ function sanitizeBotForClient(bot: any) {
 function sanitizeBotPayload(input: any, existingBot?: any) {
   const now = new Date().toISOString();
   const protectedToken = isProtectedSecretValue(input.bot_token_encrypted || input.bot_token);
+  const inputId = String(input.id || existingBot?.id || '').trim();
   const payload: any = {
-    id: String(input.id || existingBot?.id || `bot-${crypto.randomBytes(4).toString('hex').toUpperCase()}`),
     bot_name: input.bot_name || null,
     bot_username: String(input.bot_username || '').replace(/^@/, '').trim(),
     bot_purpose: normalizeBotPurpose(input.bot_purpose),
@@ -235,6 +249,10 @@ function sanitizeBotPayload(input: any, existingBot?: any) {
     created_at: existingBot?.created_at || input.created_at || now,
     updated_at: now
   };
+
+  if (isUuid(inputId)) {
+    payload.id = inputId;
+  }
 
   if (!protectedToken) {
     payload.bot_token_encrypted = String(input.bot_token_encrypted || input.bot_token).trim();
@@ -368,6 +386,7 @@ app.post('/api/telegram-bot-settings', async (req, res) => {
     const id = String(input.id || '');
     let existingBot: any = null;
     if (id) {
+      if (!requireValidTelegramBotId(res, id)) return;
       const { data } = await supabaseAdmin
         .from('telegram_bot_settings')
         .select('*')
@@ -387,18 +406,20 @@ app.post('/api/telegram-bot-settings', async (req, res) => {
 
     if (payload.is_active) {
       const capabilities = getPurposeCandidates(payload.bot_purpose);
-      await supabaseAdmin
+      let deactivateQuery = supabaseAdmin
         .from('telegram_bot_settings')
         .update({ is_active: false, updated_at: new Date().toISOString() })
-        .in('bot_purpose', capabilities)
-        .not('id', 'eq', payload.id);
+        .in('bot_purpose', capabilities);
+      if (payload.id) {
+        deactivateQuery = deactivateQuery.not('id', 'eq', payload.id);
+      }
+      await deactivateQuery;
     }
 
-    const { data, error } = await supabaseAdmin
-      .from('telegram_bot_settings')
-      .upsert(payload, { onConflict: 'id' })
-      .select('*')
-      .maybeSingle();
+    const saveQuery = payload.id
+      ? supabaseAdmin.from('telegram_bot_settings').upsert(payload, { onConflict: 'id' })
+      : supabaseAdmin.from('telegram_bot_settings').insert(payload);
+    const { data, error } = await saveQuery.select('*').maybeSingle();
 
     if (error) throw error;
     return apiSuccess(res, { bot: sanitizeBotForClient(data || payload) });
@@ -414,6 +435,7 @@ app.delete('/api/telegram-bot-settings/:id', async (req, res) => {
     if (!supabaseAdmin) {
       return apiError(res, 400, 'Missing Supabase server environment variables');
     }
+    if (!requireValidTelegramBotId(res, req.params.id)) return;
 
     const { error } = await supabaseAdmin
       .from('telegram_bot_settings')
@@ -759,7 +781,7 @@ app.post('/api/test-telegram-bot-connection', async (req, res) => {
     const botId = req.body?.bot_id || req.body?.botId || null;
     const bodyBotToken = req.body?.bot_token || req.body?.botToken || null;
     if (!botId && !bodyBotToken) {
-      return apiError(res, 400, 'Missing bot_id');
+      return apiError(res, 400, TELEGRAM_INVALID_BOT_ID_MESSAGE);
     }
     if (botId && !supabaseAdmin) {
       return apiError(res, 400, 'Missing Supabase server environment variables');
@@ -767,6 +789,7 @@ app.post('/api/test-telegram-bot-connection', async (req, res) => {
 
     let bot: any = null;
     if (botId && supabaseAdmin) {
+      if (!requireValidTelegramBotId(res, botId)) return;
       const { data, error } = await supabaseAdmin
         .from('telegram_bot_settings')
         .select('*')
@@ -809,11 +832,15 @@ app.post('/api/test-telegram-bot-connection', async (req, res) => {
         bot_display_name: me.first_name || me.username || bot.bot_display_name || bot.bot_name || null,
         updated_at: now
       };
-      const { error: updateError } = await supabaseAdmin
-        .from('telegram_bot_settings')
-        .update(successUpdate)
-        .eq('id', bot.id);
-      if (updateError) {
+      let updateError: any = null;
+      if (supabaseAdmin && isUuid(bot.id)) {
+        const result = await supabaseAdmin
+          .from('telegram_bot_settings')
+          .update(successUpdate)
+          .eq('id', bot.id);
+        updateError = result.error;
+      }
+      if (updateError && supabaseAdmin && isUuid(bot.id)) {
         await supabaseAdmin
           .from('telegram_bot_settings')
           .update({
@@ -849,11 +876,15 @@ app.post('/api/test-telegram-bot-connection', async (req, res) => {
         last_tested_at: now,
         updated_at: now
       };
-      const { error: updateError } = await supabaseAdmin
-        .from('telegram_bot_settings')
-        .update(errorUpdate)
-        .eq('id', bot.id);
-      if (updateError) {
+      let updateError: any = null;
+      if (supabaseAdmin && isUuid(bot.id)) {
+        const result = await supabaseAdmin
+          .from('telegram_bot_settings')
+          .update(errorUpdate)
+          .eq('id', bot.id);
+        updateError = result.error;
+      }
+      if (updateError && supabaseAdmin && isUuid(bot.id)) {
         await supabaseAdmin
           .from('telegram_bot_settings')
           .update({
@@ -898,13 +929,14 @@ app.post('/api/set-telegram-webhook', async (req, res) => {
       return apiError(res, 400, 'Webhook requires public HTTPS deployment. Localhost cannot be used for Telegram webhook.');
     }
     if (!botId && !bodyBotToken) {
-      return apiError(res, 400, 'Missing bot_id');
+      return apiError(res, 400, TELEGRAM_INVALID_BOT_ID_MESSAGE);
     }
 
     let botToken = bodyBotToken || '';
     let targetBot = null;
 
     if (supabaseAdmin && botId) {
+      if (!requireValidTelegramBotId(res, botId)) return;
       const { data, error } = await supabaseAdmin
         .from('telegram_bot_settings')
         .select('*')
@@ -980,12 +1012,17 @@ app.get('/api/get-telegram-webhook-status', async (req, res) => {
     const { botId } = req.query;
     let botToken = '';
     let targetBot = null;
+    if (!botId) {
+      return apiError(res, 400, TELEGRAM_INVALID_BOT_ID_MESSAGE);
+    }
 
     if (supabaseAdmin && botId) {
+      const safeBotId = String(botId || '');
+      if (!requireValidTelegramBotId(res, safeBotId)) return;
       const { data, error } = await supabaseAdmin
         .from('telegram_bot_settings')
         .select('*')
-        .eq('id', botId)
+        .eq('id', safeBotId)
         .limit(1)
         .maybeSingle();
       if (data && !error) {
@@ -1057,6 +1094,7 @@ app.post('/api/test-telegram-reminder', async (req, res) => {
     let targetChatId = chatId;
 
     if (!botToken && botId && supabaseAdmin) {
+      if (!requireValidTelegramBotId(res, botId)) return;
       const { data, error } = await supabaseAdmin
         .from('telegram_bot_settings')
         .select('*')
@@ -1160,7 +1198,7 @@ app.post('/api/test-telegram-reminder', async (req, res) => {
     const safeMessage = sanitizeTelegramError(err?.message || 'Test reminder dispatch failed');
     console.error('Failed to send test reminder:', safeMessage);
     const botId = req.body?.botId || req.body?.bot_id || null;
-    if (supabaseAdmin && botId) {
+    if (supabaseAdmin && botId && isUuid(botId)) {
       await supabaseAdmin
         .from('telegram_bot_settings')
         .update({

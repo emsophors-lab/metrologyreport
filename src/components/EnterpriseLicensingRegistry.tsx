@@ -266,6 +266,9 @@ const safePrompt = (message: string, defaultValue?: string): string | null => {
 const isProtectedTokenPlaceholder = (token?: string | null) =>
   !token || ['PROTECTED_UNCHANGED', 'PROTECTED_SERVER_SIDE'].includes(token) || /^[*•●]+$/.test(token.trim());
 
+const isSupabaseUuid = (value?: string | null) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+
 const hasUsableBotToken = (bot?: TelegramBotSetting | null) =>
   !!bot && !!String(bot.bot_token_encrypted || '').trim() && !isProtectedTokenPlaceholder(bot.bot_token_encrypted);
 
@@ -336,6 +339,7 @@ const fetchRealBotTokenForLocalTest = async (bot: TelegramBotSetting): Promise<s
 
   const client = getActiveSupabaseClient();
   if (!client) return '';
+  if (!isSupabaseUuid(bot.id)) return '';
 
   const { data, error } = await client
     .from('telegram_bot_settings')
@@ -354,11 +358,14 @@ const fetchRealBotTokenForLocalTest = async (bot: TelegramBotSetting): Promise<s
 const buildReportGroupTestPayload = async (bot: TelegramBotSetting, customMessage: string) => {
   const token = await fetchRealBotTokenForLocalTest(bot);
   const payload: Record<string, string> = {
-    botId: bot.id,
     botPurpose: 'report_group',
     chatId: getBotGroupChatId(bot),
     customMessage
   };
+
+  if (isSupabaseUuid(bot.id)) {
+    payload.botId = bot.id;
+  }
 
   if (token && !isProtectedTokenPlaceholder(token)) {
     payload.botToken = token;
@@ -1887,6 +1894,16 @@ export default function EnterpriseLicensingRegistry({
   const [webhookStatuses, setWebhookStatuses] = useState<Record<string, { status: string; url?: string; last_error_message?: string; last_configured_date?: string }>>({});
 
   const fetchWebhookStatus = async (botId: string) => {
+    if (!isSupabaseUuid(botId) && await canServerUseStoredBotSecrets()) {
+      setWebhookStatuses(prev => ({
+        ...prev,
+        [botId]: {
+          status: 'Not Configured',
+          last_error_message: 'Invalid Telegram bot ID. Please refresh bot settings from Supabase.'
+        }
+      }));
+      return;
+    }
     try {
       const response = await fetch(`/api/get-telegram-webhook-status?botId=${botId}`, {
         headers: await getApiAuthHeaders(),
@@ -1917,6 +1934,12 @@ export default function EnterpriseLicensingRegistry({
   }, [botSettings]);
 
   const handleConfigureWebhook = async (botId: string) => {
+    if (!isSupabaseUuid(botId) && await canServerUseStoredBotSecrets()) {
+      toastMsg('Invalid Telegram bot ID. Please refresh bot settings from Supabase.', 'error');
+      loadRegistryData();
+      return;
+    }
+
     const domainInput = safePrompt(
       "សូមបញ្ចូល domain ឬ URL អាសយដ្ឋានសម្រាប់ webhook របស់លោកអ្នក / Please enter your domain or URL for the Telegram Webhook:\n\nលទ្ធផលលំនាំដើមផលិតកម្ម (Recommended Default):\nhttps://metrologyreport.vercel.app/api/telegram-webhook", 
       "https://metrologyreport.vercel.app/api/telegram-webhook"
@@ -1973,6 +1996,7 @@ export default function EnterpriseLicensingRegistry({
 
       const client = getActiveSupabaseClient();
       if (!client) return;
+      if (!isSupabaseUuid(bot.id)) return;
       try {
         await client
           .from('telegram_bot_settings')
@@ -1995,6 +2019,9 @@ export default function EnterpriseLicensingRegistry({
           bot,
           `<b>NMC Report Group Notification Test</b>\n\nSystem linked successfully with bot @${bot.bot_username}.`
         );
+        if (!payload.botId && await canServerUseStoredBotSecrets()) {
+          throw new Error('Invalid Telegram bot ID. Please refresh bot settings from Supabase.');
+        }
         if (!payload.botToken && isProtectedTokenPlaceholder(bot.bot_token_encrypted) && !(await canServerUseStoredBotSecrets())) {
           throw new Error('Bot token is protected in this local session. Please edit this bot, paste the Bot Token once, save it, then send the test group message again.');
         }
@@ -2065,6 +2092,9 @@ export default function EnterpriseLicensingRegistry({
     
     toastMsg('កំពុងតេស្តការតភ្ជាប់ Telegram Bot... / Testing Telegram Bot connection...', 'success');
     try {
+      if (!isSupabaseUuid(bot.id) && await canServerUseStoredBotSecrets()) {
+        throw new Error('Invalid Telegram bot ID. Please refresh bot settings from Supabase.');
+      }
       const response = await fetch('/api/test-telegram-bot-connection', {
         method: 'POST',
         headers: await getApiAuthHeaders(),
@@ -2096,6 +2126,9 @@ export default function EnterpriseLicensingRegistry({
           }
 
           try {
+            if (!isSupabaseUuid(bot.id) && await canServerUseStoredBotSecrets()) {
+              throw new Error('Invalid Telegram bot ID. Please refresh bot settings from Supabase.');
+            }
             const groupResponse = await fetch('/api/test-telegram-reminder', {
               method: 'POST',
               headers: await getApiAuthHeaders(),

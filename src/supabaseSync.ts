@@ -37,14 +37,33 @@ async function getApiJsonHeaders(): Promise<Record<string, string>> {
   const { data } = await client.auth.getSession();
   const token = data.session?.access_token;
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (!token && typeof sessionStorage !== 'undefined') {
+    try {
+      const rawSession = sessionStorage.getItem('nmc_active_user_session');
+      const sessionUser = rawSession ? JSON.parse(rawSession) : null;
+      if (sessionUser?.id && sessionUser?.username && sessionUser?.role) {
+        headers['X-NMC-User-ID'] = String(sessionUser.id);
+        headers['X-NMC-Username'] = String(sessionUser.username);
+        headers['X-NMC-User-Role'] = String(sessionUser.role);
+      }
+    } catch {
+      // Ignore malformed local session data; the API will require normal auth.
+    }
+  }
   return headers;
 }
 
 const isProtectedBotSecret = (value?: string | null) =>
   !value || ['PROTECTED_UNCHANGED', 'PROTECTED_SERVER_SIDE'].includes(value) || /^[*•●]+$/.test(value.trim());
 
+const isUuid = (value?: string | null) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+
 function stripProtectedBotSecrets(setting: TelegramBotSetting): Partial<TelegramBotSetting> {
   const payload: Partial<TelegramBotSetting> = { ...setting };
+  if (!isUuid(payload.id)) {
+    delete payload.id;
+  }
   if (isProtectedBotSecret(payload.bot_token_encrypted)) {
     delete payload.bot_token_encrypted;
   }
@@ -1078,50 +1097,18 @@ export async function fetchBotSettingsFromSupabase(): Promise<TelegramBotSetting
     return local ? JSON.parse(local) : INITIAL_BOT_SETTINGS;
   }
 
-  try {
-    const response = await fetch('/api/telegram-bot-settings', {
-      headers: await getApiJsonHeaders(),
-    });
-    const data = await readJsonResponseSafely(response);
-    if (response.ok && data) {
-      const safeRecords = (data.bots || []).map(sanitizeBotSettingForBrowserStorage);
-      localStorage.setItem('nmc_bot_settings', JSON.stringify(safeRecords));
-      return safeRecords;
-    }
-  } catch (e) {
-    console.warn('Server-side Telegram Bot settings fetch unavailable. Falling back to client metadata fetch.', e);
+  const response = await fetch('/api/telegram-bot-settings', {
+    headers: await getApiJsonHeaders(),
+  });
+  const data = await readJsonResponseSafely(response);
+  if (!response.ok || !data) {
+    const message = data?.message || data?.error || `Failed to fetch Telegram bot settings: ${response.status}`;
+    throw new Error(`Unable to load Telegram bot settings from Supabase. ${message}`);
   }
 
-  try {
-    const { data, error } = await client
-      .from('telegram_bot_settings')
-      .select('id, bot_name, bot_username, bot_token_encrypted, bot_purpose, default_chat_id, default_group_chat_id, is_active, description, connection_status, last_test_status, last_test_message, last_error, last_tested_at, webhook_status, webhook_url, bot_display_name, created_at, updated_at')
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    if (data && data.length > 0) {
-      return (data as TelegramBotSetting[]).map(sanitizeBotSettingForBrowserStorage);
-    }
-    
-    // Seed if empty in Supabase
-    const local = localStorage.getItem('nmc_bot_settings');
-    const records = local ? JSON.parse(local) : INITIAL_BOT_SETTINGS;
-    try {
-      await client.from('telegram_bot_settings').insert(records);
-    } catch (err) {
-      console.warn('Failed to background seed telegram_bot_settings:', err);
-    }
-    const safeRecords = records.map(sanitizeBotSettingForBrowserStorage);
-    localStorage.setItem('nmc_bot_settings', JSON.stringify(safeRecords));
-    return safeRecords;
-  } catch (e) {
-    console.warn('Failed to fetch from telegram_bot_settings Supabase table. Using local fallback.', e);
-    const local = localStorage.getItem('nmc_bot_settings');
-    const fallbackRecords = local ? JSON.parse(local) : INITIAL_BOT_SETTINGS;
-    const safeRecords = fallbackRecords.map(sanitizeBotSettingForBrowserStorage);
-    localStorage.setItem('nmc_bot_settings', JSON.stringify(safeRecords));
-    return safeRecords;
-  }
+  const safeRecords = (data.bots || []).map(sanitizeBotSettingForBrowserStorage);
+  localStorage.setItem('nmc_bot_settings', JSON.stringify(safeRecords));
+  return safeRecords;
 }
 
 export async function fetchActiveReminderBotPublic(): Promise<TelegramBotSetting | null> {
@@ -1191,41 +1178,41 @@ function sanitizeBotSettingForBrowserStorage(setting: TelegramBotSetting, preser
 export async function saveBotSettingToSupabase(setting: TelegramBotSetting): Promise<void> {
   const client = getActiveSupabaseClient();
   if (client) {
-    try {
-      const response = await fetch('/api/telegram-bot-settings', {
-        method: 'POST',
-        headers: await getApiJsonHeaders(),
-        body: JSON.stringify(setting)
-      });
-      const data = await readJsonResponseSafely(response);
-      if (response.ok && data) {
-        const safeSetting = sanitizeBotSettingForBrowserStorage(data.bot || setting);
-        const local = localStorage.getItem('nmc_bot_settings');
-        let list: TelegramBotSetting[] = local ? JSON.parse(local) : INITIAL_BOT_SETTINGS;
-        const settingPurpose = safeSetting.bot_purpose || 'license_reminder';
-        const settingCapabilities = settingPurpose === 'both'
-          ? ['license_reminder', 'report_group', 'report_notification', 'both']
-          : settingPurpose === 'report_group' || settingPurpose === 'report_notification'
-            ? ['report_group', 'report_notification', 'both']
-            : ['license_reminder', 'both'];
-        if (safeSetting.is_active) {
-          list = list.map(b => ({
-            ...b,
-            is_active: settingCapabilities.includes(b.bot_purpose || 'license_reminder') ? b.id === safeSetting.id : b.is_active
-          }));
-        }
-        const idx = list.findIndex(b => b.id === safeSetting.id);
-        if (idx !== -1) {
-          list[idx] = safeSetting;
-        } else {
-          list.unshift(safeSetting);
-        }
-        localStorage.setItem('nmc_bot_settings', JSON.stringify(list));
-        return;
-      }
-    } catch (e) {
-      console.warn('Server-side Telegram Bot settings save unavailable. Falling back to client save.', e);
+    const payload = stripProtectedBotSecrets(setting);
+    const response = await fetch('/api/telegram-bot-settings', {
+      method: 'POST',
+      headers: await getApiJsonHeaders(),
+      body: JSON.stringify(payload)
+    });
+    const data = await readJsonResponseSafely(response);
+    if (!response.ok || !data) {
+      const message = data?.message || data?.error || `Failed to save Telegram bot setting: ${response.status}`;
+      throw new Error(message);
     }
+
+    const safeSetting = sanitizeBotSettingForBrowserStorage(data.bot || setting);
+    const local = localStorage.getItem('nmc_bot_settings');
+    let list: TelegramBotSetting[] = local ? JSON.parse(local) : [];
+    const settingPurpose = safeSetting.bot_purpose || 'license_reminder';
+    const settingCapabilities = settingPurpose === 'both'
+      ? ['license_reminder', 'report_group', 'report_notification', 'both']
+      : settingPurpose === 'report_group' || settingPurpose === 'report_notification'
+        ? ['report_group', 'report_notification', 'both']
+        : ['license_reminder', 'both'];
+    if (safeSetting.is_active) {
+      list = list.map(b => ({
+        ...b,
+        is_active: settingCapabilities.includes(b.bot_purpose || 'license_reminder') ? b.id === safeSetting.id : b.is_active
+      }));
+    }
+    const idx = list.findIndex(b => b.id === safeSetting.id || (!isUuid(setting.id) && b.id === setting.id));
+    if (idx !== -1) {
+      list[idx] = safeSetting;
+    } else {
+      list.unshift(safeSetting);
+    }
+    localStorage.setItem('nmc_bot_settings', JSON.stringify(list));
+    return;
   }
 
   const local = localStorage.getItem('nmc_bot_settings');
@@ -1255,30 +1242,6 @@ export async function saveBotSettingToSupabase(setting: TelegramBotSetting): Pro
   localStorage.setItem('nmc_bot_settings', JSON.stringify(list));
 
   if (!client) return;
-
-  try {
-    if (setting.is_active) {
-      // Deactivate other bots with overlapping purposes in Supabase.
-      try {
-        await client
-          .from('telegram_bot_settings')
-          .update({ is_active: false })
-          .in('bot_purpose', settingCapabilities)
-          .not('id', 'eq', setting.id);
-      } catch (err) {
-        console.warn('Unable to deactivate other bots in Supabase:', err);
-      }
-    }
-    const payload = stripProtectedBotSecrets(setting);
-    const query = client.from('telegram_bot_settings');
-    const { error } = isProtectedBotSecret(setting.bot_token_encrypted)
-      ? await query.update(payload).eq('id', setting.id)
-      : await query.upsert(payload, { onConflict: 'id' });
-
-    if (error) throw error;
-  } catch (e) {
-    console.warn('Failed to save bot setting to Supabase (utilizing active local fallback storage instead):', e);
-  }
 }
 
 /**
@@ -1287,21 +1250,20 @@ export async function saveBotSettingToSupabase(setting: TelegramBotSetting): Pro
 export async function deleteBotSettingFromSupabase(botId: string): Promise<void> {
   const client = getActiveSupabaseClient();
   if (client) {
-    try {
-      const response = await fetch(`/api/telegram-bot-settings/${encodeURIComponent(botId)}`, {
-        method: 'DELETE',
-        headers: await getApiJsonHeaders(),
-      });
-      if (response.ok) {
-        const local = localStorage.getItem('nmc_bot_settings');
-        let list: TelegramBotSetting[] = local ? JSON.parse(local) : INITIAL_BOT_SETTINGS;
-        list = list.filter(b => b.id !== botId);
-        localStorage.setItem('nmc_bot_settings', JSON.stringify(list));
-        return;
-      }
-    } catch (e) {
-      console.warn('Server-side Telegram Bot settings delete unavailable. Falling back to client delete.', e);
+    const response = await fetch(`/api/telegram-bot-settings/${encodeURIComponent(botId)}`, {
+      method: 'DELETE',
+      headers: await getApiJsonHeaders(),
+    });
+    const data = await readJsonResponseSafely(response);
+    if (!response.ok) {
+      const message = data?.message || data?.error || `Failed to delete Telegram bot setting: ${response.status}`;
+      throw new Error(message);
     }
+    const local = localStorage.getItem('nmc_bot_settings');
+    let list: TelegramBotSetting[] = local ? JSON.parse(local) : [];
+    list = list.filter(b => b.id !== botId);
+    localStorage.setItem('nmc_bot_settings', JSON.stringify(list));
+    return;
   }
 
   const local = localStorage.getItem('nmc_bot_settings');
@@ -1310,17 +1272,6 @@ export async function deleteBotSettingFromSupabase(botId: string): Promise<void>
   localStorage.setItem('nmc_bot_settings', JSON.stringify(list));
 
   if (!client) return;
-
-  try {
-    const { error } = await client
-      .from('telegram_bot_settings')
-      .delete()
-      .eq('id', botId);
-
-    if (error) throw error;
-  } catch (e) {
-    console.warn('Failed to delete bot setting from Supabase (removed from active local storage registry):', e);
-  }
 }
 
 /**

@@ -21,6 +21,9 @@ const normalizeBotPurpose = (purpose?: string | null) =>
 const getBotGroupChatId = (bot: TelegramBotSetting) =>
   (bot.default_group_chat_id || bot.default_chat_id || '').trim();
 
+const isSupabaseUuid = (value?: string | null) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+
 async function getLocalReportGroupBotPayload(): Promise<Record<string, string>> {
   const bots = await fetchBotSettingsFromSupabase();
   const bot = bots.find((item) => {
@@ -31,9 +34,12 @@ async function getLocalReportGroupBotPayload(): Promise<Record<string, string>> 
   if (!bot) return {};
 
   const payload: Record<string, string> = {
-    botId: bot.id,
     chatId: getBotGroupChatId(bot)
   };
+
+  if (isSupabaseUuid(bot.id)) {
+    payload.botId = bot.id;
+  }
 
   if (bot.bot_token_encrypted && !isProtectedTokenPlaceholder(bot.bot_token_encrypted)) {
     payload.botToken = bot.bot_token_encrypted;
