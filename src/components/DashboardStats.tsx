@@ -38,8 +38,8 @@ export default function DashboardStats({ currentUser, reports, allUsersCount }: 
         
         {/* Total instruments */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex items-center gap-3">
-          <div className="h-10 w-10 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center justify-center shrink-0">
-            <Layers className="h-5 w-5 text-indigo-600" />
+          <div className="h-10 w-10 bg-slate-50 border border-[#C9D2E3] rounded-lg flex items-center justify-center shrink-0">
+            <Layers className="h-5 w-5 text-[#353C96]" />
           </div>
           <div>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">សេវាកម្មសរុប (Total)</p>

@@ -1,4 +1,4 @@
-import { MetrologyUser, MetrologyReport } from './types';
+import { MetrologyUser, MetrologyReport, EnterpriseLicense, LicenseReminderLog, LicenseRenewalHistory, TelegramBotSetting } from './types';
 
 export const INITIAL_USERS: MetrologyUser[] = [
   {
@@ -208,3 +208,156 @@ export function isDemoDataEnabled(): boolean {
   return false;
 }
 
+export function isDemoLoginAllowed(): boolean {
+  const meta = import.meta as any;
+  if (meta.env?.VITE_ENABLE_DEMO_LOGIN === 'true') {
+    return true;
+  }
+  if (meta.env?.VITE_ENABLE_DEMO_LOGIN === 'false') {
+    return false;
+  }
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'metrologyreport.vercel.app') {
+      return false;
+    }
+    if (host === 'localhost' || host === '127.0.0.1' || host.includes('ais-dev-') || host.includes('ais-pre-') || host.endsWith('.run.app')) {
+      return true;
+    }
+  }
+  if (meta.env?.DEV === true) {
+    return true;
+  }
+  return false;
+}
+
+// Helpers for relative date generation to make license testing dynamic and accurate
+export function getRelativeDateString(daysOffset: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + daysOffset);
+  return date.toISOString().split('T')[0];
+}
+
+export const INITIAL_LICENSES: EnterpriseLicense[] = [
+  {
+    id: 'lic-001',
+    company_user_id: 'user-co-001',
+    company_id: 'user-co-001',
+    company_name: 'ក្រុមហ៊ុន មាត្រាសាស្ត្រ បូកគោ',
+    license_number: 'LIC-2026-001',
+    license_owner_name: 'លោក លី ម៉េង',
+    license_owner_position: 'នាយកប្រតិបត្តិ',
+    phone_number: '016 999 888',
+    email: 'contact@bokormetrology.com',
+    telegram_chat_id: '123456789',
+    telegram_username: 'bokor_representative',
+    telegram_first_name: 'Meng',
+    telegram_last_name: 'Ly',
+    telegram_connected_at: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(),
+    telegram_connection_status: 'Connected',
+    company_address: 'ផ្ទះលេខ ១២A ផ្លូវជាតិលេខ ៣ ខេត្តកំពត',
+    business_type: 'ក្រុមហ៊ុនឯកជនទទួលខុសត្រូវមានកម្រិត',
+    service_scope: 'វិស័យជញ្ជីងអេឡិចត្រូនិច និងឧបករណ៍វាស់វែងទម្ងន់',
+    measuring_instrument_type: 'Truck Scale, Platform Scale',
+    license_issue_date: getRelativeDateString(-365), // Issued 1 year ago
+    license_expiry_date: getRelativeDateString(365 * 2), // Expires in 2 years
+    license_validity_years: 3,
+    license_status: 'Active',
+    notes: 'ដៃគូរការងារគំរូ និងការបញ្ជូនរបាយការណ៍ទៀងទាត់',
+    created_at: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(),
+    updated_at: new Date().toISOString()
+  },
+  {
+    id: 'lic-002',
+    company_user_id: 'user-co-002',
+    company_id: 'user-co-002',
+    company_name: 'សហគ្រាសវាស់វែងអង្គរ',
+    license_number: 'LIC-2026-002',
+    license_owner_name: 'អ្នកស្រី សុខ ចិន្តា',
+    license_owner_position: 'អគ្គនាយិកា',
+    phone_number: '011 222 333',
+    email: 'angkor_measure@gmail.com',
+    telegram_chat_id: null,
+    telegram_username: null,
+    telegram_connected_at: null,
+    telegram_connection_status: 'Not Connected',
+    company_address: 'ផ្លូវជាតិលេខ ៦ ក្រុងសៀមរាប ខេត្តសៀមរាប',
+    business_type: 'សហគ្រាសឯកបុគ្គល',
+    service_scope: 'ការតំឡើង និងជួសជុលឧបករណ៍វាស់រាវ ចាក់ប្រេង',
+    measuring_instrument_type: 'Fuel Dispensers, Flowmeters',
+    license_issue_date: getRelativeDateString(-1065), // Issued almost 3 years ago
+    license_expiry_date: getRelativeDateString(30), // Expires in exactly 30 days!
+    license_validity_years: 3,
+    license_status: 'Expiring Soon',
+    notes: 'ត្រូវការទាក់ទងដើម្បីភ្ជាប់តេឡេក្រាម និងបន្តអាជ្ញាប័ណ្ណ',
+    created_at: new Date(Date.now() - 1065 * 24 * 60 * 60 * 1000).toISOString(),
+    updated_at: new Date().toISOString()
+  },
+  {
+    id: 'lic-003',
+    company_user_id: null,
+    company_id: null,
+    company_name: 'មន្ទីរពិសោធន៍វាស់ស្ទង់ភ្នំពេញ',
+    license_number: 'LIC-2023-099',
+    license_owner_name: 'លោក ឈុន លីហួរ',
+    license_owner_position: 'ប្រធានបច្ចេកទេស',
+    phone_number: '092 555 111',
+    email: 'pp_measurement_lab@gmail.com',
+    telegram_chat_id: '987654321',
+    telegram_username: 'chhun_lyhour',
+    telegram_first_name: 'Lyhour',
+    telegram_last_name: 'Chhun',
+    telegram_connected_at: new Date(Date.now() - 1100 * 24 * 60 * 60 * 1000).toISOString(),
+    telegram_connection_status: 'Connected',
+    company_address: 'អាគារ ៤៥ ផ្លូវ ២៧១ សង្កាត់ទឹកល្អក់៣ ភ្នំពេញ',
+    business_type: 'សហគ្រាសឯកទេសវិភាគ',
+    service_scope: 'ការវាស់វែងកម្តៅ និងសម្ពាធឧស្សាហកម្ម',
+    measuring_instrument_type: 'Temperature & Pressure Gauges',
+    license_issue_date: getRelativeDateString(-1110), // Issued over 3 years ago
+    license_expiry_date: getRelativeDateString(-15), // Expired 15 days ago!
+    license_validity_years: 3,
+    license_status: 'Expired',
+    notes: 'មិនទាន់ឃើញដាក់ពាក្យស្នើសុំបន្តនៅឡើយទេ',
+    created_at: new Date(Date.now() - 1110 * 24 * 60 * 60 * 1000).toISOString(),
+    updated_at: new Date().toISOString()
+  }
+];
+
+export const INITIAL_REMINDER_LOGS: LicenseReminderLog[] = [
+  {
+    id: 'rem-log-001',
+    license_id: 'lic-002',
+    reminder_type: 'TEST',
+    reminder_days: 90,
+    telegram_chat_id: '99221199',
+    telegram_username: 'angkor_reps',
+    message_text: '⚠️ សេចក្តីជូនដំណឹង៖ អាជ្ញាប័ណ្ណសហគ្រាសរបស់លោកអ្នក (លេខ៖ LIC-2026-002) នឹងត្រូវផុតកំណត់ក្នុងរយៈពេល 90 ថ្ងៃទៀត (នៅថ្ងៃទី ' + getRelativeDateString(30) + ')។ សូមចូលប្រព័ន្ធរៀបចំលិខិតបន្ត។',
+    send_status: 'Sent',
+    sent_at: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
+    created_at: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()
+  }
+];
+
+export const INITIAL_RENEWAL_HISTORIES: LicenseRenewalHistory[] = [];
+
+export const INITIAL_BOT_SETTINGS: TelegramBotSetting[] = [
+  {
+    id: 'bot-001',
+    bot_name: 'NMC License Reminder Bot',
+    bot_username: 'NMC_License_Bot',
+    bot_token_encrypted: '123456789:ABCdefGhIJKlmNoPQRstUVwxyZ', // Dummy token
+    bot_purpose: 'license_reminder',
+    default_chat_id: '-100123456789',
+    is_active: true,
+    description: 'ប្រព័ន្ធស្វ័យប្រវត្តិនៃការរំលឹកអាជ្ញាប័ណ្ណរបស់មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ',
+    last_test_status: 'Success',
+    last_test_message: 'Connection verified successfully.',
+    last_tested_at: new Date().toISOString(),
+    connection_status: 'connected',
+    last_error: null,
+    webhook_status: 'not_configured',
+    bot_display_name: 'NMC License Reminder Bot',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }
+];

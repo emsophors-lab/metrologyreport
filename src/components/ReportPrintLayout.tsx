@@ -99,6 +99,115 @@ export default function ReportPrintLayout({
     run();
   }, [reports, selectedUser, filterMonth, filterYear, filterServiceType, searchQuery]);
 
+  if (isPublicVerify) {
+    return (
+      <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-50 p-4 overflow-y-auto print:hidden">
+        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden text-slate-800 animate-fadeIn">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-emerald-600 to-teal-700 p-6 text-white text-center relative">
+            <button 
+              onClick={onClose}
+              className="absolute top-4 right-4 text-white/80 hover:text-white bg-black/10 hover:bg-black/20 rounded-full p-1 transition-colors cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="mx-auto h-12 w-12 bg-white/10 rounded-full flex items-center justify-center border border-white/20 mb-3 text-emerald-100">
+              <svg className="h-6 w-6 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+            </div>
+            <h2 className="font-bold text-xs tracking-wide leading-relaxed" style={{ fontFamily: '"Khmer OS Muol Light", "Moul", serif' }}>មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</h2>
+            <p className="text-[9px] font-semibold text-emerald-100 mt-1 uppercase tracking-wider">National Metrology Center (NMC)</p>
+            <div className="text-[10px] font-bold bg-white/20 border border-white/10 text-emerald-50 px-3 py-1 rounded-full w-fit mx-auto mt-3">
+              ផ្ទៀងផ្ទាត់ផ្លូវការ / Officially Verified ✓
+            </div>
+          </div>
+
+          {/* Content info card */}
+          <div className="p-6 space-y-4 text-xs text-left">
+            <h3 className="text-center text-slate-800 font-bold text-xs underline leading-loose" style={{ fontFamily: '"Khmer OS Muol Light", "Moul", serif' }}>
+              ព័ត៌មានផ្ទៀងផ្ទាត់របាយការណ៍ផ្លូវការ
+            </h3>
+
+            {reports.length === 0 ? (
+              <p className="text-center text-slate-400 py-4 font-medium">គ្មានទិន្នន័យរបាយការណ៍ផ្ទៀងផ្ទាត់ឡើយ</p>
+            ) : (
+              reports.slice(0, 1).map((report, idx) => (
+                <div key={report.id || idx} className="space-y-4">
+                  {/* Enterprise Section */}
+                  <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl space-y-2.5">
+                    <div className="flex flex-col justify-between space-y-1">
+                      <span className="font-semibold text-slate-400 text-[10px] uppercase">សហគ្រាសសេវាកម្ម / Fee Service provider:</span>
+                      <span className="font-bold text-slate-900">{report.company_name_kh}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-slate-500 text-[10px] pt-1.5 border-t border-slate-200/50">
+                      <span>លេខអាជ្ញាប័ណ្ណ / License No:</span>
+                      <span className="font-bold bg-slate-100 border border-slate-200 text-slate-800 px-2 py-0.5 rounded font-mono text-[10px]">{report.license_number}</span>
+                    </div>
+                  </div>
+
+                  {/* Instrument Specifications */}
+                  <div className="space-y-2.5 px-1">
+                    <div className="flex justify-between items-start">
+                      <span className="font-semibold text-slate-500">ឧបករណ៍វាស់វែង / Instrument:</span>
+                      <span className="font-bold text-slate-900 text-right max-w-[180px]">{report.measuring_instrument}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="font-semibold text-slate-500">លេខស៊េរីឧបករណ៍ / Serial No:</span>
+                      <span className="font-mono font-bold text-slate-800">{report.instrument_serial_number}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="font-semibold text-slate-500">ប្រភេទសេវាកម្ម / Service Type:</span>
+                      <span className="font-bold text-slate-900 bg-slate-50 border border-[#C9D2E3] text-[#2D327F] px-2 py-0.5 rounded-md text-[10px]">{getServiceTypeKH(report.service_type)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="font-semibold text-slate-500">កាលបរិច្ឆេទសេវាកម្ម / Service Date:</span>
+                      <span className="font-mono text-slate-700">{report.service_start_date} ដល់ {report.service_end_date}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="font-semibold text-slate-500">ខែ/ឆ្នាំរបាយការណ៍ / Reporting Period:</span>
+                      <span className="font-bold text-slate-800">ខែ {getMonthNameKH(report.report_month)} ឆ្នាំ {report.report_year}</span>
+                    </div>
+                  </div>
+
+                  {/* Workflow Status badges - Section D */}
+                  <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl space-y-2">
+                    <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
+                      <span className="font-bold text-slate-600">ស្ថានភាពឯកសារ / Approval Status:</span>
+                      <span className={`px-3 py-1 rounded-full text-[10px] font-bold ${
+                        (report.report_status || 'Approved') === 'Approved' ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' :
+                        (report.report_status || 'Approved') === 'Rejected' ? 'bg-rose-50 border border-rose-200 text-rose-800' :
+                        (report.report_status || 'Approved') === 'Under Review' ? 'bg-amber-50 border border-amber-200 text-amber-800' :
+                        'bg-sky-50 border border-sky-150 text-sky-800'
+                      }`}>
+                        {report.report_status || 'Approved'}
+                      </span>
+                    </div>
+                    {report.approved_at && (
+                      <div className="flex justify-between items-center text-[10px] text-slate-500 pt-1">
+                        <span>កាលបរិច្ឆេទអនុម័ត / Approved Date:</span>
+                        <span className="font-mono">{new Date(report.approved_at).toLocaleDateString()}</span>
+                      </div>
+                    )}
+                    <div className="text-[8px] text-slate-400 font-mono mt-1 text-center break-all select-all">
+                      Verification Certificate Token: {report.id}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Footer branding */}
+          <div className="bg-slate-50 p-4 border-t border-slate-150 flex flex-col items-center justify-center text-center text-[9px] text-slate-400 gap-0.5">
+            <p className="font-semibold text-slate-500">© មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+            <p className="font-medium text-slate-400">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្គេកវិទ្យា និងនវានុវត្តន៍</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto print:p-0 print:bg-white print:absolute">
       
@@ -121,7 +230,7 @@ export default function ReportPrintLayout({
           <div className="flex items-center gap-2">
             <button
               onClick={handlePrint}
-              className={`px-4 py-1.5 text-white rounded-lg text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer bg-indigo-600 hover:bg-indigo-700`}
+              className={`px-4 py-1.5 text-white rounded-lg text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer bg-[#353C96] hover:bg-[#2D327F]`}
             >
               <Printer className="h-4 w-4" />
               បោះពុម្ព / Print PDF
@@ -146,7 +255,7 @@ export default function ReportPrintLayout({
               {!selectedUser ? (
                 <div className="space-y-0.5">
                   <p className="text-[10px] md:text-[11px] font-bold text-slate-900 leading-snug">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
-                  <p className="text-[10.5px] md:text-[11.5px] font-bold text-indigo-900 underline font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+                  <p className="text-[10.5px] md:text-[11.5px] font-bold text-[#2D327F] underline font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
                   {currentUser && (currentUser.role === 'admin' || currentUser.role === 'superadmin') && currentUser.company_name_kh && (
                     <p className="text-[10px] md:text-[11px] font-bold text-slate-700 mt-1 pb-0.5 border-b border-dashed border-slate-200">{currentUser.company_name_kh}</p>
                   )}
@@ -154,7 +263,7 @@ export default function ReportPrintLayout({
               ) : (
                 <div className="space-y-0.5">
                   <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tight">ក្រុមហ៊ុនសេវាកម្មមាត្រាសាស្ត្រ</p>
-                  <p className="text-[11px] font-extrabold text-indigo-900 underline">{displayCompanyName}</p>
+                  <p className="text-[11px] font-extrabold text-[#2D327F] underline">{displayCompanyName}</p>
                 </div>
               )}
             </div>

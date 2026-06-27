@@ -1,12 +1,26 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+Khmer:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Moul&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+Khmer:wght@300;400;500;600;700&family=Kantumruy+Pro:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Moul&display=swap');
+@import "leaflet/dist/leaflet.css";
 @import "tailwindcss";
 
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+}
+
 @theme {
-  --font-sans: "Noto Sans Khmer", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Noto Sans Khmer", "Khmer OS Battambang", "Kantumruy Pro", "Inter", Arial, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --font-muol: "Khmer OS Muol Light", "Moul", "Noto Sans Khmer", serif;
-  --color-gold: #b59b5f;
-  --color-navy: #0f2963;
+  --color-gold: #D9A441;
+  --color-navy: #0B2C5F;
+  --color-gov-blue: #3F6F8F;
+  --color-sec-blue: #3B7897;
+  --color-nmc-primary: #39789A;
+  --color-nmc-deep: #2F6682;
+  --color-nmc-sidebar: #0B2C5F;
+  --color-nmc-header: #4F6F8D;
+  --color-nmc-light: #F5F7FA;
+  --color-nmc-border: #3F7C9B;
 }
 
 html, body {
@@ -57,4 +71,72 @@ html, body {
     box-shadow: none !important;
     border: none !important;
   }
+}
+
+/* Official Government Portal Global Styling Rules */
+input[type="text"],
+input[type="email"],
+input[type="number"],
+input[type="tel"],
+input[type="date"],
+select,
+textarea {
+  border: 1px solid #3F7C9B !important;
+  border-radius: 4px !important;
+  height: 44px !important;
+  color: #1F2937 !important;
+  background-color: #FFFFFF !important;
+  font-size: 14px !important;
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+}
+
+textarea {
+  height: auto !important;
+  min-height: 100px !important;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: #39789A !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(57, 120, 154, 0.2) !important;
+}
+
+::placeholder {
+  color: #9CA3AF !important;
+}
+
+/* Government Typography Helper Classes */
+.gov-title-kh {
+  font-family: "Noto Sans Khmer", "Khmer OS Battambang", "Kantumruy Pro", sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  color: #1F2A44;
+}
+
+.gov-title-en {
+  font-family: "Inter", Arial, sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: #4F6F8D;
+}
+
+.gov-section-title {
+  font-family: "Noto Sans Khmer", "Khmer OS Battambang", sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: #FFFFFF;
+}
+
+.gov-label {
+  font-family: "Noto Sans Khmer", "Khmer OS Battambang", "Inter", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1F2A44;
+}
+
+.gov-button {
+  font-family: "Noto Sans Khmer", "Khmer OS Battambang", "Inter", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
 }

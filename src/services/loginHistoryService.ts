@@ -93,7 +93,7 @@ export async function logLoginHistory(user: MetrologyUser): Promise<void> {
  */
 export async function logAuditEvent(
   actorUser: MetrologyUser,
-  actionType: 'ADMIN_PERMISSION_UPDATED' | 'USER_CREATED_BY_ADMIN' | 'USER_CREATED_BY_SUPERADMIN' | 'UNAUTHORIZED_USER_CREATE_ATTEMPT' | 'USER_DEACTIVATED',
+  actionType: 'ADMIN_PERMISSION_UPDATED' | 'USER_CREATED_BY_ADMIN' | 'USER_CREATED_BY_SUPERADMIN' | 'UNAUTHORIZED_USER_CREATE_ATTEMPT' | 'USER_DEACTIVATED' | 'REPORT_APPROVED' | 'REPORT_REJECTED' | 'BACKUP_CREATED' | 'LICENSE_CREATED' | 'LICENSE_UPDATED' | 'LICENSE_RENEWED' | 'LICENSE_DELETED' | 'CHANGE_OWN_PASSWORD',
   details: string,
   targetUserId?: string,
   targetUsername?: string
@@ -152,6 +152,22 @@ export async function logAuditEvent(
     const { error } = await client.from('login_history').insert([supabasePayload]);
     if (error) {
       console.warn('Failed to insert audit log to Supabase:', error.message);
+    }
+
+    if (actionType === 'CHANGE_OWN_PASSWORD') {
+      try {
+        await client.from('audit_logs').insert([{
+          actor_email: actorUser.email || actorUser.username || 'unknown',
+          actor_role: actorUser.role || 'unknown',
+          action_type: actionType,
+          details,
+          ip_address: ipAddress || null,
+          target_user_id: targetUserId || actorUser.id || null,
+          created_at: new Date().toISOString()
+        }]);
+      } catch {
+        // audit_logs is optional in the active custom schema.
+      }
     }
   } catch (err) {
     console.warn('Error inside logAuditEvent:', err);

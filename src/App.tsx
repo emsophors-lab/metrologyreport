@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   LogOut, 
+  Award,
   User, 
   MapPin, 
   Building2, 
@@ -14,6 +15,7 @@ import {
   Share2, 
   ArrowLeftRight, 
   Activity, 
+  Database,
   CornerDownRight, 
   ChevronsUpDown,
   FileSpreadsheet,
@@ -21,8 +23,10 @@ import {
   Clock,
   BriefcaseBusiness,
   Landmark,
+  KeyRound,
   Menu,
-  X
+  X,
+  Languages
 } from 'lucide-react';
 
 // Import Types
@@ -48,7 +52,9 @@ import {
   deleteUserFromSupabase,
   fetchReportsFromSupabase,
   saveReportToSupabase,
-  deleteReportFromSupabase
+  deleteReportFromSupabase,
+  isReportOwnedByCurrentCompany,
+  isLicenseOwnedByCurrentCompany
 } from './supabaseSync';
 
 // Import Modular Components
@@ -62,12 +68,172 @@ import ReportPrintLayout from './components/ReportPrintLayout';
 import TopServiceCompanies from './components/TopServiceCompanies';
 import { logLoginHistory, fetchLoginHistory, logAuditEvent } from './services/loginHistoryService';
 import LoginHistoryView from './components/LoginHistoryView';
+import BackupData from './components/BackupData';
+import EnterpriseLicensingRegistry from './components/EnterpriseLicensingRegistry';
+import ChangePasswordModal from './components/ChangePasswordModal';
 
 // Import Logo Asset
 import nmcLogo from './components/NMClogo.png';
 
 // Import Telegram Utils
 import { sendTelegramNotification } from './telegramUtils';
+
+type AppLanguage = 'km' | 'en';
+
+const KHMER_PATTERN = /[\u1780-\u17FF]/;
+const LATIN_PATTERN = /[A-Za-z]/;
+const TEXT_ORIGINALS = new WeakMap<Text, string>();
+const ATTRIBUTE_ORIGINALS = new WeakMap<Element, Record<string, string>>();
+
+function resolveLanguageText(value: string, language: AppLanguage): string {
+  if (!KHMER_PATTERN.test(value) || !LATIN_PATTERN.test(value)) return value;
+
+  const slashMatch = value.match(/^\s*(.+?)\s*\/\s*(.+?)\s*$/);
+  if (slashMatch && KHMER_PATTERN.test(slashMatch[1]) && LATIN_PATTERN.test(slashMatch[2])) {
+    return language === 'km' ? slashMatch[1].trim() : slashMatch[2].trim();
+  }
+  if (slashMatch && LATIN_PATTERN.test(slashMatch[1]) && KHMER_PATTERN.test(slashMatch[2])) {
+    return language === 'km' ? slashMatch[2].trim() : slashMatch[1].trim();
+  }
+
+  const parentheticalMatch = value.match(/^\s*(.+?)\s*\(([^()]*[A-Za-z][^()]*)\)\s*$/);
+  if (parentheticalMatch && KHMER_PATTERN.test(parentheticalMatch[1])) {
+    return language === 'km' ? parentheticalMatch[1].trim() : parentheticalMatch[2].trim();
+  }
+  const inverseParentheticalMatch = value.match(/^\s*([^()]*[A-Za-z][^()]*)\s*\(([^()]*[\u1780-\u17FF][^()]*)\)\s*$/);
+  if (inverseParentheticalMatch && LATIN_PATTERN.test(inverseParentheticalMatch[1])) {
+    return language === 'km' ? inverseParentheticalMatch[2].trim() : inverseParentheticalMatch[1].trim();
+  }
+
+  const dashMatch = value.match(/^\s*(.+?)\s+[-–—]\s+([A-Za-z][\s\S]*)$/);
+  if (dashMatch && KHMER_PATTERN.test(dashMatch[1])) {
+    return language === 'km' ? dashMatch[1].trim() : dashMatch[2].trim();
+  }
+
+  return value;
+}
+
+function useSingleLanguageDisplay(language: AppLanguage) {
+  useEffect(() => {
+    const translatableAttributes = ['placeholder', 'title', 'aria-label'];
+
+    const processTextNode = (node: Text) => {
+      const current = node.nodeValue ?? '';
+      let original = TEXT_ORIGINALS.get(node);
+      if (!original || (KHMER_PATTERN.test(current) && LATIN_PATTERN.test(current) && current !== resolveLanguageText(original, language))) {
+        original = current;
+        TEXT_ORIGINALS.set(node, original);
+      }
+      TEXT_ORIGINALS.set(node, original);
+      const next = resolveLanguageText(original, language);
+      if (node.nodeValue !== next) node.nodeValue = next;
+    };
+
+    const processElementAttributes = (element: Element) => {
+      let originals = ATTRIBUTE_ORIGINALS.get(element);
+      if (!originals) {
+        originals = {};
+        ATTRIBUTE_ORIGINALS.set(element, originals);
+      }
+
+      translatableAttributes.forEach((attr) => {
+        const current = element.getAttribute(attr);
+        if (!current) return;
+        let original = originals![attr];
+        if (!original || (KHMER_PATTERN.test(current) && LATIN_PATTERN.test(current) && current !== resolveLanguageText(original, language))) {
+          original = current;
+          originals![attr] = original;
+        }
+        originals![attr] = original;
+        const next = resolveLanguageText(original, language);
+        if (current !== next) element.setAttribute(attr, next);
+      });
+    };
+
+    const processRoot = (root: ParentNode) => {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let current = walker.nextNode();
+      while (current) {
+        processTextNode(current as Text);
+        current = walker.nextNode();
+      }
+
+      if (root instanceof Element) processElementAttributes(root);
+      root.querySelectorAll?.('*').forEach(processElementAttributes);
+    };
+
+    processRoot(document.body);
+
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === Node.TEXT_NODE) {
+            processTextNode(node as Text);
+          } else if (node instanceof Element) {
+            processRoot(node);
+          }
+        });
+
+        if (mutation.type === 'characterData' && mutation.target.nodeType === Node.TEXT_NODE) {
+          processTextNode(mutation.target as Text);
+        }
+
+        if (mutation.type === 'attributes' && mutation.target instanceof Element) {
+          processElementAttributes(mutation.target);
+        }
+      });
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: translatableAttributes,
+    });
+
+    return () => observer.disconnect();
+  }, [language]);
+}
+
+function LanguageSwitch({
+  language,
+  onChange,
+  dark = false,
+}: {
+  language: AppLanguage;
+  onChange: (language: AppLanguage) => void;
+  dark?: boolean;
+}) {
+  return (
+    <div
+      className={`inline-flex items-center gap-1 rounded-lg border p-1 ${
+        dark ? 'border-white/20 bg-white/10' : 'border-slate-200 bg-white'
+      }`}
+      aria-label="Language switch"
+    >
+      <Languages className={`h-3.5 w-3.5 ${dark ? 'text-gold' : 'text-[#353C96]'}`} />
+      {(['km', 'en'] as AppLanguage[]).map((code) => (
+        <button
+          key={code}
+          type="button"
+          onClick={() => onChange(code)}
+          className={`rounded-md px-2 py-1 text-[10px] font-black transition-colors cursor-pointer ${
+            language === code
+              ? dark
+                ? 'bg-gold text-navy'
+                : 'bg-[#353C96] text-white'
+              : dark
+                ? 'text-slate-300 hover:bg-white/10'
+                : 'text-slate-500 hover:bg-slate-100'
+          }`}
+        >
+          {code === 'km' ? 'ខ្មែរ' : 'EN'}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function App() {
   // Session authentication state
@@ -79,13 +245,34 @@ export default function App() {
   const [verifiedCompany, setVerifiedCompany] = useState<MetrologyUser | null>(null);
   const [verifiedReportsList, setVerifiedReportsList] = useState<MetrologyReport[]>([]);
   
+  // Public enterprise license verification states
+  const [verifyLicenseNo, setVerifyLicenseNo] = useState<string | null>(null);
+  const [verifiedLicense, setVerifiedLicense] = useState<any | null>(null);
+  const [isLicenseVerifying, setIsLicenseVerifying] = useState<boolean>(false);
+  
   // Database datasets states
   const [users, setUsers] = useState<MetrologyUser[]>([]);
   const [reports, setReports] = useState<MetrologyReport[]>([]);
+  const [isUsersLoading, setIsUsersLoading] = useState(false);
   
-  // App navigation state: 'dashboard' | 'reports' | 'users' | 'developer' | 'history'
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'reports' | 'users' | 'developer' | 'history'>('dashboard');
+  // App navigation state: 'dashboard' | 'reports' | 'users' | 'developer' | 'history' | 'backup' | 'licenses'
+  const [activeTab, setActiveTab ] = useState<'dashboard' | 'reports' | 'users' | 'developer' | 'history' | 'backup' | 'licenses'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [language, setLanguage] = useState<AppLanguage>(() => {
+    const saved = localStorage.getItem('nmc_app_language');
+    return saved === 'en' ? 'en' : 'km';
+  });
+  useSingleLanguageDisplay(language);
+
+  useEffect(() => {
+    document.documentElement.lang = language === 'km' ? 'km' : 'en';
+  }, [language]);
+
+  const handleLanguageChange = (nextLanguage: AppLanguage) => {
+    setLanguage(nextLanguage);
+    localStorage.setItem('nmc_app_language', nextLanguage);
+  };
   
   // PWA installation states
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -113,6 +300,7 @@ export default function App() {
   const [filterYear, setFilterYear] = useState('all');
   const [filterServiceType, setFilterServiceType] = useState('all');
   const [filterCompanyId, setFilterCompanyId] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -243,6 +431,9 @@ export default function App() {
       } else if (activeTab === 'history' && sessionUser.role !== 'superadmin') {
         setActiveTab('dashboard');
         showToast('សិទ្ធិមិនគ្រប់គ្រាន់ដើម្បីចូលប្រើប្រាស់ទំព័រនេះទេ (Unauthorized access to Login History)', 'error');
+      } else if (activeTab === 'backup' && sessionUser.role !== 'superadmin') {
+        setActiveTab('dashboard');
+        showToast('សិទ្ធិមិនគ្រប់គ្រាន់ដើម្បីចូលប្រើប្រាស់ទំព័រនេះទេ (Unauthorized access to Backup Data)', 'error');
       } else if (activeTab === 'developer' && sessionUser.role !== 'admin' && sessionUser.role !== 'superadmin') {
         setActiveTab('dashboard');
       }
@@ -305,6 +496,7 @@ export default function App() {
       }
 
       try {
+        setIsUsersLoading(true);
         // Sync users registry from Supabase
         const cloudUsers = await fetchUsersFromSupabase();
         if (cloudUsers && cloudUsers.length > 0) {
@@ -330,77 +522,155 @@ export default function App() {
           ...activeCfg,
           isConnected: false
         });
+      } finally {
+        setIsUsersLoading(false);
       }
     };
     
     loadSupabaseCloudData();
   }, []);
 
+  // Enforce secure query-level data filtering upon user login or session state changes
+  useEffect(() => {
+    const syncDatabaseOnLogin = async () => {
+      const activeCfg = getActiveSupabaseConfig();
+      if (activeCfg.url && activeCfg.anonKey && !activeCfg.url.includes('YOUR_SUPABASE_URL')) {
+        try {
+          const cloudReports = await fetchReportsFromSupabase(sessionUser || undefined);
+          if (cloudReports) {
+            setReports(cloudReports);
+            localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
+          }
+        } catch (e) {
+          console.warn('Could not refresh session reports list:', e);
+        }
+      }
+    };
+    syncDatabaseOnLogin();
+  }, [sessionUser]);
+
   // 1.1 Public Verification via scanned QR-code URL query param checking
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const verifyId = params.get('verifyReport');
-    if (verifyId) {
-      setVerifyReportId(verifyId);
-      
-      const reportsSource = (reports && reports.length > 0) ? reports : (isDemoDataEnabled() ? INITIAL_REPORTS : []);
-      const usersSource = (users && users.length > 0) ? users : INITIAL_USERS;
-      
-      if (verifyId === 'filtered') {
-        const filterM = params.get('month') || 'all';
-        const filterY = params.get('year') || 'all';
-        const filterC = params.get('companyId') || 'all';
-        const filterS = params.get('serviceType') || 'all';
-        const filterQ = params.get('searchQuery') || '';
+    const runVerification = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const verifyId = params.get('verifyReport');
+      if (verifyId) {
+        setVerifyReportId(verifyId);
+        
+        // Try live production database verification lookup first using secure token (hashing match)
+        try {
+          const { verifyReportBySecureToken } = await import('./supabaseSync');
+          const liveReport = await verifyReportBySecureToken(verifyId);
+          
+          if (liveReport) {
+            setVerifiedReport(liveReport);
+            const usersSource = (users && users.length > 0) ? users : INITIAL_USERS;
+            const comp = usersSource.find(u => u.license_number === liveReport.license_number || u.company_name_kh === liveReport.company_name_kh);
+            setVerifiedCompany(comp || null);
+            return;
+          }
+        } catch (dbErr) {
+          console.warn('Live verification check bypassed or timed out, loading local memory storage:', dbErr);
+        }
 
-        let list = [...reportsSource];
-        if (filterC !== 'all') {
-          list = list.filter(r => r.user_id === filterC);
-        }
-        if (filterM !== 'all') {
-          list = list.filter(r => r.report_month === filterM);
-        }
-        if (filterY !== 'all') {
-          list = list.filter(r => r.report_year === filterY);
-        }
-        if (filterS !== 'all') {
-          list = list.filter(r => r.service_type === filterS);
-        }
-        if (filterQ.trim()) {
-          const q = filterQ.toLowerCase().trim();
-          list = list.filter(r => 
-            r.customer_name.toLowerCase().includes(q) ||
-            r.customer_address.toLowerCase().includes(q) ||
-            r.measuring_instrument.toLowerCase().includes(q) ||
-            r.instrument_serial_number.toLowerCase().includes(q) ||
-            r.company_name_kh.toLowerCase().includes(q)
-          );
-        }
-        setVerifiedReportsList(list);
-        if (filterC !== 'all') {
-          const comp = usersSource.find(u => u.id === filterC);
-          setVerifiedCompany(comp || null);
+        // Falls back to memory-based local checking if offline or in testing mode
+        const reportsSource = (reports && reports.length > 0) ? reports : (isDemoDataEnabled() ? INITIAL_REPORTS : []);
+        const usersSource = (users && users.length > 0) ? users : INITIAL_USERS;
+        
+        if (verifyId === 'filtered') {
+          const filterM = params.get('month') || 'all';
+          const filterY = params.get('year') || 'all';
+          const filterC = params.get('companyId') || 'all';
+          const filterS = params.get('serviceType') || 'all';
+          const filterQ = params.get('searchQuery') || '';
+
+          let list = [...reportsSource];
+          if (filterC !== 'all') {
+            list = list.filter(r => r.user_id === filterC);
+          }
+          if (filterM !== 'all') {
+            list = list.filter(r => r.report_month === filterM);
+          }
+          if (filterY !== 'all') {
+            list = list.filter(r => r.report_year === filterY);
+          }
+          if (filterS !== 'all') {
+            list = list.filter(r => r.service_type === filterS);
+          }
+          if (filterQ.trim()) {
+            const q = filterQ.toLowerCase().trim();
+            list = list.filter(r => 
+              r.customer_name.toLowerCase().includes(q) ||
+              r.customer_address.toLowerCase().includes(q) ||
+              r.measuring_instrument.toLowerCase().includes(q) ||
+              r.instrument_serial_number.toLowerCase().includes(q) ||
+              r.company_name_kh.toLowerCase().includes(q)
+            );
+          }
+          setVerifiedReportsList(list);
+          if (filterC !== 'all') {
+            const comp = usersSource.find(u => u.id === filterC);
+            setVerifiedCompany(comp || null);
+          } else {
+            setVerifiedCompany(null);
+          }
         } else {
-          setVerifiedCompany(null);
-        }
-      } else {
-        // Attempt resolving target report from memory database lists
-        const rep = reportsSource.find(r => r.id === verifyId);
-        if (rep) {
-          setVerifiedReport(rep);
-          const comp = usersSource.find(u => u.license_number === rep.license_number || u.company_name_kh === rep.company_name_kh);
-          setVerifiedCompany(comp || null);
-        } else if (isDemoDataEnabled() && INITIAL_REPORTS && INITIAL_REPORTS.length > 0) {
-          const backupRep = INITIAL_REPORTS.find(r => r.id === verifyId);
-          if (backupRep) {
-            setVerifiedReport(backupRep);
-            const backupComp = INITIAL_USERS.find(u => u.license_number === backupRep.license_number || u.company_name_kh === backupRep.company_name_kh);
-            setVerifiedCompany(backupComp || null);
+          // Attempt resolving target report from memory database lists
+          const rep = reportsSource.find(r => r.id === verifyId || r.verification_token === verifyId);
+          if (rep) {
+            setVerifiedReport(rep);
+            const comp = usersSource.find(u => u.license_number === rep.license_number || u.company_name_kh === rep.company_name_kh);
+            setVerifiedCompany(comp || null);
+          } else if (isDemoDataEnabled() && INITIAL_REPORTS && INITIAL_REPORTS.length > 0) {
+            const backupRep = INITIAL_REPORTS.find(r => r.id === verifyId || r.verification_token === verifyId);
+            if (backupRep) {
+              setVerifiedReport(backupRep);
+              const backupComp = INITIAL_USERS.find(u => u.license_number === backupRep.license_number || u.company_name_kh === backupRep.company_name_kh);
+              setVerifiedCompany(backupComp || null);
+            }
           }
         }
       }
-    }
+    };
+
+    runVerification();
   }, [reports, users]);
+
+  // 1.2 Public License Verification via scanned QR-code URL check
+  useEffect(() => {
+    const runLicenseVerification = async () => {
+      const params = new URLSearchParams(window.location.search);
+      let licNum = params.get('verifyLicense');
+      
+      if (!licNum && window.location.pathname.startsWith('/verify-license/')) {
+        const parts = window.location.pathname.split('/');
+        licNum = decodeURIComponent(parts[parts.length - 1]);
+      }
+      
+      if (licNum) {
+        setVerifyLicenseNo(licNum);
+        setIsLicenseVerifying(true);
+        
+        try {
+          const { fetchLicensesFromSupabase } = await import('./supabaseSync');
+          const licenses = await fetchLicensesFromSupabase();
+          const target = licenses.find(l => l.license_number === licNum || l.id === licNum);
+          if (target) {
+            setVerifiedLicense(target);
+          } else {
+            setVerifiedLicense(null);
+          }
+        } catch (err) {
+          console.error('Error verifying license:', err);
+          setVerifiedLicense(null);
+        } finally {
+          setIsLicenseVerifying(false);
+        }
+      }
+    };
+
+    runLicenseVerification();
+  }, []);
 
   // Update localStorage database helpers
   const saveUsersToStore = (newList: MetrologyUser[]) => {
@@ -436,6 +706,16 @@ export default function App() {
     setSessionUser(null);
     sessionStorage.removeItem('nmc_active_user_session');
     showToast('គណនីរបស់លោកអ្នកបានចាកចេញដោយសុវត្ថិភាពពីប្រព័ន្ធ!', 'success');
+  };
+
+  const handlePasswordChanged = (updatedUser: MetrologyUser) => {
+    const mergedUser = { ...updatedUser };
+    const updatedList = users.map(u => u.id === updatedUser.id ? mergedUser : u);
+    saveUsersToStore(updatedList);
+    const sessionSafeUser = { ...mergedUser, password: undefined };
+    setSessionUser(sessionSafeUser);
+    sessionStorage.setItem('nmc_active_user_session', JSON.stringify(sessionSafeUser));
+    showToast('ពាក្យសម្ងាត់ត្រូវបានប្តូរដោយជោគជ័យ។ / Password changed successfully.', 'success');
   };
 
   // User Management callbacks (Superadmin)
@@ -736,7 +1016,7 @@ export default function App() {
     // Company user can ONLY view their own records as requested in chapter 14:
     // "កុំអនុញ្ញាតឱ្យ User មើលទិន្នន័យក្រុមហ៊ុនផ្សេង"
     if (sessionUser.role === 'company') {
-      list = list.filter(r => r.user_id === sessionUser.id);
+      list = list.filter(r => isReportOwnedByCurrentCompany(r, sessionUser));
     }
 
     // Apply company selection filter for Admin
@@ -757,6 +1037,11 @@ export default function App() {
     // Service type filter
     if (filterServiceType !== 'all') {
       list = list.filter(r => r.service_type === filterServiceType);
+    }
+
+    // Status filter
+    if (filterStatus !== 'all') {
+      list = list.filter(r => (r.report_status || 'Approved') === filterStatus);
     }
 
     // Search query query
@@ -815,6 +1100,195 @@ export default function App() {
   // Quick state monitoring values for current view
   const currentLocalTime = systemTime; // dynamic Cambodia Time formatted for aesthetics as requested
 
+  // Render License Verification View if we are verifying a license QR code scan
+  if (verifyLicenseNo) {
+    const isVerifying = isLicenseVerifying;
+    const lic = verifiedLicense;
+    
+    // Status Logic inside App.tsx
+    const getLicenseStatus = () => {
+      if (!lic) return { labelKh: 'មិនរកឃើញ', labelEn: 'Not Found', color: 'text-red-500 bg-red-100/10 border-red-500/20' };
+      
+      const expiryDateStr = lic.license_expiry_date;
+      if (!expiryDateStr) return { labelKh: 'មិនទាន់កំណត់', labelEn: 'Not Set', color: 'text-slate-400 bg-slate-900/40 border-slate-800' };
+      
+      const today = new Date(new Date().toISOString().split('T')[0]);
+      const expiry = new Date(expiryDateStr);
+      const diffMs = expiry.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      
+      if (lic.license_status === 'Suspended') {
+        return { labelKh: 'ផ្អាកជាបណ្តោះអាសន្ន', labelEn: 'Suspended', color: 'text-orange-500 bg-orange-500/10 border-orange-500/25' };
+      }
+      if (lic.license_status === 'Cancelled') {
+        return { labelKh: 'លុបចោល', labelEn: 'Cancelled', color: 'text-red-500 bg-red-500/10 border-red-500/25' };
+      }
+      
+      if (diffDays < 0) {
+        return { labelKh: 'ហួសសុពលភាព', labelEn: 'Expired', color: 'text-red-500 bg-red-500/10 border-red-500/25' };
+      } else if (diffDays <= 60) {
+        return { labelKh: 'ជិតហួសកំណត់', labelEn: 'Expiring Soon', color: 'text-amber-500 bg-amber-550/10 border-amber-550/25' };
+      } else {
+        return { labelKh: 'សកម្ម / មានសុពលភាព', labelEn: 'Active', color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/25' };
+      }
+    };
+    
+    const statusInfo = getLicenseStatus();
+    
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
+        {isVerifying ? (
+          <div className="max-w-md w-full bg-slate-900 border border-slate-800 text-center rounded-2xl p-8 shadow-2xl flex flex-col items-center">
+            <span className="animate-spin h-8 w-8 border-4 border-gold border-t-transparent rounded-full mb-3" />
+            <p className="text-slate-400 text-xs font-bold">កំពុងផ្ទៀងផ្ទាត់អាជ្ញាប័ណ្ណ... / Verifying license...</p>
+          </div>
+        ) : lic ? (
+          <div className="max-w-xl w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl space-y-6 relative overflow-hidden select-text text-white">
+            {/* Top gold bar border */}
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-teal-500 via-gold to-indigo-600" />
+            
+            {/* National Metrology Center (NMC) Header in Khmer/English */}
+            <div className="flex items-center gap-4 border-b border-slate-800 pb-5">
+              <img src={nmcLogo} alt="NMC Logo" className="h-14 w-14 shrink-0 object-contain" referrerPolicy="no-referrer" />
+              <div>
+                <h1 className="text-xs font-extrabold text-gold tracking-wide leading-tight">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</h1>
+                <h2 className="text-sm font-black text-slate-100 leading-tight">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ (NMC)</h2>
+                <p className="text-[9px] text-slate-400 font-mono tracking-wider font-extrabold uppercase mt-0.5">National Metrology Center of Cambodia</p>
+              </div>
+            </div>
+
+            {/* Title and Badge */}
+            <div className="space-y-2 text-center md:text-left">
+              <span className="px-3 py-1 bg-[#353C96]/10 text-[#353C96] border border-[#353C96]/20 rounded-full text-[9px] font-bold uppercase tracking-wider font-mono">
+                Official Digital Verification ✓
+              </span>
+              <h3 className="text-lg font-black text-slate-105 mt-2 font-muol leading-relaxed">
+                ផ្ទៀងផ្ទាត់អាជ្ញាប័ណ្ណសហគ្រាស
+              </h3>
+              <p className="text-xs text-slate-400 font-mono">
+                ENTERPRISE LICENSE VERIFICATION
+              </p>
+            </div>
+
+            {/* Alert Status */}
+            <div className={`p-4 rounded-2xl border flex items-center justify-between ${statusInfo.color} font-mono text-xs leading-tight font-black`}>
+              <div className="space-y-1">
+                <p className="text-[10px] text-slate-400 font-semibold uppercase">ស្ថានភាពផ្លូវការ / License Status</p>
+                <p className="text-sm font-black">{statusInfo.labelKh} ({statusInfo.labelEn})</p>
+              </div>
+              <p className="text-[10px] text-slate-400 italic font-medium hidden sm:block">NMC Public Verification</p>
+            </div>
+
+            {/* License Details Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-medium font-sans">
+              
+              <div className="space-y-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80">
+                <span className="text-slate-400 font-mono text-[9px] uppercase tracking-wider">ឈ្មោះក្រុមហ៊ុន (Company EN)</span>
+                <p className="text-slate-100 text-sm font-extrabold">{lic.company_name}</p>
+              </div>
+
+              {lic.company_name_kh && (
+                <div className="space-y-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80">
+                  <span className="text-slate-400 font-mono text-[9px] uppercase tracking-wider">ឈ្មោះក្រុមហ៊ុនជាភាសាខ្មែរ (Company KH)</span>
+                  <p className="text-slate-100 text-sm font-bold font-muol leading-loose text-gold">{lic.company_name_kh}</p>
+                </div>
+              )}
+
+              <div className="space-y-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80">
+                <span className="text-slate-400 font-mono text-[9px] uppercase tracking-wider">លេខអាជ្ញាប័ណ្ណ (License Number)</span>
+                <p className="text-slate-100 text-sm font-bold font-mono text-[#353C96]">{lic.license_number}</p>
+              </div>
+
+              <div className="space-y-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80">
+                <span className="text-slate-400 font-mono text-[9px] uppercase tracking-wider">រយៈពេលសុពលភាព (Validity Period)</span>
+                <p className="text-slate-100 text-sm font-bold font-sans">3 ឆ្នាំ (3 Years)</p>
+              </div>
+
+              <div className="space-y-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80 col-span-1 md:col-span-2">
+                <span className="text-slate-400 font-mono text-[9px] uppercase tracking-wider">អាសយដ្ឋានសហគ្រាស (Business Address)</span>
+                <p className="text-slate-200 text-xs leading-relaxed">{lic.company_address || 'មិនកំណត់ / Not specified'}</p>
+              </div>
+
+              <div className="space-y-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80">
+                <span className="text-slate-400 font-mono text-[9px] uppercase tracking-wider">កាលបរិច្ឆេទចេញ (Issue Date)</span>
+                <p className="text-slate-100 text-sm font-bold font-mono">{lic.license_issue_date}</p>
+              </div>
+
+              <div className="space-y-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80">
+                <span className="text-slate-400 font-mono text-[9px] uppercase tracking-wider">កាលបរិច្ឆេទផុតកំណត់ (Expiry Date)</span>
+                <p className="text-slate-100 text-sm font-bold font-mono text-red-400">{lic.license_expiry_date}</p>
+              </div>
+
+              {lic.business_type && (
+                <div className="space-y-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80">
+                  <span className="text-slate-400 font-mono text-[9px] uppercase tracking-wider">ប្រភេទអាជីវកម្ម (Business Type)</span>
+                  <p className="text-slate-200 text-xs">{lic.business_type}</p>
+                </div>
+              )}
+
+              {lic.service_scope && (
+                <div className="space-y-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80">
+                  <span className="text-slate-400 font-mono text-[9px] uppercase tracking-wider">វិសាលភាពសេវាកម្ម (Service Scope)</span>
+                  <p className="text-slate-200 text-xs">{lic.service_scope}</p>
+                </div>
+              )}
+
+              {lic.measuring_instrument_type && (
+                <div className="space-y-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80 col-span-1 md:col-span-2">
+                  <span className="text-slate-400 font-mono text-[9px] uppercase tracking-wider">ឧបករណ៍វាស់វែង (Measuring Instrument)</span>
+                  <p className="text-slate-200 text-xs font-semibold">{lic.measuring_instrument_type}</p>
+                </div>
+              )}
+
+            </div>
+
+            {/* Official seal footer statement */}
+            <div className="pt-4 border-t border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center text-[10px] text-slate-400 gap-2">
+              <p>កាលបរិច្ឆេទផ្ទៀងផ្ទាត់ផ្លូវការ / Official verification time:</p>
+              <p className="font-mono text-slate-400">{new Date().toLocaleString('km-KH')} (GMT+7)</p>
+            </div>
+
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setVerifyLicenseNo(null);
+                setVerifiedLicense(null);
+                window.history.replaceState({}, '', '/');
+              }}
+              className="w-full py-3 bg-[#353C96] hover:bg-[#2D327F] text-white border border-[#C9D2E3]/30 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2 mt-4"
+            >
+              <span>ត្រឡប់ក្រោយ (Go to Portal Login)</span>
+            </button>
+            
+          </div>
+        ) : (
+          <div className="max-w-md w-full bg-slate-900 border border-slate-800 text-center rounded-2xl p-8 shadow-2xl relative select-text text-white">
+            <div className="mx-auto h-16 w-16 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-5 border border-red-500/20">
+              <span className="text-2xl font-bold font-mono">✕</span>
+            </div>
+            <h2 className="text-lg font-bold leading-snug">រកមិនឃើញទិន្នន័យអាជ្ញាប័ណ្ណនេះទេ / Record Not Found</h2>
+            <p className="text-xs text-slate-400 font-medium leading-relaxed mt-3">
+              លេខកូដស្កេនដែលលោកអ្នកកំពុងផ្ទៀងផ្ទាត់ មិនមាននៅក្នុងសំណុំទិន្នន័យអាជ្ញាប័ណ្ណសហគ្រាសផ្លូវការរបស់មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិឡើយ។
+            </p>
+            <div className="bg-black/20 font-mono text-[10px] text-slate-500 p-2.5 rounded-lg border border-slate-800 mt-4 break-all">
+              License Reference: {verifyLicenseNo}
+            </div>
+            <button
+              onClick={() => {
+                setVerifyLicenseNo(null);
+                setVerifiedLicense(null);
+                window.history.replaceState({}, '', '/');
+              }}
+              className="mt-6 w-full py-2 bg-[#353C96] hover:bg-[#2D327F] text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+            >
+              ត្រឡប់ក្រោយ / Close Verify
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // Render Verification View if we are verifying a QR code scan
   if (verifyReportId) {
     const hasData = verifiedReport || verifiedReportsList.length > 0;
@@ -859,7 +1333,7 @@ export default function App() {
                 setVerifiedReportsList([]);
                 window.history.replaceState({}, '', window.location.pathname);
               }}
-              className="mt-6 w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+              className="mt-6 w-full py-2 bg-[#353C96] hover:bg-[#2D327F] text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
             >
               ត្រឡប់ក្រោយ / Close Verify
             </button>
@@ -872,15 +1346,21 @@ export default function App() {
   // Render Login page if not authenticated
   if (!sessionUser) {
     return (
-      <LoginScreen 
-        onLoginSuccess={handleLoginSession} 
-        usersList={users} 
-      />
+      <div className="relative min-h-screen">
+        <div className="fixed right-4 top-4 z-[1000]">
+          <LanguageSwitch language={language} onChange={handleLanguageChange} />
+        </div>
+        <LoginScreen 
+          onLoginSuccess={handleLoginSession} 
+          usersList={users} 
+          isUsersLoading={isUsersLoading}
+        />
+      </div>
     );
   }
 
   return (
-    <div id="application-container" className="min-h-screen bg-slate-100 flex flex-col justify-between selection:bg-indigo-100 selection:text-indigo-900 font-sans">
+    <div id="application-container" className="min-h-screen bg-slate-100 flex flex-col justify-between selection:bg-slate-100 selection:text-[#2D327F] font-sans">
       
       {/* Toast alert notifications system */}
       {toast && (
@@ -892,6 +1372,15 @@ export default function App() {
             </p>
           </div>
         </div>
+      )}
+
+      {showChangePassword && sessionUser && (
+        <ChangePasswordModal
+          currentUser={sessionUser}
+          usersList={users}
+          onClose={() => setShowChangePassword(false)}
+          onPasswordChanged={handlePasswordChanged}
+        />
       )}
 
       {/* Main Administrative Layout View */}
@@ -915,6 +1404,7 @@ export default function App() {
             </div>
             
             <div className="flex items-center gap-2">
+              <LanguageSwitch language={language} onChange={handleLanguageChange} dark />
               <button
                 type="button"
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -984,6 +1474,22 @@ export default function App() {
                   <span>របាយការណ៍ប្រចាំខែ (Reports)</span>
                 </button>
 
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('licenses');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
+                    activeTab === 'licenses' 
+                      ? 'bg-gold/10 text-gold border-r-4 border-gold' 
+                      : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
+                  }`}
+                >
+                  <Award className="h-4 w-4 shrink-0 text-gold" />
+                  <span>បញ្ជីអាជ្ញាប័ណ្ណសហគ្រាស (Licenses)</span>
+                </button>
+
                 {(sessionUser.role === 'superadmin' || sessionUser.role === 'admin') && (
                   <button
                     type="button"
@@ -1020,6 +1526,24 @@ export default function App() {
                   </button>
                 )}
 
+                {sessionUser.role === 'superadmin' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('backup');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
+                      activeTab === 'backup' 
+                        ? 'bg-gold/10 text-gold border-r-4 border-gold' 
+                        : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
+                    }`}
+                  >
+                    <Database className="h-4 w-4 shrink-0 text-gold" />
+                    <span>បម្រុងទុកទិន្នន័យ (Backup Data)</span>
+                  </button>
+                )}
+
                 {sessionUser.role !== 'company' && sessionUser.role !== 'admin' && sessionUser.role !== 'superadmin' && (
                   <button
                     type="button"
@@ -1045,6 +1569,18 @@ export default function App() {
                   <Clock className="h-3.5 w-3.5" />
                   <span>GMT+7 : {systemTime.split(' ')[0]}</span>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    setShowChangePassword(true);
+                  }}
+                  className="w-full py-2 px-3 bg-white/5 hover:bg-white/10 text-slate-200 border border-slate-800 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                >
+                  <KeyRound className="h-3.5 w-3.5" />
+                  <span>ប្តូរពាក្យសម្ងាត់ / Change Password</span>
+                </button>
                 
                 <button
                   type="button"
@@ -1149,6 +1685,20 @@ export default function App() {
                 <span>របាយការណ៍ប្រចាំខែ (Reports)</span>
               </button>
 
+              {/* Licenses Registry Tab Anchor */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('licenses')}
+                className={`w-full flex items-center gap-3 px-5 py-3 text-[13px] font-bold transition-all cursor-pointer justify-start rounded-none ${
+                  activeTab === 'licenses' 
+                    ? 'bg-white/5 text-white border-r-4 border-gold shadow-xs' 
+                    : 'text-slate-400 hover:bg-white/[0.02] hover:text-white border-r-4 border-transparent'
+                }`}
+              >
+                <Award className="h-4 w-4 shrink-0 text-gold" />
+                <span>បញ្ជីអាជ្ញាប័ណ្ណសហគ្រាស (Licenses)</span>
+              </button>
+
               {/* User management tab anchor (Restricted to Admins!) */}
               {(sessionUser.role === 'superadmin' || sessionUser.role === 'admin') && (
                 <button
@@ -1180,6 +1730,21 @@ export default function App() {
                 </button>
               )}
 
+              {sessionUser.role === 'superadmin' && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('backup')}
+                  className={`w-full flex items-center gap-3 px-5 py-3 text-[13px] font-bold transition-all cursor-pointer justify-start rounded-none ${
+                    activeTab === 'backup' 
+                      ? 'bg-white/5 text-white border-r-4 border-gold shadow-xs' 
+                      : 'text-slate-400 hover:bg-white/[0.02] hover:text-white border-r-4 border-transparent'
+                  }`}
+                >
+                  <Database className="h-4 w-4 shrink-0 text-gold" />
+                  <span>បម្រុងទុកទិន្នន័យ (Backup Data)</span>
+                </button>
+              )}
+
               {/* Developer integration panel (Hidden for company context) */}
               {sessionUser.role !== 'company' && sessionUser.role !== 'admin' && sessionUser.role !== 'superadmin' && (
                 <button
@@ -1200,10 +1765,21 @@ export default function App() {
 
           {/* Logout column footer */}
           <div className="p-4 border-t border-slate-850 space-y-3">
+            <LanguageSwitch language={language} onChange={handleLanguageChange} dark />
+
             <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono">
               <Clock className="h-3.5 w-3.5" />
               <span>GMT+7 : {systemTime.split(' ')[0]}</span>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setShowChangePassword(true)}
+              className="w-full py-2 px-3 hover:bg-white/5 text-slate-300 hover:text-white border border-slate-800 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+              <span>ប្តូរពាក្យសម្ងាត់ / Change Password</span>
+            </button>
             
             <button
               type="button"
@@ -1221,20 +1797,37 @@ export default function App() {
         <div className="flex-1 flex flex-col min-w-0">
           
           {/* Dashboard Header Bar */}
-          <header className="bg-white border-b border-slate-200 py-3 px-6 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs shrink-0">
-            <div>
-              <p className="text-[10px] text-slate-500 font-extrabold hidden sm:block uppercase tracking-wider font-muol leading-normal">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
-              <h2 className="text-xs font-bold text-slate-800 mt-0.5 font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ - National Metrology Center of Cambodia</h2>
+          <header 
+            className="bg-nmc-header text-white py-5 px-8 flex flex-col md:flex-row items-center justify-between gap-4 shadow-md shrink-0 border-b border-[#3F7C9B]/30"
+            style={{ backgroundColor: '#4F6F8D' }}
+          >
+            <div className="flex flex-col md:flex-row items-center gap-4 text-center md:text-left">
+              <img 
+                src={nmcLogo} 
+                alt="NMC Logo" 
+                className="h-16 w-16 object-contain shrink-0 filter brightness-110 drop-shadow-md" 
+                referrerPolicy="no-referrer"
+              />
+              <div className="space-y-1">
+                <h1 className="text-sm md:text-base font-bold font-muol tracking-wide text-white drop-shadow-xs">
+                  ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍
+                </h1>
+                <h2 className="text-[11px] md:text-xs font-semibold text-slate-100/90 font-muol tracking-wide leading-relaxed">
+                  មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ - National Metrology Center of Cambodia
+                </h2>
+              </div>
             </div>
             
             <div className="flex items-center gap-2.5">
-              <span className="hidden lg:inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-slate-50 p-1.5 px-3 rounded-full border border-slate-200/80">
-                <BriefcaseBusiness className="h-3.5 w-3.5 text-gold" />
+              <LanguageSwitch language={language} onChange={handleLanguageChange} dark />
+
+              <span className="hidden lg:inline-flex items-center gap-1.5 text-[10px] font-bold text-white bg-[#3F6F8F]/50 p-2 px-3.5 rounded-lg border border-white/20 shadow-xs">
+                <BriefcaseBusiness className="h-3.5 w-3.5 text-[#D9A441]" />
                 <span>សកម្មភាព៖ {sessionUser?.legal_representative || sessionUser?.username}</span>
               </span>
               
-              <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold p-1.5 px-3 rounded-full ${dbConfig.useFallback ? 'bg-amber-50 text-amber-700 border border-amber-200/50':'bg-emerald-50 text-emerald-700 border border-emerald-200/50'}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${dbConfig.useFallback ? 'bg-amber-500':'bg-emerald-500 animate-pulse'}`}></span>
+              <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold p-2 px-3.5 rounded-lg border ${dbConfig.useFallback ? 'bg-amber-500/20 text-amber-200 border-amber-500/30':'bg-emerald-500/20 text-emerald-200 border-emerald-500/30'}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${dbConfig.useFallback ? 'bg-amber-400':'bg-emerald-400 animate-pulse'}`}></span>
                 <span>{dbConfig.useFallback ? 'Offline (Local ST)' : 'Supabase Sync: Active'}</span>
               </span>
             </div>
@@ -1255,7 +1848,7 @@ export default function App() {
                   {sessionUser.role === 'company' && (
                     <button
                       onClick={() => setActiveTab('reports')}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow transition-all cursor-pointer"
+                      className="px-4 py-2 bg-[#353C96] hover:bg-[#2D327F] text-white rounded-lg text-xs font-bold shadow transition-all cursor-pointer"
                     >
                       + បំពេញរបាយការណ៍ថ្មី
                     </button>
@@ -1279,7 +1872,7 @@ export default function App() {
 
                 {/* Dashboard bottom quick insights panel */}
                 <div className="bg-slate-900 rounded-xl p-6 text-slate-100 flex flex-col md:flex-row items-center justify-between gap-6 border border-slate-800 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/10 rounded-full blur-3xl"></div>
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-[#353C96]/10 rounded-full blur-3xl"></div>
                   <div className="space-y-2">
                     <p className="text-amber-500 text-xs font-bold uppercase tracking-wider">សេចក្ដីណែនាំព័ត៌មានប្រចាំខែ (National Instructions Update)</p>
                     <h4 className="text-sm font-black md:text-base leading-relaxed">ដើម្បីរក្សាសន្តិសុខទន្នន័យ និងលេខកូដសម្ងាត់សហគ្រាសទទួលបានអាជ្ញាប័ណ្ណ ៖</h4>
@@ -1421,7 +2014,7 @@ export default function App() {
                         </div>
                         <input
                           type="text"
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-3 py-1.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-3 py-1.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96]"
                           placeholder="ស្វែងរកតាម អតិថិជន លេខស៊េរី ឧបករណ៍ ក្រុមហ៊ុន..."
                           value={searchQuery}
                           onChange={(e) => {
@@ -1439,7 +2032,7 @@ export default function App() {
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 mb-1">ចម្រោះតាមខែ (Month)</label>
                         <select
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] text-slate-600 focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:bg-white"
                           value={filterMonth}
                           onChange={(e) => {
                             setFilterMonth(e.target.value);
@@ -1466,7 +2059,7 @@ export default function App() {
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 mb-1">ឆ្នាំរបាយការណ៍ (Year)</label>
                         <select
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] text-slate-600 focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:bg-white"
                           value={filterYear}
                           onChange={(e) => {
                             setFilterYear(e.target.value);
@@ -1474,47 +2067,66 @@ export default function App() {
                           }}
                         >
                           <option value="all">គ្រប់ឆ្នាំទាំងអស់ / All years</option>
-                          {generateYearOptions(2000, 2050).sort((a,b) => b - a).map(year => (
-                            <option key={year} value={String(year)}>{year}</option>
-                          ))}
+                          <option value="2024">ឆ្នាំ 2024</option>
+                          <option value="2025">ឆ្នាំ 2025</option>
+                          <option value="2026">ឆ្នាំ 2026</option>
+                          <option value="2027">ឆ្នាំ 2027</option>
                         </select>
                       </div>
 
                       {/* Filter by Service Type */}
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-500 mb-1">ប្រភេទសេវាកម្ម (Service)</label>
+                        <label className="block text-[10px] font-bold text-slate-500 mb-1">ប្រភេទសេវាកម្ម (Service Type)</label>
                         <select
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] text-slate-600 focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:bg-white"
                           value={filterServiceType}
                           onChange={(e) => {
                             setFilterServiceType(e.target.value);
                             setCurrentPage(1);
                           }}
                         >
-                          <option value="all">គ្រប់ប្រភេទសេវាកម្ម / All</option>
-                          <option value="Manufacture">ផលិត (Manufactures)</option>
-                          <option value="Installation">តម្លើង (Installations)</option>
-                          <option value="Repair">ជួសជុល (Repairs)</option>
+                          <option value="all">គ្រប់ប្រភេទទាំងអស់ / All</option>
+                          <option value="Manufacture">ផលិត (Manufacture)</option>
+                          <option value="Installation">តម្លើង (Installation)</option>
+                          <option value="Repair">ជួសជុល (Repair)</option>
+                        </select>
+                      </div>
+
+                      {/* Filter by Status */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 mb-1">ស្ថានភាពឯកសារ (Status)</label>
+                        <select
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] text-slate-600 focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:bg-white"
+                          value={filterStatus}
+                          onChange={(e) => {
+                            setFilterStatus(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                        >
+                          <option value="all">គ្រប់ស្ថានភាពទាំងអស់ / All</option>
+                          <option value="Draft">Draft (ព្រាង)</option>
+                          <option value="Submitted">Submitted (បានដាក់ជូន)</option>
+                          <option value="Under Review">Under Review (វាយតម្លៃ)</option>
+                          <option value="Approved">Approved (អនុម័ត)</option>
+                          <option value="Rejected">Rejected (បដិសេធ)</option>
                         </select>
                       </div>
 
                       {/* Filter by Licensing company -> Only visible to Admins/Superadmins! */}
                       {sessionUser.role !== 'company' && (
                         <div className="col-span-2 sm:col-span-1">
-                          <label className="block text-[10px] font-bold text-slate-500 mb-1">ក្រុមហ៊ុន/សហគ្រាស (Company)</label>
+                          <label className="block text-[10px] font-bold text-slate-500 mb-1">ក្រុមហ៊ុន (Company)</label>
                           <select
-                            className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] text-slate-700 font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-[10px] text-slate-600 focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:bg-white"
                             value={filterCompanyId}
                             onChange={(e) => {
                               setFilterCompanyId(e.target.value);
                               setCurrentPage(1);
                             }}
                           >
-                            <option value="all">គ្រប់ក្រុមហ៊ុនសហគ្រាសទាំងអស់</option>
-                            {activeCompanyList.map(co => (
-                              <option key={co.id} value={co.id}>
-                                {co.company_name_kh}
-                              </option>
+                            <option value="all">គ្រប់ក្រុមហ៊ុនទាំងអស់ / All companies</option>
+                            {activeCompanyList.map(item => (
+                              <option key={item.id} value={item.id}>{item.company_name_kh}</option>
                             ))}
                           </select>
                         </div>
@@ -1526,8 +2138,8 @@ export default function App() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse text-xs">
                       <thead>
-                        <tr className="bg-slate-50 border-b border-slate-250 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                          <th className="p-4 text-center w-12">ល.រ</th>
+                        <tr className="bg-[#353C96] text-white text-[10px] font-bold uppercase tracking-wider">
+                          <th className="p-4 text-center w-12 text-white">ល.រ</th>
                           {sessionUser.role !== 'company' && <th className="p-4">ក្រុមហ៊ុនទទួលបានអាជ្ញាប័ណ្ណ</th>}
                           <th className="p-4">ឈ្មោះអតិថិជន និងអាសយដ្ឋាន</th>
                           <th className="p-4">ឈ្មោះឧបករណ៍វាស់វែង</th>
@@ -1535,7 +2147,8 @@ export default function App() {
                           <th className="p-4">គ្រឿងបន្លាស់មាត្រាសាស្ត្រ</th>
                           <th className="p-4 text-center">ប្រភេទសេវាកម្ម</th>
                           <th className="p-4 text-center">កាលបរិច្ឆេទធ្វើសេវាកម្ម</th>
-                          <th className="p-4 text-center w-24">សកម្មភាព</th>
+                          <th className="p-4 text-center">ស្ថានភាព</th>
+                          <th className="p-4 text-center w-36">សកម្មភាព</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -1543,7 +2156,7 @@ export default function App() {
                           <tr
                             key={r.id}
                             className={`hover:bg-slate-50/70 transition-colors ${
-                              selectedEditReport?.id === r.id ? 'bg-indigo-500/5' : ''
+                              selectedEditReport?.id === r.id ? 'bg-slate-500/5' : ''
                             }`}
                           >
                             <td className="p-4 text-center font-mono text-slate-400">
@@ -1580,7 +2193,7 @@ export default function App() {
                                 <div className="text-[9px] font-mono text-slate-400 mt-0.5">S/N: {r.spare_part_serial_number}</div>
                               )}
                             </td>
-
+ 
                             <td className="p-4 text-center">
                               <span
                                 className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -1594,7 +2207,7 @@ export default function App() {
                                 {getServiceTypeKH(r.service_type).split(' ')[0]}
                               </span>
                             </td>
-
+ 
                             <td className="p-4 text-center text-[10px] font-mono leading-relaxed text-slate-600">
                               {r.service_start_date} <br /> ដល់ {r.service_end_date}
                               <div className="text-[9px] text-slate-400 font-sans mt-0.5">
@@ -1603,18 +2216,96 @@ export default function App() {
                             </td>
 
                             <td className="p-4 text-center">
-                              <div className="flex items-center justify-center gap-2">
+                              {(() => {
+                                const st = r.report_status || 'Approved';
+                                if (st === 'Draft') {
+                                  return <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-300">Draft (ព្រាង)</span>;
+                                } else if (st === 'Submitted') {
+                                  return <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold bg-sky-50 text-sky-700 border border-sky-500/10">Submitted (ផ្ញើជូន)</span>;
+                                } else if (st === 'Under Review') {
+                                  return <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-500/10">Review (វាយតម្លៃ)</span>;
+                                } else if (st === 'Rejected') {
+                                  return (
+                                    <div className="space-y-1">
+                                      <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold bg-rose-50 text-rose-700 border border-rose-500/10">Rejected (បដិសេធ)</span>
+                                      {r.rejection_reason && (
+                                        <div className="text-[8px] text-rose-500 leading-tight max-w-[120px] mx-auto line-clamp-1" title={r.rejection_reason}>
+                                          {r.rejection_reason}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                }
+                                return <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-500/10">Approved (អនុម័ត)</span>;
+                              })()}
+                            </td>
+ 
+                            <td className="p-4 text-center">
+                              <div className="flex flex-wrap items-center justify-center gap-1">
+                                {sessionUser.role !== 'company' && (r.report_status || 'Approved') !== 'Approved' && (
+                                  <button
+                                    title="អនុម័តរបាយការណ៍"
+                                    onClick={async () => {
+                                      const updated: MetrologyReport = {
+                                        ...r,
+                                        report_status: 'Approved',
+                                        approved_at: new Date().toISOString(),
+                                        approved_by: sessionUser.id
+                                      };
+                                      setReports(prev => prev.map(item => item.id === r.id ? updated : item));
+                                      try {
+                                        await saveReportToSupabase(updated);
+                                        const { logAuditEvent } = await import('./services/loginHistoryService');
+                                        await logAuditEvent(sessionUser, 'REPORT_APPROVED', `Approved report ID: ${r.id} of company ${r.company_name_kh}`);
+                                        showToast('របាយការណ៍ត្រូវបានអនុម័តប្រកបដោយជោគជ័យ!', 'success');
+                                      } catch (err) {
+                                        showToast('បរាជ័យក្នុងការអនុម័តរបាយការណ៍!', 'error');
+                                      }
+                                    }}
+                                    className="px-1.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[9px] font-bold rounded transition-colors cursor-pointer"
+                                  >
+                                    ✓ អនុម័ត
+                                  </button>
+                                )}
+                                
+                                {sessionUser.role !== 'company' && (r.report_status || 'Approved') !== 'Rejected' && (
+                                  <button
+                                    title="បដិសេធរបាយការណ៍"
+                                    onClick={async () => {
+                                      const reason = prompt('សូមបញ្ចូលមូលហេតុនៃការបដិសេធ / Enter rejection reason:');
+                                      if (reason === null) return;
+                                      const updated: MetrologyReport = {
+                                        ...r,
+                                        report_status: 'Rejected',
+                                        rejection_reason: reason
+                                      };
+                                      setReports(prev => prev.map(item => item.id === r.id ? updated : item));
+                                      try {
+                                        await saveReportToSupabase(updated);
+                                        const { logAuditEvent } = await import('./services/loginHistoryService');
+                                        await logAuditEvent(sessionUser, 'REPORT_REJECTED', `Rejected report ID: ${r.id}. Reason: ${reason}`);
+                                        showToast('របាយការណ៍ត្រូវបានបដិសេធ!', 'success');
+                                      } catch (err) {
+                                        showToast('បរាជ័យក្នុងការបដិសេធរបាយការណ៍!', 'error');
+                                      }
+                                    }}
+                                    className="px-1.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[9px] font-bold rounded transition-colors cursor-pointer"
+                                  >
+                                    ✗ បដិសេធ
+                                  </button>
+                                )}
+
                                 <button
                                   title="កែសម្រួលរបាយការណ៍"
                                   onClick={() => setSelectedEditReport(r)}
-                                  className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
+                                  className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors cursor-pointer text-[10px]"
                                 >
                                   Edit
                                 </button>
                                 <button
                                   title="ទាញយក PDF ឯកត្តជន"
                                   onClick={() => setSelectedPrintReport(r)}
-                                  className="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-colors cursor-pointer"
+                                  className="p-1 bg-slate-50 hover:bg-slate-100 text-[#2D327F] rounded transition-colors cursor-pointer text-[10px]"
                                 >
                                   Print
                                 </button>
@@ -1625,7 +2316,7 @@ export default function App() {
 
                         {paginatedReports.length === 0 && (
                           <tr>
-                            <td colSpan={sessionUser.role !== 'company' ? 9 : 8} className="text-center py-12 text-slate-400 font-sans">
+                            <td colSpan={sessionUser.role !== 'company' ? 10 : 9} className="text-center py-12 text-slate-400 font-sans">
                               {reports.length === 0 ? (
                                 <div className="space-y-1">
                                   <p className="font-bold text-slate-600">មិនទាន់មានរបាយការណ៍ទេ</p>
@@ -1696,6 +2387,20 @@ export default function App() {
             {/* E. LOGIN HISTORY VIEW */}
             {activeTab === 'history' && sessionUser.role === 'superadmin' && (
               <LoginHistoryView />
+            )}
+
+            {/* F. SYSTEM DATA BACKUP SERVICES */}
+            {activeTab === 'backup' && sessionUser.role === 'superadmin' && (
+              <BackupData currentUser={sessionUser} />
+            )}
+
+            {/* G. ENTERPRISE LICENSING REGISTRY MODULE */}
+            {activeTab === 'licenses' && (
+              <EnterpriseLicensingRegistry 
+                currentUser={sessionUser}
+                usersList={users}
+                toastMsg={showToast}
+              />
             )}
 
           </main>
@@ -1781,11 +2486,11 @@ export default function App() {
               <div className="space-y-4">
                 {/* Desktop Option */}
                 <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 flex items-start gap-3">
-                  <span className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100 shrink-0 font-bold text-xs">A</span>
+                  <span className="p-2 rounded-xl bg-slate-50 text-[#353C96] border border-[#C9D2E3] shrink-0 font-bold text-xs">A</span>
                   <div>
                     <h4 className="text-xs font-bold text-slate-800">សម្រាប់កុំព្យូទ័រ (Desktop Native App)</h4>
                     <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                      ចុចលើរូបសញ្ញា <strong className="text-indigo-600">"ដំឡើងកម្មវិធី" (Install / Open in App)</strong> ឬចុចរូប <strong className="font-mono bg-slate-200 px-1 rounded">⊞</strong> នៅលើរបារអាសយដ្ឋាន Chrome/Edge ដូចដែលបានបង្ហាញក្នុងរូបភាព រួចជ្រើសរើស "ដំឡើង" (Install)។
+                      ចុចលើរូបសញ្ញា <strong className="text-[#353C96]">"ដំឡើងកម្មវិធី" (Install / Open in App)</strong> ឬចុចរូប <strong className="font-mono bg-slate-200 px-1 rounded">⊞</strong> នៅលើរបារអាសយដ្ឋាន Chrome/Edge ដូចដែលបានបង្ហាញក្នុងរូបភាព រួចជ្រើសរើស "ដំឡើង" (Install)។
                     </p>
                   </div>
                 </div>
@@ -1796,7 +2501,7 @@ export default function App() {
                   <div>
                     <h4 className="text-xs font-bold text-slate-800">ស្មាតហ្វូន iPhone / iOS (Safari Browser)</h4>
                     <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                      បើកទំព័រនេះក្នុងកម្មវិធី <strong className="text-slate-850">Safari</strong> &rarr; ចុចប៊ូតុងចែករំលែក <strong className="text-indigo-600 font-bold">"Share" (រូបសញ្ញាព្រួញឡើងលើ &uarr;)</strong> នៅផ្នែកខាងក្រោម &rarr; អូសចុះក្រោមហើយជ្រើសរើស <strong className="text-indigo-600">"បន្ថែមទៅអេក្រង់ដើម" (Add to Home Screen)</strong>។
+                      បើកទំព័រនេះក្នុងកម្មវិធី <strong className="text-slate-850">Safari</strong> &rarr; ចុចប៊ូតុងចែករំលែក <strong className="text-[#353C96] font-bold">"Share" (រូបសញ្ញាព្រួញឡើងលើ &uarr;)</strong> នៅផ្នែកខាងក្រោម &rarr; អូសចុះក្រោមហើយជ្រើសរើស <strong className="text-[#353C96]">"បន្ថែមទៅអេក្រង់ដើម" (Add to Home Screen)</strong>។
                     </p>
                   </div>
                 </div>

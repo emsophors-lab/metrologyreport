@@ -81,6 +81,11 @@ export default function ReportForm({
         toastMsg('គណនីរបស់អ្នកមិនមានសិទ្ធិកែប្រែរបាយការណ៍ឡើយ!', 'error');
         return;
       }
+      // Status restriction for edits: (Draft or Submitted are allowable)
+      if (currentUser.role === 'company' && selectedReport.report_status && !['Draft', 'Submitted'].includes(selectedReport.report_status)) {
+        toastMsg(`មិនអាចកែប្រែបានទេ! របាយការណ៍ស្ថិតក្នុងស្ថានភាព: ${selectedReport.report_status} / Editing blocked on ${selectedReport.report_status} reports.`, 'error');
+        return;
+      }
     } else {
       if (!currentUser.can_save && currentUser.role === 'company') {
         toastMsg('គណនីរបស់អ្នកមិនមានសិទ្ធិបញ្ចូលរបាយការណ៍ថ្មីឡើយ!', 'error');
@@ -126,6 +131,11 @@ export default function ReportForm({
       toastMsg('គណនីរបស់អ្នកមិនមានសិទ្ធិលុបរបាយការណ៍ឡើងឡើយ!', 'error');
       return;
     }
+    // Deletion is strictly reserved for Draft reports for company roles
+    if (currentUser.role === 'company' && selectedReport.report_status && selectedReport.report_status !== 'Draft') {
+      toastMsg(`មិនអាចលុបបានទេ! លុះត្រាតែស្ថិតក្នុងស្ថានភាព Draft ប៉ុណ្ណោះ / Deletion blocked on non-Draft reports.`, 'error');
+      return;
+    }
 
     const confirmDel = window.confirm('តើអ្នកពិតជាចង់លុបរបាយការណ៍នេះចេញពីប្រព័ន្ធមែនទេ?');
     if (confirmDel) {
@@ -167,13 +177,13 @@ export default function ReportForm({
           
           {/* Customer name */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-[#353C96] mb-1">
               ឈ្មោះអតិថិជន / Customer’s Name *
             </label>
             <input
               type="text"
               required
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold text-slate-800"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:border-[#353C96] text-slate-800"
               placeholder="ឈ្មោះរោងចក្រ ហាង ឬសហគ្រាសជាដៃគូ"
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
@@ -182,12 +192,12 @@ export default function ReportForm({
 
           {/* Customer address */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-[#353C96] mb-1">
               ទីតាំង ឬអាសយដ្ឋានអតិថិជន / Customer Address
             </label>
             <input
               type="text"
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold text-slate-800"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:border-[#353C96] text-slate-800"
               placeholder="បញ្ជាក់ ខេត្ត/ក្រុង ស្រុក/ខណ្ឌ ឬផ្លូវ"
               value={customerAddress}
               onChange={(e) => setCustomerAddress(e.target.value)}
@@ -196,13 +206,13 @@ export default function ReportForm({
 
           {/* Measuring instrument description */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-[#353C96] mb-1">
               ឧបករណ៍មាត្រាសាស្ត្រ / Measuring Instrument *
             </label>
             <input
               type="text"
               required
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold text-slate-800"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:border-[#353C96] text-slate-800"
               placeholder="ឧ. ជញ្ជីងរថយន្តអេឡិចត្រូនិចម៉ាក XK3190"
               value={measuringInstrument}
               onChange={(e) => setMeasuringInstrument(e.target.value)}
@@ -211,13 +221,13 @@ export default function ReportForm({
 
           {/* Serial Number */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-[#353C96] mb-1">
               លេខស៊េរីឧបករណ៍ឧបករណ៍ / Instrument Serial Number *
             </label>
             <input
               type="text"
               required
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold text-slate-800 font-mono"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:border-[#353C96] text-slate-800 font-mono"
               placeholder="ឧ. S/N: 2026-AB-981"
               value={instrumentSerialNumber}
               onChange={(e) => setInstrumentSerialNumber(e.target.value)}
@@ -226,12 +236,12 @@ export default function ReportForm({
 
           {/* Scope weight or measure */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-[#353C96] mb-1">
               វិសាលភាពថ្លឹង ឬរង្វាស់ / Scope of Weight or Measure
             </label>
             <input
               type="text"
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold text-slate-800"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:border-[#353C96] text-slate-800"
               placeholder="ឧ. សមត្ថភាពវាស់ស្ទង់ពី ១ គីឡូក្រាម ទៅ ១០០ តោន"
               value={scopeOfWeightMeasure}
               onChange={(e) => setScopeOfWeightMeasure(e.target.value)}
@@ -240,11 +250,11 @@ export default function ReportForm({
 
           {/* Service category selector (Manuf, Install, Repair) */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-[#353C96] mb-1">
               ប្រភេទសេវាកម្មចម្បង / Type of Service
             </label>
             <select
-              className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold font-bold"
+              className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:border-[#353C96] font-bold"
               value={serviceType}
               onChange={(e) => setServiceType(e.target.value as ServiceType)}
             >
@@ -256,12 +266,12 @@ export default function ReportForm({
 
           {/* Spare parts */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-[#353C96] mb-1">
               គ្រឿងបន្លាស់មានចរិតលក្ខណៈជាមាត្រាសាស្ត្រ / Metrology Spare Parts
             </label>
             <input
               type="text"
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold text-slate-800"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:border-[#353C96] text-slate-800"
               placeholder="ឧ. បន្ទះសេនស័រ Loadcell ឬ ក្បាលសញ្ញាអេឡិចត្រូនិច"
               value={spareParts}
               onChange={(e) => setSpareParts(e.target.value)}
@@ -270,12 +280,12 @@ export default function ReportForm({
 
           {/* Spare parts S/N */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-[#353C96] mb-1">
               លេខស៊េរីគ្រឿងបន្លាស់ / Serial Number of Spare Part
             </label>
             <input
               type="text"
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold text-slate-800 font-mono"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:border-[#353C96] text-slate-800 font-mono"
               placeholder="ឧ. SP-SN: 99182A"
               value={sparePartSerialNumber}
               onChange={(e) => setSparePartSerialNumber(e.target.value)}
@@ -284,13 +294,13 @@ export default function ReportForm({
 
           {/* Start and end dates */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-[#353C96] mb-1">
               កាលបរិច្ឆេទចាប់ផ្តើមសេវាកម្ម / Start Date
             </label>
             <div className="relative">
               <input
                 type="date"
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold text-slate-800"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:border-[#353C96] text-slate-800"
                 value={serviceStartDate}
                 onChange={(e) => setServiceStartDate(e.target.value)}
               />
@@ -298,13 +308,13 @@ export default function ReportForm({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-[#353C96] mb-1">
               កាលបរិច្ឆេទបញ្ចប់សេវាកម្ម / End Date
             </label>
             <div className="relative">
               <input
                 type="date"
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold text-slate-800"
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:border-[#353C96] text-slate-800"
                 value={serviceEndDate}
                 onChange={(e) => setServiceEndDate(e.target.value)}
               />
@@ -313,11 +323,11 @@ export default function ReportForm({
 
           {/* Report Month and Year Selector */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-[#353C96] mb-1">
               របាយការណ៍សម្រាប់ខែ / Report Month
             </label>
             <select
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold text-slate-800"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:border-[#353C96] text-slate-800"
               value={reportMonth}
               onChange={(e) => setReportMonth(e.target.value)}
             >
@@ -337,11 +347,11 @@ export default function ReportForm({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-semibold text-[#353C96] mb-1">
               របាយការណ៍ឆ្នាំ / Report Year
             </label>
             <select
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-gold text-slate-800"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:border-[#353C96] text-slate-800"
               value={reportYear}
               onChange={(e) => setReportYear(e.target.value)}
             >
