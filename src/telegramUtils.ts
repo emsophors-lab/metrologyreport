@@ -1,5 +1,6 @@
-import { MetrologyReport, MetrologyUser } from './types';
+import { MetrologyReport, MetrologyUser, TelegramBotSetting } from './types';
 import { getApiAuthHeaders } from './apiAuth';
+import { fetchBotSettingsFromSupabase } from './supabaseSync';
 
 async function readResponseJsonSafely(response: Response): Promise<any> {
   const text = await response.text();
@@ -9,6 +10,51 @@ async function readResponseJsonSafely(response: Response): Promise<any> {
   } catch {
     return { error: text, message: text };
   }
+}
+
+const isProtectedTokenPlaceholder = (token?: string | null) =>
+  !token || ['PROTECTED_UNCHANGED', 'PROTECTED_SERVER_SIDE'].includes(token) || /^[*•●]+$/.test(token.trim());
+
+const normalizeBotPurpose = (purpose?: string | null) =>
+  purpose === 'report_notification' ? 'report_group' : (purpose || 'license_reminder');
+
+const getBotGroupChatId = (bot: TelegramBotSetting) =>
+  (bot.default_group_chat_id || bot.default_chat_id || '').trim();
+
+async function getLocalReportGroupBotPayload(): Promise<Record<string, string>> {
+  const bots = await fetchBotSettingsFromSupabase();
+  const bot = bots.find((item) => {
+    const purpose = normalizeBotPurpose(item.bot_purpose);
+    return item.is_active && (purpose === 'report_group' || purpose === 'both') && getBotGroupChatId(item);
+  });
+
+  if (!bot) return {};
+
+  const payload: Record<string, string> = {
+    botId: bot.id,
+    chatId: getBotGroupChatId(bot)
+  };
+
+  if (bot.bot_token_encrypted && !isProtectedTokenPlaceholder(bot.bot_token_encrypted)) {
+    payload.botToken = bot.bot_token_encrypted;
+    payload.botUsername = bot.bot_username;
+  }
+
+  return payload;
+}
+
+let serverSecretLookupAvailableCache: boolean | null = null;
+
+async function canServerUseStoredBotSecrets(): Promise<boolean> {
+  if (serverSecretLookupAvailableCache !== null) return serverSecretLookupAvailableCache;
+  try {
+    const response = await fetch('/api/health');
+    const data = await readResponseJsonSafely(response);
+    serverSecretLookupAvailableCache = response.ok && data?.supabase === 'connected';
+  } catch {
+    serverSecretLookupAvailableCache = false;
+  }
+  return serverSecretLookupAvailableCache;
 }
 
 /**
@@ -141,11 +187,18 @@ export async function sendTelegramNotification(
     `✅ បានបង្កើត និងផ្ញើរបាយការណ៍ PDF រួចរាល់។`;
 
   try {
+    const reportGroupPayload = await getLocalReportGroupBotPayload();
+    if (reportGroupPayload.botId && !reportGroupPayload.botToken && !(await canServerUseStoredBotSecrets())) {
+      showToast('Telegram Warn: Bot token is protected in this local session. Edit the Report Group bot, paste the Bot Token once, and save it before sending group notifications.', 'error');
+      return;
+    }
+
     // 2. Dispatch through backend so Telegram bot tokens never run in browser-side requests.
     const tgResponse = await fetch('/api/test-telegram-reminder', {
       method: 'POST',
       headers: await getApiAuthHeaders(),
       body: JSON.stringify({
+        ...reportGroupPayload,
         botPurpose: 'report_group',
         customMessage: captionText
       })

@@ -351,6 +351,37 @@ const fetchRealBotTokenForLocalTest = async (bot: TelegramBotSetting): Promise<s
   return String(data?.bot_token_encrypted || '').trim();
 };
 
+const buildReportGroupTestPayload = async (bot: TelegramBotSetting, customMessage: string) => {
+  const token = await fetchRealBotTokenForLocalTest(bot);
+  const payload: Record<string, string> = {
+    botId: bot.id,
+    botPurpose: 'report_group',
+    chatId: getBotGroupChatId(bot),
+    customMessage
+  };
+
+  if (token && !isProtectedTokenPlaceholder(token)) {
+    payload.botToken = token;
+    payload.botUsername = bot.bot_username;
+  }
+
+  return payload;
+};
+
+let serverSecretLookupAvailableCache: boolean | null = null;
+
+const canServerUseStoredBotSecrets = async () => {
+  if (serverSecretLookupAvailableCache !== null) return serverSecretLookupAvailableCache;
+  try {
+    const response = await fetch('/api/health');
+    const data = await readResponseJsonSafely(response);
+    serverSecretLookupAvailableCache = response.ok && data?.supabase === 'connected';
+  } catch {
+    serverSecretLookupAvailableCache = false;
+  }
+  return serverSecretLookupAvailableCache;
+};
+
 const getBotConnectionLabel = (status: ReturnType<typeof getBotConnectionStatus>) => {
   if (status === 'connected') return 'Connected';
   if (status === 'error') return 'Error';
@@ -1960,14 +1991,17 @@ export default function EnterpriseLicensingRegistry({
 
       toastMsg('Sending Telegram group test message...', 'success');
       try {
+        const payload = await buildReportGroupTestPayload(
+          bot,
+          `<b>NMC Report Group Notification Test</b>\n\nSystem linked successfully with bot @${bot.bot_username}.`
+        );
+        if (!payload.botToken && isProtectedTokenPlaceholder(bot.bot_token_encrypted) && !(await canServerUseStoredBotSecrets())) {
+          throw new Error('Bot token is protected in this local session. Please edit this bot, paste the Bot Token once, save it, then send the test group message again.');
+        }
         const groupResponse = await fetch('/api/test-telegram-reminder', {
           method: 'POST',
           headers: await getApiAuthHeaders(),
-          body: JSON.stringify({
-            botId: bot.id,
-            botPurpose: 'report_group',
-            customMessage: `<b>NMC Report Group Notification Test</b>\n\nSystem linked successfully with bot @${bot.bot_username}.`
-          })
+          body: JSON.stringify(payload)
         });
 
         const groupData = await readResponseJsonSafely(groupResponse);

@@ -147,8 +147,8 @@ export default function ReportForm({
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-6">
-      <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-5">
+    <div className="nmc-form-section bg-white rounded-xl shadow-xs border border-slate-200 p-6">
+      <div className="nmc-card__header flex items-center justify-between border-b border-slate-100 pb-3 mb-5">
         <div className="flex items-center gap-2">
           <FileSpreadsheet className="h-5 w-5 text-gold" />
           <h3 className="text-base font-bold text-slate-800">
@@ -170,13 +170,13 @@ export default function ReportForm({
         )}
       </div>
 
-      <form onSubmit={handleFormSubmit} className="space-y-4">
+      <form onSubmit={handleFormSubmit} className="nmc-form-section__body space-y-4">
         
         {/* Core details grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="nmc-form-grid grid grid-cols-1 md:grid-cols-2 gap-4">
           
           {/* Customer name */}
-          <div>
+          <div className="nmc-field">
             <label className="block text-xs font-semibold text-[#353C96] mb-1">
               ឈ្មោះអតិថិជន / Customer’s Name *
             </label>
@@ -191,7 +191,7 @@ export default function ReportForm({
           </div>
 
           {/* Customer address */}
-          <div>
+          <div className="nmc-field">
             <label className="block text-xs font-semibold text-[#353C96] mb-1">
               ទីតាំង ឬអាសយដ្ឋានអតិថិជន / Customer Address
             </label>
@@ -205,7 +205,7 @@ export default function ReportForm({
           </div>
 
           {/* Measuring instrument description */}
-          <div>
+          <div className="nmc-field">
             <label className="block text-xs font-semibold text-[#353C96] mb-1">
               ឧបករណ៍មាត្រាសាស្ត្រ / Measuring Instrument *
             </label>
@@ -220,7 +220,7 @@ export default function ReportForm({
           </div>
 
           {/* Serial Number */}
-          <div>
+          <div className="nmc-field">
             <label className="block text-xs font-semibold text-[#353C96] mb-1">
               លេខស៊េរីឧបករណ៍ឧបករណ៍ / Instrument Serial Number *
             </label>
@@ -235,7 +235,7 @@ export default function ReportForm({
           </div>
 
           {/* Scope weight or measure */}
-          <div>
+          <div className="nmc-field">
             <label className="block text-xs font-semibold text-[#353C96] mb-1">
               វិសាលភាពថ្លឹង ឬរង្វាស់ / Scope of Weight or Measure
             </label>
@@ -249,7 +249,7 @@ export default function ReportForm({
           </div>
 
           {/* Service category selector (Manuf, Install, Repair) */}
-          <div>
+          <div className="nmc-field">
             <label className="block text-xs font-semibold text-[#353C96] mb-1">
               ប្រភេទសេវាកម្មចម្បង / Type of Service
             </label>
@@ -265,7 +265,7 @@ export default function ReportForm({
           </div>
 
           {/* Spare parts */}
-          <div>
+          <div className="nmc-field">
             <label className="block text-xs font-semibold text-[#353C96] mb-1">
               គ្រឿងបន្លាស់មានចរិតលក្ខណៈជាមាត្រាសាស្ត្រ / Metrology Spare Parts
             </label>
@@ -279,7 +279,7 @@ export default function ReportForm({
           </div>
 
           {/* Spare parts S/N */}
-          <div>
+          <div className="nmc-field">
             <label className="block text-xs font-semibold text-[#353C96] mb-1">
               លេខស៊េរីគ្រឿងបន្លាស់ / Serial Number of Spare Part
             </label>
@@ -293,7 +293,7 @@ export default function ReportForm({
           </div>
 
           {/* Start and end dates */}
-          <div>
+          <div className="nmc-field">
             <label className="block text-xs font-semibold text-[#353C96] mb-1">
               កាលបរិច្ឆេទចាប់ផ្តើមសេវាកម្ម / Start Date
             </label>
@@ -307,7 +307,7 @@ export default function ReportForm({
             </div>
           </div>
 
-          <div>
+          <div className="nmc-field">
             <label className="block text-xs font-semibold text-[#353C96] mb-1">
               កាលបរិច្ឆេទបញ្ចប់សេវាកម្ម / End Date
             </label>
@@ -322,7 +322,7 @@ export default function ReportForm({
           </div>
 
           {/* Report Month and Year Selector */}
-          <div>
+          <div className="nmc-field">
             <label className="block text-xs font-semibold text-[#353C96] mb-1">
               របាយការណ៍សម្រាប់ខែ / Report Month
             </label>
@@ -346,7 +346,7 @@ export default function ReportForm({
             </select>
           </div>
 
-          <div>
+          <div className="nmc-field">
             <label className="block text-xs font-semibold text-[#353C96] mb-1">
               របាយការណ៍ឆ្នាំ / Report Year
             </label>
@@ -363,7 +363,7 @@ export default function ReportForm({
         </div>
 
         {/* Informative text below form */}
-        <div className="flex gap-2 bg-gold/5 p-3 rounded-lg border border-gold/15 text-[11px] text-slate-700 leading-relaxed">
+        <div className="nmc-alert nmc-alert--warning flex gap-2 bg-gold/5 p-3 rounded-lg border border-gold/15 text-[11px] text-slate-700 leading-relaxed">
           <HelpCircle className="h-5 w-5 text-gold shrink-0 mt-0.5" />
           <div>
             <p className="font-bold text-slate-850">សេចក្តីណែនាំសង្ខេប ៖</p>
@@ -394,7 +394,7 @@ export default function ReportForm({
 
           <button
             type="submit"
-            className="px-6 py-2 bg-navy hover:bg-navy/90 text-white text-xs font-bold rounded-lg transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
+            className="nmc-btn nmc-btn--primary px-6 py-2 bg-navy hover:bg-navy/90 text-white text-xs font-bold rounded-lg transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
           >
             <PlusCircle className="h-4 w-4 text-gold" />
             {selectedReport ? 'រក្សាទុកការកែសម្រួល (Update Report)' : 'បញ្ជូនរបាយការណ៍ (Add Report)'}

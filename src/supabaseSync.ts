@@ -1174,14 +1174,14 @@ export async function fetchActiveReminderBotPublic(): Promise<TelegramBotSetting
   }
 }
 
-function sanitizeBotSettingForBrowserStorage(setting: TelegramBotSetting): TelegramBotSetting {
+function sanitizeBotSettingForBrowserStorage(setting: TelegramBotSetting, preserveSecrets = false): TelegramBotSetting {
   return {
     ...setting,
     bot_purpose: setting.bot_purpose || 'license_reminder',
     connection_status: setting.connection_status || (setting.last_test_status === 'Success' ? 'connected' : setting.last_test_status === 'Failed' ? 'error' : 'not_verified'),
     webhook_status: setting.webhook_status || (setting.webhook_url ? 'configured' : 'not_configured'),
-    bot_token_encrypted: setting.bot_token_encrypted ? 'PROTECTED_SERVER_SIDE' : '',
-    webhook_secret_encrypted: setting.webhook_secret_encrypted ? 'PROTECTED_SERVER_SIDE' : null,
+    bot_token_encrypted: preserveSecrets ? setting.bot_token_encrypted : (setting.bot_token_encrypted ? 'PROTECTED_SERVER_SIDE' : ''),
+    webhook_secret_encrypted: preserveSecrets ? (setting.webhook_secret_encrypted || null) : (setting.webhook_secret_encrypted ? 'PROTECTED_SERVER_SIDE' : null),
   };
 }
 
@@ -1230,7 +1230,7 @@ export async function saveBotSettingToSupabase(setting: TelegramBotSetting): Pro
 
   const local = localStorage.getItem('nmc_bot_settings');
   let list: TelegramBotSetting[] = local ? JSON.parse(local) : INITIAL_BOT_SETTINGS;
-  const safeSetting = sanitizeBotSettingForBrowserStorage(setting);
+  const safeSetting = sanitizeBotSettingForBrowserStorage(setting, !client);
   const settingPurpose = setting.bot_purpose || 'license_reminder';
   const settingCapabilities = settingPurpose === 'both'
     ? ['license_reminder', 'report_group', 'report_notification', 'both']

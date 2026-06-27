@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+Khmer:wght@300;400;500;600;700&family=Kantumruy+Pro:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Moul&display=swap');
 @import "leaflet/dist/leaflet.css";
+@import "./styles/nmc-official-theme.css";
 @import "tailwindcss";
 
 .leaflet-container {

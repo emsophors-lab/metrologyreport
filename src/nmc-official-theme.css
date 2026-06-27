@@ -1,0 +1,592 @@
+/*
+  NMC Official Government UI Theme
+  For: Metrology License Report System
+  Copy to: src/styles/nmc-official-theme.css
+  Import in src/main.tsx: import './styles/nmc-official-theme.css';
+*/
+
+:root {
+  --nmc-navy: #0B2F5B;
+  --nmc-sidebar: #082A52;
+  --nmc-sidebar-active: #163F73;
+  --nmc-header-blue: #4F718A;
+  --nmc-blue: #1F4E79;
+  --nmc-royal-blue: #2F3B91;
+  --nmc-light-bg: #F3F7FA;
+  --nmc-card-bg: #FFFFFF;
+  --nmc-border: #D7E1EA;
+  --nmc-border-strong: #8AA4BC;
+  --nmc-gold: #D6A84F;
+  --nmc-success: #0E8F5A;
+  --nmc-success-bg: #DDF8EA;
+  --nmc-warning: #F5A000;
+  --nmc-warning-bg: #FFF2CC;
+  --nmc-danger: #C62828;
+  --nmc-danger-bg: #FFE1E1;
+  --nmc-text: #102033;
+  --nmc-muted-text: #6B7A90;
+  --nmc-white: #FFFFFF;
+  --nmc-shadow: 0 8px 24px rgba(11, 47, 91, 0.10);
+  --nmc-shadow-sm: 0 4px 12px rgba(11, 47, 91, 0.08);
+  --nmc-radius: 12px;
+  --nmc-radius-sm: 8px;
+  --font-khmer-official: "Khmer OS Siemreap", "Noto Sans Khmer", "Inter", "Arial", sans-serif;
+  --font-system: "Noto Sans Khmer", "Inter", "Arial", sans-serif;
+}
+
+html, body {
+  background: var(--nmc-light-bg);
+  color: var(--nmc-text);
+  font-family: var(--font-system);
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* ===== Official top header ===== */
+.official-header,
+.nmc-official-header {
+  background:
+    linear-gradient(90deg, rgba(11, 47, 91, 0.96), rgba(79, 113, 138, 0.94)),
+    radial-gradient(circle at 78% 50%, rgba(214, 168, 79, 0.18), transparent 32%);
+  color: var(--nmc-white);
+  min-height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  border-bottom: 4px solid var(--nmc-gold);
+  box-shadow: var(--nmc-shadow-sm);
+}
+
+.nmc-official-header__brand {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+
+.nmc-official-header__logo {
+  width: 68px;
+  height: 68px;
+  object-fit: contain;
+  border-radius: 50%;
+  background: var(--nmc-white);
+  padding: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+  flex: 0 0 auto;
+}
+
+.nmc-official-header__title-kh {
+  font-family: var(--font-khmer-official);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.45;
+  letter-spacing: 0.1px;
+  margin: 0;
+}
+
+.nmc-official-header__title-en {
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0.96;
+  margin-top: 2px;
+}
+
+.nmc-official-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nmc-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255,255,255,0.28);
+  background: rgba(255,255,255,0.10);
+  color: var(--nmc-white);
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.nmc-pill--gold {
+  background: var(--nmc-gold);
+  color: var(--nmc-navy);
+  border-color: var(--nmc-gold);
+}
+
+/* ===== Sidebar ===== */
+.nmc-sidebar,
+.sidebar {
+  background: linear-gradient(180deg, var(--nmc-navy), var(--nmc-sidebar));
+  color: var(--nmc-white);
+  border-right: 1px solid rgba(255,255,255,0.08);
+}
+
+.nmc-menu-item,
+.sidebar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: rgba(255,255,255,0.86);
+  padding: 14px 18px;
+  border-left: 4px solid transparent;
+  text-decoration: none;
+  font-weight: 650;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+.nmc-menu-item:hover,
+.sidebar-menu-item:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--nmc-white);
+}
+
+.nmc-menu-item.active,
+.sidebar-menu-item.active,
+.nmc-menu-item[aria-current="page"] {
+  background: var(--nmc-sidebar-active);
+  border-left-color: var(--nmc-gold);
+  color: var(--nmc-white);
+}
+
+/* ===== Page / hero ===== */
+.nmc-page {
+  min-height: 100vh;
+  background: var(--nmc-light-bg);
+}
+
+.nmc-content {
+  padding: 24px;
+}
+
+.nmc-page-title-card,
+.nmc-hero-card {
+  background:
+    linear-gradient(135deg, var(--nmc-royal-blue), #1855C8),
+    radial-gradient(circle at 90% 40%, rgba(255,255,255,0.18), transparent 30%);
+  color: var(--nmc-white);
+  border-radius: 18px;
+  padding: 28px 32px;
+  box-shadow: var(--nmc-shadow);
+  border-top: 4px solid var(--nmc-gold);
+  margin-bottom: 24px;
+}
+
+.nmc-page-title-card__badge {
+  display: inline-flex;
+  align-items: center;
+  background: var(--nmc-gold);
+  color: var(--nmc-navy);
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 6px 12px;
+  margin-bottom: 14px;
+}
+
+.nmc-page-title-card h1,
+.nmc-hero-card h1 {
+  font-family: var(--font-khmer-official);
+  font-size: 34px;
+  line-height: 1.35;
+  margin: 0 0 10px;
+}
+
+.nmc-page-title-card p,
+.nmc-hero-card p {
+  margin: 0;
+  opacity: 0.95;
+  max-width: 760px;
+}
+
+/* ===== Cards ===== */
+.nmc-card {
+  background: var(--nmc-card-bg);
+  border: 1px solid var(--nmc-border);
+  border-radius: var(--nmc-radius);
+  box-shadow: var(--nmc-shadow-sm);
+}
+
+.nmc-card__header {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--nmc-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.nmc-card__title {
+  font-size: 16px;
+  font-weight: 800;
+  margin: 0;
+  color: var(--nmc-navy);
+}
+
+.nmc-card__body {
+  padding: 18px;
+}
+
+/* ===== Statistic cards ===== */
+.nmc-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.nmc-stat-card {
+  background: var(--nmc-white);
+  border: 1px solid var(--nmc-border);
+  border-radius: var(--nmc-radius);
+  padding: 18px;
+  box-shadow: var(--nmc-shadow-sm);
+}
+
+.nmc-stat-card__label {
+  color: var(--nmc-muted-text);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.nmc-stat-card__value {
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--nmc-royal-blue);
+  margin-top: 8px;
+}
+
+.nmc-stat-card--primary {
+  background: var(--nmc-navy);
+  color: var(--nmc-white);
+}
+
+.nmc-stat-card--primary .nmc-stat-card__label,
+.nmc-stat-card--primary .nmc-stat-card__value {
+  color: var(--nmc-white);
+}
+
+.nmc-stat-card--success .nmc-stat-card__value { color: var(--nmc-success); }
+.nmc-stat-card--warning .nmc-stat-card__value { color: var(--nmc-warning); }
+.nmc-stat-card--danger .nmc-stat-card__value { color: var(--nmc-danger); }
+
+/* ===== Forms ===== */
+.nmc-form-section,
+.form-section {
+  background: var(--nmc-white);
+  border: 1px solid var(--nmc-border);
+  border-radius: var(--nmc-radius);
+  overflow: hidden;
+  box-shadow: var(--nmc-shadow-sm);
+  margin-bottom: 20px;
+}
+
+.nmc-form-section__header,
+.form-section-header {
+  background: var(--nmc-royal-blue);
+  color: var(--nmc-white);
+  padding: 12px 18px;
+  font-family: var(--font-khmer-official);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.nmc-form-section__body,
+.form-section-body {
+  padding: 20px;
+}
+
+.nmc-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+  gap: 18px;
+}
+
+.nmc-form-grid--3 {
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+}
+
+.nmc-field label {
+  display: block;
+  font-weight: 800;
+  color: var(--nmc-text);
+  margin-bottom: 7px;
+}
+
+.nmc-field input,
+.nmc-field select,
+.nmc-field textarea,
+input.nmc-input,
+select.nmc-input,
+textarea.nmc-input {
+  width: 100%;
+  border: 1px solid var(--nmc-border-strong);
+  border-radius: 7px;
+  min-height: 42px;
+  padding: 9px 12px;
+  color: var(--nmc-text);
+  background: var(--nmc-white);
+  font-family: var(--font-system);
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.nmc-field input:focus,
+.nmc-field select:focus,
+.nmc-field textarea:focus,
+input.nmc-input:focus,
+select.nmc-input:focus,
+textarea.nmc-input:focus {
+  outline: none;
+  border-color: var(--nmc-royal-blue);
+  box-shadow: 0 0 0 3px rgba(47, 59, 145, 0.16);
+}
+
+.nmc-help-text {
+  font-size: 12px;
+  color: var(--nmc-muted-text);
+  margin-top: 5px;
+}
+
+/* ===== Buttons ===== */
+.nmc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-family: var(--font-system);
+  font-weight: 800;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.nmc-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--nmc-shadow-sm);
+}
+
+.nmc-btn--primary {
+  background: var(--nmc-royal-blue);
+  color: var(--nmc-white);
+}
+
+.nmc-btn--secondary {
+  background: var(--nmc-white);
+  color: var(--nmc-royal-blue);
+  border-color: var(--nmc-royal-blue);
+}
+
+.nmc-btn--success {
+  background: var(--nmc-success);
+  color: var(--nmc-white);
+}
+
+.nmc-btn--danger {
+  background: var(--nmc-danger);
+  color: var(--nmc-white);
+}
+
+.nmc-btn--gold {
+  background: var(--nmc-gold);
+  color: var(--nmc-navy);
+}
+
+/* ===== Tables ===== */
+.nmc-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--nmc-border);
+  border-radius: var(--nmc-radius);
+  background: var(--nmc-white);
+}
+
+.nmc-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 860px;
+}
+
+.nmc-table thead {
+  background: var(--nmc-royal-blue);
+  color: var(--nmc-white);
+}
+
+.nmc-table th {
+  font-size: 13px;
+  font-weight: 800;
+  padding: 13px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.nmc-table td {
+  font-size: 13px;
+  padding: 13px 12px;
+  border-bottom: 1px solid #E5ECF2;
+  vertical-align: top;
+}
+
+.nmc-table tbody tr:hover {
+  background: #F8FBFE;
+}
+
+/* ===== Badges ===== */
+.nmc-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.nmc-badge--active,
+.nmc-badge--success {
+  background: var(--nmc-success-bg);
+  color: var(--nmc-success);
+}
+
+.nmc-badge--warning,
+.nmc-badge--expiring {
+  background: var(--nmc-warning-bg);
+  color: #9A6700;
+}
+
+.nmc-badge--danger,
+.nmc-badge--expired {
+  background: var(--nmc-danger-bg);
+  color: var(--nmc-danger);
+}
+
+.nmc-badge--info {
+  background: #E4F1FB;
+  color: #2374AB;
+}
+
+/* ===== Alerts ===== */
+.nmc-alert {
+  border-radius: var(--nmc-radius-sm);
+  padding: 14px 16px;
+  border: 1px solid var(--nmc-border);
+  background: var(--nmc-white);
+  margin-bottom: 16px;
+}
+
+.nmc-alert--warning {
+  background: var(--nmc-warning-bg);
+  border-color: #F2C65D;
+  color: #7A4B00;
+}
+
+.nmc-alert--danger {
+  background: var(--nmc-danger-bg);
+  border-color: #F1B2B2;
+  color: #8A1717;
+}
+
+.nmc-alert--success {
+  background: var(--nmc-success-bg);
+  border-color: #A7E9C3;
+  color: #075C39;
+}
+
+/* ===== Map ===== */
+.nmc-map-card {
+  background: var(--nmc-white);
+  border: 1px solid var(--nmc-border);
+  border-radius: var(--nmc-radius);
+  box-shadow: var(--nmc-shadow-sm);
+  overflow: hidden;
+}
+
+.nmc-license-map {
+  height: 460px;
+  width: 100%;
+  border-radius: 0 0 var(--nmc-radius) var(--nmc-radius);
+}
+
+.nmc-form-location-map {
+  height: 280px;
+  width: 100%;
+  border: 1px solid var(--nmc-border);
+  border-radius: var(--nmc-radius-sm);
+  overflow: hidden;
+}
+
+/* ===== Footer ===== */
+.nmc-footer {
+  background: #07172E;
+  color: rgba(255,255,255,0.88);
+  text-align: center;
+  padding: 18px;
+  font-size: 13px;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 1200px) {
+  .nmc-stats-grid {
+    grid-template-columns: repeat(3, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .official-header,
+  .nmc-official-header {
+    padding: 14px 16px;
+    min-height: 82px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .nmc-official-header__logo {
+    width: 54px;
+    height: 54px;
+  }
+
+  .nmc-official-header__title-kh {
+    font-size: 16px;
+  }
+
+  .nmc-official-header__title-en {
+    font-size: 12px;
+  }
+
+  .nmc-content {
+    padding: 14px;
+  }
+
+  .nmc-page-title-card,
+  .nmc-hero-card {
+    padding: 22px 18px;
+  }
+
+  .nmc-page-title-card h1,
+  .nmc-hero-card h1 {
+    font-size: 24px;
+  }
+
+  .nmc-stats-grid,
+  .nmc-form-grid,
+  .nmc-form-grid--3 {
+    grid-template-columns: 1fr;
+  }
+
+  .nmc-license-map {
+    height: 320px;
+  }
+
+  .nmc-form-location-map {
+    height: 260px;
+  }
+
+  .nmc-btn {
+    width: 100%;
+  }
+}

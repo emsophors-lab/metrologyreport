@@ -1360,7 +1360,7 @@ export default function App() {
   }
 
   return (
-    <div id="application-container" className="min-h-screen bg-slate-100 flex flex-col justify-between selection:bg-slate-100 selection:text-[#2D327F] font-sans">
+    <div id="application-container" className={`nmc-official-system nmc-page ${sessionUser.role === 'superadmin' ? 'nmc-superadmin-theme' : ''} min-h-screen bg-slate-100 flex flex-col justify-between selection:bg-slate-100 selection:text-[#2D327F] font-sans`}>
       
       {/* Toast alert notifications system */}
       {toast && (
@@ -1387,7 +1387,7 @@ export default function App() {
       <div className="flex-1 flex flex-col md:flex-row">
         
         {/* Mobile Navigation Header Bar */}
-        <div className="md:hidden bg-navy text-slate-200 border-b border-slate-800 flex flex-col select-none shrink-0 w-full">
+        <div className="nmc-sidebar md:hidden bg-navy text-slate-200 border-b border-slate-800 flex flex-col select-none shrink-0 w-full">
           <div className="p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="h-8 w-9 flex items-center justify-center shrink-0 overflow-hidden relative">
@@ -1398,8 +1398,9 @@ export default function App() {
                 />
               </div>
               <div>
+                <p className="text-[8px] text-slate-300 font-bold leading-snug">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
                 <h4 className="font-bold text-[10px] text-gold tracking-wide font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</h4>
-                <p className="text-[8px] text-slate-400 font-medium tracking-wide">NATIONAL METROLOGY CENTER</p>
+                <p className="text-[8px] text-slate-400 font-medium tracking-wide">National Metrology Center of Cambodia</p>
               </div>
             </div>
             
@@ -1599,7 +1600,7 @@ export default function App() {
         </div>
 
         {/* Navigation Sidebar Drawer - Section 13 */}
-        <aside className="hidden md:flex md:w-64 bg-navy text-slate-300 flex-col justify-between border-r border-slate-800/80 shrink-0 select-none">
+        <aside className="nmc-sidebar hidden md:flex md:w-64 bg-navy text-slate-300 flex-col justify-between border-r border-slate-800/80 shrink-0 select-none">
           <div>
             {/* Traditional Emblem Logo Header */}
             <div className="p-5 border-b border-slate-850 flex items-center gap-3 bg-black/10">
@@ -1628,8 +1629,9 @@ export default function App() {
                 </div>
               </div>
               <div>
+                <p className="text-[8px] text-slate-300 font-bold leading-snug">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
                 <h4 className="font-bold text-[10px] text-gold tracking-wide font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</h4>
-                <p className="text-[9px] text-slate-400 font-medium tracking-wide">NATIONAL METROLOGY CENTER</p>
+                <p className="text-[9px] text-slate-400 font-medium tracking-wide">National Metrology Center of Cambodia</p>
               </div>
             </div>
 
@@ -1797,22 +1799,19 @@ export default function App() {
         <div className="flex-1 flex flex-col min-w-0">
           
           {/* Dashboard Header Bar */}
-          <header 
-            className="bg-nmc-header text-white py-5 px-8 flex flex-col md:flex-row items-center justify-between gap-4 shadow-md shrink-0 border-b border-[#3F7C9B]/30"
-            style={{ backgroundColor: '#4F6F8D' }}
-          >
+          <header className="nmc-official-header nmc-superadmin-header text-white py-5 px-8 flex flex-col md:flex-row items-center justify-between gap-4 shadow-md shrink-0 border-b border-[#3F7C9B]/30">
             <div className="flex flex-col md:flex-row items-center gap-4 text-center md:text-left">
               <img 
                 src={nmcLogo} 
                 alt="NMC Logo" 
-                className="h-16 w-16 object-contain shrink-0 filter brightness-110 drop-shadow-md" 
+                className="nmc-official-header__logo h-16 w-16 object-contain shrink-0 filter brightness-110 drop-shadow-md" 
                 referrerPolicy="no-referrer"
               />
               <div className="space-y-1">
-                <h1 className="text-sm md:text-base font-bold font-muol tracking-wide text-white drop-shadow-xs">
+                <h1 className="nmc-official-header__title-kh text-sm md:text-base font-bold font-muol tracking-wide text-white drop-shadow-xs">
                   ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍
                 </h1>
-                <h2 className="text-[11px] md:text-xs font-semibold text-slate-100/90 font-muol tracking-wide leading-relaxed">
+                <h2 className="nmc-official-header__title-en text-[11px] md:text-xs font-semibold text-slate-100/90 font-muol tracking-wide leading-relaxed">
                   មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ - National Metrology Center of Cambodia
                 </h2>
               </div>
@@ -1830,11 +1829,33 @@ export default function App() {
                 <span className={`h-1.5 w-1.5 rounded-full ${dbConfig.useFallback ? 'bg-amber-400':'bg-emerald-400 animate-pulse'}`}></span>
                 <span>{dbConfig.useFallback ? 'Offline (Local ST)' : 'Supabase Sync: Active'}</span>
               </span>
+
+              {sessionUser.role === 'superadmin' && (
+                <span className="nmc-superadmin-profile hidden md:inline-flex items-center gap-2.5">
+                  <span className="nmc-superadmin-avatar">
+                    <User className="h-5 w-5" />
+                  </span>
+                  <span className="text-left leading-tight">
+                    <span className="block text-xs font-black text-white">Superadmin</span>
+                    <span className="block text-[10px] text-slate-200">Superadmin</span>
+                  </span>
+                </span>
+              )}
             </div>
           </header>
 
+          {sessionUser.role === 'superadmin' && (
+            <div className="nmc-superadmin-strip">
+              <div className="nmc-superadmin-breadcrumb">ទំព័រដើម / Dashboard</div>
+              <div className="nmc-superadmin-date">
+                <span>ថ្ងៃសៅរ៍, ២៧ មិថុនា ២០២៦</span>
+                <strong>{systemTime.split(' ')[1] || systemTime}</strong>
+              </div>
+            </div>
+          )}
+
           {/* Interactive tabs details viewer */}
-          <main className="flex-1 p-6 space-y-6 overflow-y-auto max-w-7xl w-full mx-auto">
+          <main className="nmc-content flex-1 p-6 space-y-6 overflow-y-auto max-w-7xl w-full mx-auto">
             
             {/* A. DASHBOARD VIEW: Summary analysis */}
             {activeTab === 'dashboard' && (

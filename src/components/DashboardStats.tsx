@@ -34,10 +34,10 @@ export default function DashboardStats({ currentUser, reports, allUsersCount }: 
     <div className="space-y-6">
       
       {/* 6.2 / 9.1 Core stats metrics grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="nmc-stats-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         
         {/* Total instruments */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex items-center gap-3">
+        <div className="nmc-stat-card nmc-stat-card--primary bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex items-center gap-3">
           <div className="h-10 w-10 bg-slate-50 border border-[#C9D2E3] rounded-lg flex items-center justify-center shrink-0">
             <Layers className="h-5 w-5 text-[#353C96]" />
           </div>
@@ -48,7 +48,7 @@ export default function DashboardStats({ currentUser, reports, allUsersCount }: 
         </div>
 
         {/* Total customers */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex items-center gap-3">
+        <div className="nmc-stat-card bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex items-center gap-3">
           <div className="h-10 w-10 bg-amber-50 border border-amber-100 rounded-lg flex items-center justify-center shrink-0">
             <Users className="h-5 w-5 text-amber-600" />
           </div>
@@ -59,7 +59,7 @@ export default function DashboardStats({ currentUser, reports, allUsersCount }: 
         </div>
 
         {/* Total locations */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex items-center gap-3">
+        <div className="nmc-stat-card bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex items-center gap-3">
           <div className="h-10 w-10 bg-rose-50 border border-rose-100 rounded-lg flex items-center justify-center shrink-0">
             <MapPin className="h-5 w-5 text-rose-600" />
           </div>
@@ -70,7 +70,7 @@ export default function DashboardStats({ currentUser, reports, allUsersCount }: 
         </div>
 
         {/* Manufacture summary */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex items-center gap-3">
+        <div className="nmc-stat-card nmc-stat-card--success bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex items-center gap-3">
           <div className="h-10 w-10 bg-emerald-50 border border-emerald-100 rounded-lg flex items-center justify-center shrink-0">
             <Factory className="h-5 w-5 text-emerald-600" />
           </div>
@@ -81,7 +81,7 @@ export default function DashboardStats({ currentUser, reports, allUsersCount }: 
         </div>
 
         {/* Installation summary */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex items-center gap-3">
+        <div className="nmc-stat-card bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex items-center gap-3">
           <div className="h-10 w-10 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-center shrink-0">
             <Wrench className="h-5 w-5 text-blue-600" />
           </div>
@@ -92,7 +92,7 @@ export default function DashboardStats({ currentUser, reports, allUsersCount }: 
         </div>
 
         {/* Repair summary */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex items-center gap-3">
+        <div className="nmc-stat-card nmc-stat-card--warning bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex items-center gap-3">
           <div className="h-10 w-10 bg-amber-50 border border-amber-100 rounded-lg flex items-center justify-center shrink-0">
             <Hammer className="h-5 w-5 text-amber-600" />
           </div>
@@ -107,7 +107,7 @@ export default function DashboardStats({ currentUser, reports, allUsersCount }: 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         
         {/* Bar Chart count of service types */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+        <div className="nmc-card bg-white p-6 rounded-xl shadow-sm border border-slate-100">
           <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-4">
             លទ្ធផលសេវាកម្មមាត្រាសាស្ត្រតាមប្រភេទ (Bar Chart of Metrology Services)
           </h4>
@@ -173,7 +173,7 @@ export default function DashboardStats({ currentUser, reports, allUsersCount }: 
         </div>
 
         {/* Percentage Pie chart simulation via CSS Circular Donut Graph */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+        <div className="nmc-card bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
           <div>
             <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-4">
               ភាគរយចំណែកសេវាកម្ម (Services Shares Ratio)
