@@ -24,7 +24,6 @@ import {
   BriefcaseBusiness,
   Landmark,
   KeyRound,
-  Bell,
   Menu,
   X,
   Languages
@@ -1789,17 +1788,8 @@ export default function App() {
             <div className="flex items-center gap-2.5">
               <LanguageSwitch language={language} onChange={handleLanguageChange} dark />
 
-              {sessionUser.role === 'superadmin' && (
-                <button type="button" className="nmc-superadmin-notification" aria-label="Notifications">
-                  <Bell className="h-4 w-4" />
-                  <span>3</span>
-                </button>
-              )}
-
               <span className="nmc-superadmin-profile hidden lg:inline-flex items-center gap-2.5 text-[10px] font-bold text-white">
-                <span className="nmc-superadmin-avatar">
-                  <User className="h-6 w-6" />
-                </span>
+                <BriefcaseBusiness className="h-4 w-4 text-[#F2B632]" />
                 <span className="leading-tight">
                   <strong className="block text-sm font-black">{sessionUser?.legal_representative || sessionUser?.username}</strong>
                   <small className="block text-[10px] text-white/75">{sessionUser.role === 'superadmin' ? 'Superadmin' : sessionUser.role}</small>

@@ -201,7 +201,9 @@ export default function SuperadminDashboard({ reports, users, activeCompanyList 
           <div className="superdash-panel superdash-activities">
             <div className="superdash-panel__header">
               <h3>សកម្មភាពថ្មីៗ / Recent Activities</h3>
-              <button type="button" onClick={() => setShowAllReports(true)}>មើលទាំងអស់ / View All</button>
+              <button type="button" onClick={() => setShowAllReports((current) => !current)}>
+                {showAllReports ? 'បិទបញ្ជី / Hide List' : 'មើលទាំងអស់ / View All'}
+              </button>
             </div>
             <div className="superdash-activity-list">
               {recentActivities.length === 0 ? (
@@ -225,14 +227,14 @@ export default function SuperadminDashboard({ reports, users, activeCompanyList 
       </section>
 
       {showAllReports && (
-        <div className="superdash-report-modal" role="dialog" aria-modal="true" aria-label="All submitted reports">
+        <section className="superdash-report-inline" aria-label="All submitted reports">
           <div className="superdash-report-card">
             <div className="superdash-report-card__header">
               <div>
                 <h3>ផ្ទាំងគ្រប់គ្រងទិន្នន័យរបាយការណ៍</h3>
                 <p>ស្ថិតិសង្ខេបនៃការបញ្ជូនរបាយការណ៍ និងបញ្ជីរបាយការណ៍ទាំងអស់</p>
               </div>
-              <button type="button" onClick={() => setShowAllReports(false)}>បិទ / Close</button>
+              <div className="superdash-report-search">ស្វែងរកតាម អតិថិជន លេខស៊េរី ឧបករណ៍ ក្រុមហ៊ុន...</div>
             </div>
 
             <div className="superdash-report-metrics">
@@ -245,29 +247,61 @@ export default function SuperadminDashboard({ reports, users, activeCompanyList 
             </div>
 
             <div className="superdash-report-table-card">
-              <h4>បញ្ជីរបាយការណ៍ទាំងអស់</h4>
+              <div className="superdash-report-table-title">
+                <div>
+                  <h4>តារាងរបាយការណ៍លម្អិត ({sortedSubmittedReports.length} កំណត់ត្រា)</h4>
+                  <p>ចម្រោះ និងបង្ហាញបញ្ជីរបាយការណ៍</p>
+                </div>
+              </div>
               {sortedSubmittedReports.length === 0 ? (
                 <div className="superdash-empty">
                   <AlertTriangle />
                   <p>មិនទាន់មានទិន្នន័យរបាយការណ៍នៅឡើយទេ។</p>
                 </div>
               ) : (
-                <div className="superdash-report-list">
-                  {sortedSubmittedReports.map(report => (
-                    <div className="superdash-report-row" key={report.id}>
-                      <div>
-                        <strong>{report.company_name_kh || 'Company'}</strong>
-                        <p>{report.customer_name || 'N/A'} • {report.measuring_instrument || 'N/A'}</p>
-                      </div>
-                      <span>{report.service_type}</span>
-                      <time>{report.report_month || '--'} {report.report_year || ''}</time>
-                    </div>
-                  ))}
+                <div className="superdash-report-table-wrap">
+                  <table className="superdash-report-table">
+                    <thead>
+                      <tr>
+                        <th>ល.រ</th>
+                        <th>ក្រុមហ៊ុន</th>
+                        <th>អតិថិជន និងអាសយដ្ឋាន</th>
+                        <th>ឧបករណ៍</th>
+                        <th>លេខស៊េរី / វិសាលភាព</th>
+                        <th>ប្រភេទសេវា</th>
+                        <th>ខែ / ឆ្នាំ</th>
+                        <th>ស្ថានភាព</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedSubmittedReports.map((report, index) => (
+                        <tr key={report.id}>
+                          <td>{index + 1}</td>
+                          <td>
+                            <strong>{report.company_name_kh || 'Company'}</strong>
+                            <p>License: {report.license_number || 'N/A'}</p>
+                          </td>
+                          <td>
+                            <strong>{report.customer_name || 'N/A'}</strong>
+                            <p>{report.customer_address || 'N/A'}</p>
+                          </td>
+                          <td>{report.measuring_instrument || 'N/A'}</td>
+                          <td>
+                            <strong>{report.instrument_serial_number || 'N/A'}</strong>
+                            <p>{report.scope_of_weight_measure || ''}</p>
+                          </td>
+                          <td><span className={`superdash-service-badge is-${report.service_type.toLowerCase()}`}>{report.service_type}</span></td>
+                          <td>{report.report_month || '--'} {report.report_year || ''}</td>
+                          <td><span className="superdash-status-badge">{report.report_status || 'Submitted'}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
           </div>
-        </div>
+        </section>
       )}
 
       <section className="superdash-panel superdash-summary">
