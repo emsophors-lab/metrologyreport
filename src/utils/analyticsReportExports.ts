@@ -84,8 +84,11 @@ function downloadBlob(blob: Blob, filename: string) {
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  link.style.display = 'none';
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function docText(text: string, opts: { bold?: boolean; size?: number; color?: string } = {}) {
@@ -491,11 +494,9 @@ export async function generateAnalyticsPptxBriefing(data: AnalyticsExportData) {
   slide.addText('Recommendations for MISTI and NMC', { x: 0.62, y: 0.95, w: 10, h: 0.4, fontSize: 23, bold: true, color: BLUE });
   pptBullets(slide, RECOMMENDATIONS, 0.65, 1.35, 11.9, 4.9);
 
-  const output = await pptx.write({ outputType: 'blob' });
-  const blob = output instanceof Blob
-    ? output
-    : new Blob([output as BlobPart], {
-      type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-    });
+  const output = await pptx.write({ outputType: 'arraybuffer' });
+  const blob = new Blob([output as ArrayBuffer], {
+    type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+  });
   downloadBlob(blob, `nmc-data-analytics-summary-${todaySlug()}.pptx`);
 }
