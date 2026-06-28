@@ -16,7 +16,7 @@ import {
   Wrench,
   XCircle
 } from 'lucide-react';
-import { MetrologyReport, MetrologyUser } from '../types';
+import { EnterpriseLicense, MetrologyReport, MetrologyUser } from '../types';
 import DataAnalyticsReport from './DataAnalyticsReport';
 import EnterpriseLicenseMapView from './EnterpriseLicenseMapView';
 import TopServiceCompanies from './TopServiceCompanies';
@@ -27,6 +27,7 @@ interface SuperadminDashboardProps {
   reports: MetrologyReport[];
   users: MetrologyUser[];
   activeCompanyList: MetrologyUser[];
+  licenseRecords?: EnterpriseLicense[];
 }
 
 const MONTHS = [
@@ -103,7 +104,7 @@ function StatCard({
   );
 }
 
-export default function SuperadminDashboard({ currentUser, reports, users, activeCompanyList }: SuperadminDashboardProps) {
+export default function SuperadminDashboard({ currentUser, reports, users, activeCompanyList, licenseRecords = [] }: SuperadminDashboardProps) {
   const [showAllReports, setShowAllReports] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [reportSearchQuery, setReportSearchQuery] = useState('');
@@ -168,7 +169,8 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
         time: String(report.updated_at || report.created_at || '').slice(0, 10)
       }));
 
-  const mapRecords = companyRecords.map(company => ({
+  const licenseMapSource = licenseRecords.length > 0 ? licenseRecords : companyRecords;
+  const mapRecords = licenseMapSource.map(company => ({
     ...company,
     company_name: company.company_name_en || company.company_name_kh,
     company_name_kh: company.company_name_kh,

@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 
 // Import Types
-import { MetrologyUser, MetrologyReport, SupabaseConfig, ServiceType, generateYearOptions } from './types';
+import { MetrologyUser, MetrologyReport, SupabaseConfig, ServiceType, generateYearOptions, EnterpriseLicense } from './types';
 
 // Import Demo Data
 import { INITIAL_USERS, INITIAL_REPORTS, isDemoDataEnabled } from './demoData';
@@ -51,6 +51,7 @@ import {
   saveUserToSupabase,
   deleteUserFromSupabase,
   fetchReportsFromSupabase,
+  fetchLicensesFromSupabase,
   saveReportToSupabase,
   deleteReportFromSupabase,
   isReportOwnedByCurrentCompany,
@@ -254,6 +255,7 @@ export default function App() {
   // Database datasets states
   const [users, setUsers] = useState<MetrologyUser[]>([]);
   const [reports, setReports] = useState<MetrologyReport[]>([]);
+  const [dashboardLicenses, setDashboardLicenses] = useState<EnterpriseLicense[]>([]);
   const [isUsersLoading, setIsUsersLoading] = useState(false);
   
   // App navigation state: 'dashboard' | 'reports' | 'users' | 'developer' | 'history' | 'backup' | 'licenses'
@@ -491,6 +493,13 @@ export default function App() {
       const activeCfg = getActiveSupabaseConfig();
       setDbConfig(activeCfg);
 
+      try {
+        const licenseRecords = await fetchLicensesFromSupabase();
+        setDashboardLicenses(licenseRecords);
+      } catch (licenseError) {
+        console.warn('Could not load dashboard license map data:', licenseError);
+      }
+
       if (!activeCfg.url || !activeCfg.anonKey || activeCfg.url.includes('YOUR_SUPABASE_URL')) {
         console.log('Supabase database has not been linked yet. System is operating on local storage schemas.');
         return;
@@ -511,6 +520,9 @@ export default function App() {
           setReports(cloudReports);
           localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
         }
+
+        const cloudLicenses = await fetchLicensesFromSupabase();
+        setDashboardLicenses(cloudLicenses);
         
         setDbConfig({
           ...activeCfg,
@@ -542,6 +554,9 @@ export default function App() {
             setReports(cloudReports);
             localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
           }
+
+          const cloudLicenses = await fetchLicensesFromSupabase(sessionUser || undefined);
+          setDashboardLicenses(cloudLicenses);
         } catch (e) {
           console.warn('Could not refresh session reports list:', e);
         }
@@ -1820,6 +1835,7 @@ export default function App() {
                     reports={reports}
                     users={users}
                     activeCompanyList={activeCompanyList}
+                    licenseRecords={dashboardLicenses}
                   />
                 ) : (
                   <>
