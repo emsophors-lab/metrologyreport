@@ -1121,13 +1121,21 @@ textarea.nmc-input:focus {
   font-weight: 900;
 }
 
-.nmc-superadmin-theme .superdash-panel__header > span {
+.nmc-superadmin-theme .superdash-panel__header > span,
+.nmc-superadmin-theme .superdash-panel__header > button {
   padding: 5px 10px;
   border-radius: 7px;
+  border: 0;
   background: #f3f7fb;
   color: #1f5fbf;
   font-size: 11px;
   font-weight: 800;
+  cursor: pointer;
+}
+
+.nmc-superadmin-theme .superdash-panel__header > button:hover {
+  background: #e8f1fc;
+  color: #003b73;
 }
 
 .nmc-superadmin-theme .superdash-map {
@@ -1218,9 +1226,35 @@ textarea.nmc-input:focus {
 }
 
 .nmc-superadmin-theme .superdash-chart__bars span {
+  position: relative;
   width: 10px;
   border-radius: 2px 2px 0 0;
   min-height: 4px;
+}
+
+.nmc-superadmin-theme .superdash-chart__bars span::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 5;
+  white-space: nowrap;
+  background: #0b2447;
+  color: #ffffff;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  box-shadow: 0 8px 18px rgba(11,36,71,0.22);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.nmc-superadmin-theme .superdash-chart__bars span:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-2px);
 }
 
 .nmc-superadmin-theme .superdash-chart__bars .this-year { background: #1f5fbf; }
@@ -1298,6 +1332,160 @@ textarea.nmc-input:focus {
   gap: 8px;
   color: #667085;
   font-weight: 800;
+}
+
+.nmc-superadmin-theme .superdash-report-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 35, 70, 0.48);
+  backdrop-filter: blur(3px);
+}
+
+.nmc-superadmin-theme .superdash-report-card {
+  width: min(1180px, 100%);
+  max-height: min(86vh, 820px);
+  overflow: auto;
+  background: #f4f8fc;
+  border: 1px solid #d8e4f0;
+  border-radius: 10px;
+  box-shadow: 0 24px 70px rgba(0, 35, 70, 0.28);
+  padding: 22px;
+}
+
+.nmc-superadmin-theme .superdash-report-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.nmc-superadmin-theme .superdash-report-card__header h3 {
+  margin: 0;
+  color: #003b73 !important;
+  font-size: 24px !important;
+  font-weight: 900;
+}
+
+.nmc-superadmin-theme .superdash-report-card__header p {
+  margin-top: 6px;
+  color: #8aa0bc;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.nmc-superadmin-theme .superdash-report-card__header button {
+  border: 1px solid #d8e4f0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #003b73;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 9px 13px;
+  cursor: pointer;
+}
+
+.nmc-superadmin-theme .superdash-report-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.nmc-superadmin-theme .superdash-report-metrics div {
+  min-height: 120px;
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  align-content: center;
+  column-gap: 14px;
+  background: #ffffff;
+  border: 1px solid #d8e4f0;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 4px 14px rgba(0,47,103,0.06);
+}
+
+.nmc-superadmin-theme .superdash-report-metrics svg {
+  grid-row: span 2;
+  width: 54px;
+  height: 54px;
+  padding: 14px;
+  border-radius: 10px;
+  color: #1f5fbf;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+}
+
+.nmc-superadmin-theme .superdash-report-metrics span {
+  align-self: end;
+  color: #8aa0bc;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.nmc-superadmin-theme .superdash-report-metrics strong {
+  color: #0b2447;
+  font-size: 24px;
+  font-weight: 900;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.nmc-superadmin-theme .superdash-report-table-card {
+  min-height: 360px;
+  background: #ffffff;
+  border: 1px solid #d8e4f0;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0,47,103,0.06);
+  padding: 20px;
+}
+
+.nmc-superadmin-theme .superdash-report-table-card h4 {
+  color: #0b2447;
+  font-size: 15px;
+  font-weight: 900;
+  margin-bottom: 12px;
+}
+
+.nmc-superadmin-theme .superdash-report-list {
+  display: grid;
+  gap: 8px;
+}
+
+.nmc-superadmin-theme .superdash-report-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 130px;
+  align-items: center;
+  gap: 14px;
+  min-height: 58px;
+  border: 1px solid #edf2f7;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fbfdff;
+}
+
+.nmc-superadmin-theme .superdash-report-row strong {
+  color: #0b2447;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.nmc-superadmin-theme .superdash-report-row p {
+  color: #667085;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.nmc-superadmin-theme .superdash-report-row span,
+.nmc-superadmin-theme .superdash-report-row time {
+  color: #1f5fbf;
+  font-size: 11px;
+  font-weight: 900;
+  text-align: right;
 }
 
 .nmc-superadmin-theme .superdash-summary {
@@ -1458,7 +1646,8 @@ textarea.nmc-input:focus {
   }
 
   .nmc-superadmin-theme .superdash-stats,
-  .nmc-superadmin-theme .superdash-summary__grid {
+  .nmc-superadmin-theme .superdash-summary__grid,
+  .nmc-superadmin-theme .superdash-report-metrics {
     grid-template-columns: 1fr;
   }
 
@@ -1480,5 +1669,26 @@ textarea.nmc-input:focus {
 
   .nmc-superadmin-theme .superdash-activity time {
     grid-column: 2;
+  }
+
+  .nmc-superadmin-theme .superdash-report-modal {
+    padding: 12px;
+  }
+
+  .nmc-superadmin-theme .superdash-report-card {
+    padding: 14px;
+  }
+
+  .nmc-superadmin-theme .superdash-report-card__header {
+    flex-direction: column;
+  }
+
+  .nmc-superadmin-theme .superdash-report-row {
+    grid-template-columns: 1fr;
+  }
+
+  .nmc-superadmin-theme .superdash-report-row span,
+  .nmc-superadmin-theme .superdash-report-row time {
+    text-align: left;
   }
 }

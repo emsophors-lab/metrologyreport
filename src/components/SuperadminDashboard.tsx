@@ -1,9 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   AlertTriangle,
-  BarChart3,
   Building2,
-  CheckCircle2,
   Clock3,
   FileCheck2,
   MapPin,
@@ -98,6 +96,7 @@ function StatCard({
 }
 
 export default function SuperadminDashboard({ reports, users, activeCompanyList }: SuperadminDashboardProps) {
+  const [showAllReports, setShowAllReports] = useState(false);
   const companyRecords = activeCompanyList as Array<MetrologyUser & Record<string, any>>;
   const totalLicenses = companyRecords.length;
   const activeLicenses = companyRecords.filter(c => {
@@ -119,10 +118,11 @@ export default function SuperadminDashboard({ reports, users, activeCompanyList 
   });
   const maxMonthly = Math.max(1, ...monthlySeries.flatMap(m => [m.thisYear, m.previousYear]));
 
-  const recentActivities = [
-    ...reports
+  const sortedSubmittedReports = reports
       .slice()
-      .sort((a, b) => String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at)))
+      .sort((a, b) => String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at)));
+
+  const recentActivities = sortedSubmittedReports
       .slice(0, 4)
       .map(report => ({
         key: `report-${report.id}`,
@@ -131,20 +131,7 @@ export default function SuperadminDashboard({ reports, users, activeCompanyList 
         title: `${report.company_name_kh || 'Company'} បានដាក់របាយការណ៍ប្រចាំខែ`,
         subtitle: `${report.company_name_kh || 'Company'} submitted ${report.report_month || ''} ${report.report_year || ''} report`,
         time: String(report.updated_at || report.created_at || '').slice(0, 10)
-      })),
-    ...users
-      .slice()
-      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
-      .slice(0, 1)
-      .map(user => ({
-        key: `user-${user.id}`,
-        icon: <Users />,
-        tone: 'green',
-        title: `${user.company_name_kh || user.username} បានចុះឈ្មោះ`,
-        subtitle: `New user registered as ${user.role}`,
-        time: String(user.created_at || '').slice(0, 10)
-      }))
-  ].slice(0, 5);
+      }));
 
   const mapRecords = companyRecords.map(company => ({
     ...company,
@@ -192,8 +179,18 @@ export default function SuperadminDashboard({ reports, users, activeCompanyList 
               {monthlySeries.map(month => (
                 <div className="superdash-chart__month" key={month.value}>
                   <div className="superdash-chart__bars">
-                    <span className="this-year" style={{ height: `${Math.max(4, (month.thisYear / maxMonthly) * 128)}px` }} />
-                    <span className="last-year" style={{ height: `${Math.max(4, (month.previousYear / maxMonthly) * 128)}px` }} />
+                    <span
+                      className="this-year"
+                      data-tooltip={`${month.kh} ${currentYear}: ${month.thisYear} reports`}
+                      title={`${month.kh} ${currentYear}: ${month.thisYear} reports`}
+                      style={{ height: `${Math.max(4, (month.thisYear / maxMonthly) * 128)}px` }}
+                    />
+                    <span
+                      className="last-year"
+                      data-tooltip={`${month.kh} ${lastYear}: ${month.previousYear} reports`}
+                      title={`${month.kh} ${lastYear}: ${month.previousYear} reports`}
+                      style={{ height: `${Math.max(4, (month.previousYear / maxMonthly) * 128)}px` }}
+                    />
                   </div>
                   <small>{month.kh}</small>
                 </div>
@@ -204,7 +201,7 @@ export default function SuperadminDashboard({ reports, users, activeCompanyList 
           <div className="superdash-panel superdash-activities">
             <div className="superdash-panel__header">
               <h3>សកម្មភាពថ្មីៗ / Recent Activities</h3>
-              <span>មើលទាំងអស់ / View All</span>
+              <button type="button" onClick={() => setShowAllReports(true)}>មើលទាំងអស់ / View All</button>
             </div>
             <div className="superdash-activity-list">
               {recentActivities.length === 0 ? (
@@ -226,6 +223,52 @@ export default function SuperadminDashboard({ reports, users, activeCompanyList 
           </div>
         </div>
       </section>
+
+      {showAllReports && (
+        <div className="superdash-report-modal" role="dialog" aria-modal="true" aria-label="All submitted reports">
+          <div className="superdash-report-card">
+            <div className="superdash-report-card__header">
+              <div>
+                <h3>ផ្ទាំងគ្រប់គ្រងទិន្នន័យរបាយការណ៍</h3>
+                <p>ស្ថិតិសង្ខេបនៃការបញ្ជូនរបាយការណ៍ និងបញ្ជីរបាយការណ៍ទាំងអស់</p>
+              </div>
+              <button type="button" onClick={() => setShowAllReports(false)}>បិទ / Close</button>
+            </div>
+
+            <div className="superdash-report-metrics">
+              <div><FileCheck2 /><span>របាយការណ៍សរុប</span><strong>{reports.length}</strong></div>
+              <div><Users /><span>អតិថិជន</span><strong>{new Set(reports.map(r => r.customer_name)).size}</strong></div>
+              <div><MapPin /><span>ទីតាំង</span><strong>{new Set(reports.map(r => r.customer_address)).size}</strong></div>
+              <div><Building2 /><span>ផលិត</span><strong>{reports.filter(r => r.service_type === 'Manufacture').length}</strong></div>
+              <div><ShieldCheck /><span>តម្លើង</span><strong>{reports.filter(r => r.service_type === 'Installation').length}</strong></div>
+              <div><Clock3 /><span>ជួសជុល</span><strong>{reports.filter(r => r.service_type === 'Repair').length}</strong></div>
+            </div>
+
+            <div className="superdash-report-table-card">
+              <h4>បញ្ជីរបាយការណ៍ទាំងអស់</h4>
+              {sortedSubmittedReports.length === 0 ? (
+                <div className="superdash-empty">
+                  <AlertTriangle />
+                  <p>មិនទាន់មានទិន្នន័យរបាយការណ៍នៅឡើយទេ។</p>
+                </div>
+              ) : (
+                <div className="superdash-report-list">
+                  {sortedSubmittedReports.map(report => (
+                    <div className="superdash-report-row" key={report.id}>
+                      <div>
+                        <strong>{report.company_name_kh || 'Company'}</strong>
+                        <p>{report.customer_name || 'N/A'} • {report.measuring_instrument || 'N/A'}</p>
+                      </div>
+                      <span>{report.service_type}</span>
+                      <time>{report.report_month || '--'} {report.report_year || ''}</time>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="superdash-panel superdash-summary">
         <div className="superdash-panel__header">

@@ -1801,7 +1801,7 @@ export default function App() {
                   <User className="h-6 w-6" />
                 </span>
                 <span className="leading-tight">
-                  <strong className="block text-sm font-black">{sessionUser.role === 'superadmin' ? 'Superadmin' : (sessionUser?.legal_representative || sessionUser?.username)}</strong>
+                  <strong className="block text-sm font-black">{sessionUser?.legal_representative || sessionUser?.username}</strong>
                   <small className="block text-[10px] text-white/75">{sessionUser.role === 'superadmin' ? 'Superadmin' : sessionUser.role}</small>
                 </span>
               </span>
@@ -1812,7 +1812,7 @@ export default function App() {
             <div className="nmc-superadmin-strip">
               <div className="nmc-superadmin-breadcrumb">ទំព័រដើម / Dashboard</div>
               <div className="nmc-superadmin-date">
-                <span>ថ្ងៃសៅរ៍, ២៧ មិថុនា ២០២៦</span>
+                <span>{systemTime.split(' ')[0]} (GMT+7)</span>
                 <strong>{systemTime.split(' ')[1] || systemTime}</strong>
               </div>
             </div>
