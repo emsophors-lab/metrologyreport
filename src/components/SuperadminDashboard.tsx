@@ -17,11 +17,13 @@ import {
   XCircle
 } from 'lucide-react';
 import { MetrologyReport, MetrologyUser } from '../types';
+import DataAnalyticsReport from './DataAnalyticsReport';
 import EnterpriseLicenseMapView from './EnterpriseLicenseMapView';
 import TopServiceCompanies from './TopServiceCompanies';
 import nmcLogo from '../NMClogo.png';
 
 interface SuperadminDashboardProps {
+  currentUser: MetrologyUser;
   reports: MetrologyReport[];
   users: MetrologyUser[];
   activeCompanyList: MetrologyUser[];
@@ -101,9 +103,12 @@ function StatCard({
   );
 }
 
-export default function SuperadminDashboard({ reports, users, activeCompanyList }: SuperadminDashboardProps) {
+export default function SuperadminDashboard({ currentUser, reports, users, activeCompanyList }: SuperadminDashboardProps) {
   const [showAllReports, setShowAllReports] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
   const [reportSearchQuery, setReportSearchQuery] = useState('');
+  const canOpenAnalytics = currentUser.role === 'superadmin' ||
+    (currentUser.role === 'admin' && (currentUser.admin_can_view_all_users || currentUser.admin_can_view_licenses));
   const companyRecords = activeCompanyList as Array<MetrologyUser & Record<string, any>>;
   const totalLicenses = companyRecords.length;
   const activeLicenses = companyRecords.filter(c => {
@@ -174,6 +179,15 @@ export default function SuperadminDashboard({ reports, users, activeCompanyList 
 
   return (
     <div className="superdash">
+      {canOpenAnalytics && (
+        <div className="superdash-feature-actions">
+          <button type="button" onClick={() => setShowAnalytics(true)}>
+            <BarChart3 />
+            វិភាគទិន្នន័យ / Data Analytics
+          </button>
+        </div>
+      )}
+
       <section className="superdash-stats">
         <StatCard icon={<Building2 />} kh="អាជ្ញាប័ណ្ណសរុប" en="Total Licenses" value={totalLicenses} helper="សរុប / Total" tone="blue" />
         <StatCard icon={<ShieldCheck />} kh="កំពុងប្រើប្រាស់" en="Active" value={activeLicenses} helper={percent(activeLicenses, totalLicenses)} tone="green" />
@@ -401,6 +415,15 @@ export default function SuperadminDashboard({ reports, users, activeCompanyList 
       </section>
 
       <TopServiceCompanies reports={reports} users={users} />
+
+      {showAnalytics && (
+        <DataAnalyticsReport
+          currentUser={currentUser}
+          reports={reports}
+          users={users}
+          onClose={() => setShowAnalytics(false)}
+        />
+      )}
     </div>
   );
 }

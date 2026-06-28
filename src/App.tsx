@@ -1816,6 +1816,7 @@ export default function App() {
               <div className="space-y-6 animate-fade-in duration-300">
                 {sessionUser.role === 'superadmin' ? (
                   <SuperadminDashboard
+                    currentUser={sessionUser}
                     reports={reports}
                     users={users}
                     activeCompanyList={activeCompanyList}
