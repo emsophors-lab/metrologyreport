@@ -57,6 +57,8 @@ const GOLD = 'D6A329';
 const LIGHT_BLUE = 'EAF2FA';
 const LIGHT_GOLD = 'FFF7E2';
 const TEXT = '1F2937';
+const PPT_RECT = 'rect' as const;
+const PPT_ROUND_RECT = 'roundRect' as const;
 
 const BENCHMARK_NOTE =
   'ISO/IEC 17025 supports competence and valid measurement results for testing and calibration laboratories. ILAC P10 emphasizes metrological traceability of measurement results. OIML legal metrology infrastructure supports consumer protection, fair trade, and confidence in measurements. BIPM digital metrology promotes FAIR data, digital calibration certificates, and trustworthy digital transformation in metrology.';
@@ -391,14 +393,14 @@ export function generateAnalyticsPdfReport(data: AnalyticsExportData) {
 
 function addPptHeader(slide: pptxgen.Slide, title: string) {
   slide.background = { color: 'F4F7FB' };
-  slide.addShape(pptxgen.ShapeType.rect, { x: 0, y: 0, w: 13.333, h: 0.62, fill: { color: BLUE }, line: { color: BLUE } });
-  slide.addShape(pptxgen.ShapeType.rect, { x: 0, y: 0.62, w: 13.333, h: 0.05, fill: { color: GOLD }, line: { color: GOLD } });
+  slide.addShape(PPT_RECT, { x: 0, y: 0, w: 13.333, h: 0.62, fill: { color: BLUE }, line: { color: BLUE } });
+  slide.addShape(PPT_RECT, { x: 0, y: 0.62, w: 13.333, h: 0.05, fill: { color: GOLD }, line: { color: GOLD } });
   slide.addText(title, { x: 0.45, y: 0.16, w: 10.7, h: 0.3, fontFace: 'Arial', fontSize: 13, bold: true, color: 'FFFFFF' });
   slide.addText(NMC_EN, { x: 10.6, y: 7.08, w: 2.25, h: 0.2, fontSize: 7, color: '64748B', align: 'right' });
 }
 
 function pptCard(slide: pptxgen.Slide, label: string, value: string, x: number, y: number, color = BLUE) {
-  slide.addShape(pptxgen.ShapeType.roundRect, {
+  slide.addShape(PPT_ROUND_RECT, {
     x, y, w: 2.25, h: 1.02,
     rectRadius: 0.08,
     fill: { color: 'FFFFFF' },
@@ -409,7 +411,7 @@ function pptCard(slide: pptxgen.Slide, label: string, value: string, x: number, 
 }
 
 function pptBullets(slide: pptxgen.Slide, lines: string[], x = 0.65, y = 1.3, w = 11.9, h = 4.9) {
-  slide.addShape(pptxgen.ShapeType.roundRect, { x, y, w, h, rectRadius: 0.08, fill: { color: 'FFFFFF' }, line: { color: 'D7E1EF' } });
+  slide.addShape(PPT_ROUND_RECT, { x, y, w, h, rectRadius: 0.08, fill: { color: 'FFFFFF' }, line: { color: 'D7E1EF' } });
   slide.addText(lines.map(line => `• ${line}`).join('\n'), {
     x: x + 0.35,
     y: y + 0.35,
@@ -432,8 +434,8 @@ function addRowsSlide(pptx: pptxgen, title: string, rows: AnalyticsTableRow[], n
   shown.forEach(([label, count], index) => {
     const y = 1.62 + index * 0.52;
     slide.addText(label, { x: 0.75, y, w: 3.1, h: 0.25, fontSize: 10.5, bold: true, color: TEXT, fit: 'shrink' });
-    slide.addShape(pptxgen.ShapeType.rect, { x: 3.95, y: y + 0.03, w: 7.1, h: 0.16, fill: { color: 'E2E8F0' }, line: { color: 'E2E8F0' } });
-    slide.addShape(pptxgen.ShapeType.rect, { x: 3.95, y: y + 0.03, w: Math.max(0.08, (count / max) * 7.1), h: 0.16, fill: { color: GOLD }, line: { color: GOLD } });
+    slide.addShape(PPT_RECT, { x: 3.95, y: y + 0.03, w: 7.1, h: 0.16, fill: { color: 'E2E8F0' }, line: { color: 'E2E8F0' } });
+    slide.addShape(PPT_RECT, { x: 3.95, y: y + 0.03, w: Math.max(0.08, (count / max) * 7.1), h: 0.16, fill: { color: GOLD }, line: { color: GOLD } });
     slide.addText(String(count), { x: 11.25, y: y - 0.02, w: 0.8, h: 0.24, fontSize: 11, bold: true, color: BLUE, align: 'right' });
   });
   if (note) slide.addText(note, { x: 0.75, y: 6.35, w: 11.6, h: 0.35, fontSize: 11, color: '64748B', italic: true });
@@ -453,7 +455,7 @@ export async function generateAnalyticsPptxBriefing(data: AnalyticsExportData) {
 
   let slide = pptx.addSlide();
   slide.background = { color: BLUE };
-  slide.addShape(pptxgen.ShapeType.rect, { x: 0, y: 5.7, w: 13.333, h: 0.08, fill: { color: GOLD }, line: { color: GOLD } });
+  slide.addShape(PPT_RECT, { x: 0, y: 5.7, w: 13.333, h: 0.08, fill: { color: GOLD }, line: { color: GOLD } });
   slide.addText(REPORT_TITLE_EN, { x: 0.7, y: 1.4, w: 11.8, h: 0.55, fontSize: 30, bold: true, color: 'FFFFFF', align: 'center' });
   slide.addText(REPORT_TITLE_KH, { x: 0.7, y: 2.08, w: 11.8, h: 0.4, fontSize: 18, bold: true, color: 'F8E7B3', align: 'center', fit: 'shrink' });
   slide.addText(`${NMC_EN}\n${MINISTRY_EN}\nDate generated: ${data.generatedDate}`, { x: 1.25, y: 3.15, w: 10.8, h: 1.2, fontSize: 16, color: 'FFFFFF', align: 'center', breakLine: false });
