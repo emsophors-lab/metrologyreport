@@ -38,6 +38,7 @@ interface DataAnalyticsReportProps {
   currentUser: MetrologyUser;
   reports: MetrologyReport[];
   users: MetrologyUser[];
+  initialLicenses?: EnterpriseLicense[];
   onClose: () => void;
 }
 
@@ -202,8 +203,8 @@ function Donut({ rows }: { rows: Array<[string, number]> }) {
   );
 }
 
-export default function DataAnalyticsReport({ currentUser, reports, users, onClose }: DataAnalyticsReportProps) {
-  const [licenses, setLicenses] = useState<EnterpriseLicense[]>([]);
+export default function DataAnalyticsReport({ currentUser, reports, users, initialLicenses = [], onClose }: DataAnalyticsReportProps) {
+  const [licenses, setLicenses] = useState<EnterpriseLicense[]>(initialLicenses);
   const [renewals, setRenewals] = useState<LicenseRenewalHistory[]>([]);
   const [reminders, setReminders] = useState<LicenseReminderLog[]>([]);
   const [bots, setBots] = useState<TelegramBotSetting[]>([]);
@@ -222,6 +223,12 @@ export default function DataAnalyticsReport({ currentUser, reports, users, onClo
 
   const canAccess = currentUser.role === 'superadmin' ||
     (currentUser.role === 'admin' && (currentUser.admin_can_view_all_users || currentUser.admin_can_view_licenses));
+
+  useEffect(() => {
+    if (initialLicenses.length > 0) {
+      setLicenses(initialLicenses);
+    }
+  }, [initialLicenses]);
 
   useEffect(() => {
     let active = true;
@@ -250,7 +257,7 @@ export default function DataAnalyticsReport({ currentUser, reports, users, onClo
           })
         ]);
         if (!active) return;
-        setLicenses(licenseData);
+        setLicenses(licenseData.length > 0 ? licenseData : initialLicenses);
         setRenewals(renewalData);
         setReminders(reminderData);
         setBots(botData);
@@ -263,7 +270,7 @@ export default function DataAnalyticsReport({ currentUser, reports, users, onClo
     return () => {
       active = false;
     };
-  }, [canAccess, currentUser]);
+  }, [canAccess, currentUser, initialLicenses]);
 
   const analytics = useMemo(() => {
     const start = parseDate(filters.startDate);

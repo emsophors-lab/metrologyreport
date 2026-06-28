@@ -491,5 +491,11 @@ export async function generateAnalyticsPptxBriefing(data: AnalyticsExportData) {
   slide.addText('Recommendations for MISTI and NMC', { x: 0.62, y: 0.95, w: 10, h: 0.4, fontSize: 23, bold: true, color: BLUE });
   pptBullets(slide, RECOMMENDATIONS, 0.65, 1.35, 11.9, 4.9);
 
-  await pptx.writeFile({ fileName: `nmc-data-analytics-summary-${todaySlug()}.pptx` });
+  const output = await pptx.write({ outputType: 'blob' });
+  const blob = output instanceof Blob
+    ? output
+    : new Blob([output as BlobPart], {
+      type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    });
+  downloadBlob(blob, `nmc-data-analytics-summary-${todaySlug()}.pptx`);
 }

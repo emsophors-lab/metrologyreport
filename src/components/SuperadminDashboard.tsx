@@ -425,6 +425,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
           currentUser={currentUser}
           reports={reports}
           users={users}
+          initialLicenses={licenseRecords}
           onClose={() => setShowAnalytics(false)}
         />
       )}
