@@ -1346,7 +1346,32 @@ textarea.nmc-input:focus {
   color: #8aa0bc;
   font-size: 13px;
   font-weight: 800;
-  padding: 14px 18px;
+  padding: 0 14px;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nmc-superadmin-theme .superdash-report-search svg {
+  width: 18px;
+  height: 18px;
+  color: #1f5fbf;
+  flex: 0 0 auto;
+}
+
+.nmc-superadmin-theme .superdash-report-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #0b2447;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.nmc-superadmin-theme .superdash-report-search input::placeholder {
+  color: #9aabc2;
 }
 
 .nmc-superadmin-theme .superdash-report-metrics {
@@ -1392,6 +1417,181 @@ textarea.nmc-input:focus {
   font-size: 24px;
   font-weight: 900;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.nmc-superadmin-theme .superdash-report-analytics {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.72fr);
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.nmc-superadmin-theme .superdash-analysis-card {
+  min-height: 238px;
+  background: #ffffff;
+  border: 1px solid #d8e4f0;
+  border-radius: 9px;
+  box-shadow: 0 4px 14px rgba(0,47,103,0.06);
+  padding: 20px;
+}
+
+.nmc-superadmin-theme .superdash-analysis-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.nmc-superadmin-theme .superdash-analysis-title > svg {
+  width: 42px;
+  height: 42px;
+  padding: 10px;
+  border-radius: 10px;
+  color: #1f5fbf;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+}
+
+.nmc-superadmin-theme .superdash-analysis-title h4 {
+  color: #0b2447;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.nmc-superadmin-theme .superdash-analysis-title p {
+  color: #8aa0bc;
+  font-size: 11px;
+  font-weight: 800;
+  margin-top: 2px;
+}
+
+.nmc-superadmin-theme .superdash-service-bars {
+  display: grid;
+  gap: 14px;
+}
+
+.nmc-superadmin-theme .superdash-service-bar {
+  position: relative;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 12px;
+}
+
+.nmc-superadmin-theme .superdash-service-bar div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.nmc-superadmin-theme .superdash-service-bar span,
+.nmc-superadmin-theme .superdash-share-item span {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.nmc-superadmin-theme .superdash-service-bar svg,
+.nmc-superadmin-theme .superdash-share-item svg {
+  width: 18px;
+  height: 18px;
+}
+
+.nmc-superadmin-theme .superdash-service-bar strong {
+  color: #0b2447;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.nmc-superadmin-theme .superdash-service-bar em {
+  color: #0b2447;
+  font-style: normal;
+  font-size: 18px;
+  font-weight: 900;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.nmc-superadmin-theme .superdash-service-bar::after {
+  content: "";
+  position: absolute;
+  left: 44px;
+  right: 0;
+  bottom: 0;
+  height: 7px;
+  border-radius: 999px;
+  background: #eef4f8;
+}
+
+.nmc-superadmin-theme .superdash-service-bar i {
+  position: absolute;
+  left: 44px;
+  bottom: 0;
+  height: 7px;
+  border-radius: 999px;
+  z-index: 1;
+}
+
+.nmc-superadmin-theme .superdash-service-bar.is-green span,
+.nmc-superadmin-theme .superdash-share-item.is-green span {
+  color: #047857;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+}
+
+.nmc-superadmin-theme .superdash-service-bar.is-green i { background: #22a447; }
+
+.nmc-superadmin-theme .superdash-service-bar.is-blue span,
+.nmc-superadmin-theme .superdash-share-item.is-blue span {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+
+.nmc-superadmin-theme .superdash-service-bar.is-blue i { background: #1f5fbf; }
+
+.nmc-superadmin-theme .superdash-service-bar.is-orange span,
+.nmc-superadmin-theme .superdash-share-item.is-orange span {
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+
+.nmc-superadmin-theme .superdash-service-bar.is-orange i { background: #f59e0b; }
+
+.nmc-superadmin-theme .superdash-share-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.nmc-superadmin-theme .superdash-share-item {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #edf2f7;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #ffffff, #fbfdff);
+}
+
+.nmc-superadmin-theme .superdash-share-item strong {
+  color: #0b2447;
+  font-size: 20px;
+  font-weight: 900;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.nmc-superadmin-theme .superdash-share-item p {
+  color: #667085;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .nmc-superadmin-theme .superdash-report-table-card {
@@ -1640,6 +1840,10 @@ textarea.nmc-input:focus {
   }
 
   .nmc-superadmin-theme .superdash-main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .nmc-superadmin-theme .superdash-report-analytics {
     grid-template-columns: 1fr;
   }
 }

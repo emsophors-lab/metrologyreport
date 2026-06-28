@@ -1,13 +1,19 @@
 import React, { useState } from 'react';
 import {
   AlertTriangle,
+  BarChart3,
   Building2,
   Clock3,
+  Factory,
   FileCheck2,
+  Hammer,
   MapPin,
+  PieChart,
+  Search,
   Send,
   ShieldCheck,
   Users,
+  Wrench,
   XCircle
 } from 'lucide-react';
 import { MetrologyReport, MetrologyUser } from '../types';
@@ -97,6 +103,7 @@ function StatCard({
 
 export default function SuperadminDashboard({ reports, users, activeCompanyList }: SuperadminDashboardProps) {
   const [showAllReports, setShowAllReports] = useState(false);
+  const [reportSearchQuery, setReportSearchQuery] = useState('');
   const companyRecords = activeCompanyList as Array<MetrologyUser & Record<string, any>>;
   const totalLicenses = companyRecords.length;
   const activeLicenses = companyRecords.filter(c => {
@@ -121,6 +128,29 @@ export default function SuperadminDashboard({ reports, users, activeCompanyList 
   const sortedSubmittedReports = reports
       .slice()
       .sort((a, b) => String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at)));
+
+  const normalizedReportSearch = reportSearchQuery.trim().toLowerCase();
+  const filteredSubmittedReports = normalizedReportSearch
+    ? sortedSubmittedReports.filter(report => [
+        report.customer_name,
+        report.instrument_serial_number,
+        report.measuring_instrument,
+        report.company_name_kh,
+        report.license_number,
+        report.customer_address,
+        report.scope_of_weight_measure
+      ].some(value => String(value || '').toLowerCase().includes(normalizedReportSearch)))
+    : sortedSubmittedReports;
+
+  const manufactureCount = filteredSubmittedReports.filter(r => r.service_type === 'Manufacture').length;
+  const installationCount = filteredSubmittedReports.filter(r => r.service_type === 'Installation').length;
+  const repairCount = filteredSubmittedReports.filter(r => r.service_type === 'Repair').length;
+  const filteredServiceTotal = manufactureCount + installationCount + repairCount;
+  const serviceShares = [
+    { key: 'manufacture', kh: 'ផលិត', en: 'Manufacture', count: manufactureCount, icon: <Factory />, tone: 'green' },
+    { key: 'installation', kh: 'តម្លើង', en: 'Installation', count: installationCount, icon: <Wrench />, tone: 'blue' },
+    { key: 'repair', kh: 'ជួសជុល', en: 'Repair', count: repairCount, icon: <Hammer />, tone: 'orange' }
+  ];
 
   const recentActivities = sortedSubmittedReports
       .slice(0, 4)
@@ -234,29 +264,82 @@ export default function SuperadminDashboard({ reports, users, activeCompanyList 
                 <h3>ផ្ទាំងគ្រប់គ្រងទិន្នន័យរបាយការណ៍</h3>
                 <p>ស្ថិតិសង្ខេបនៃការបញ្ជូនរបាយការណ៍ និងបញ្ជីរបាយការណ៍ទាំងអស់</p>
               </div>
-              <div className="superdash-report-search">ស្វែងរកតាម អតិថិជន លេខស៊េរី ឧបករណ៍ ក្រុមហ៊ុន...</div>
+              <label className="superdash-report-search">
+                <Search />
+                <input
+                  type="search"
+                  value={reportSearchQuery}
+                  onChange={(event) => setReportSearchQuery(event.target.value)}
+                  placeholder="ស្វែងរកតាម អតិថិជន លេខស៊េរី ឧបករណ៍ ក្រុមហ៊ុន..."
+                />
+              </label>
             </div>
 
             <div className="superdash-report-metrics">
-              <div><FileCheck2 /><span>របាយការណ៍សរុប</span><strong>{reports.length}</strong></div>
-              <div><Users /><span>អតិថិជន</span><strong>{new Set(reports.map(r => r.customer_name)).size}</strong></div>
-              <div><MapPin /><span>ទីតាំង</span><strong>{new Set(reports.map(r => r.customer_address)).size}</strong></div>
-              <div><Building2 /><span>ផលិត</span><strong>{reports.filter(r => r.service_type === 'Manufacture').length}</strong></div>
-              <div><ShieldCheck /><span>តម្លើង</span><strong>{reports.filter(r => r.service_type === 'Installation').length}</strong></div>
-              <div><Clock3 /><span>ជួសជុល</span><strong>{reports.filter(r => r.service_type === 'Repair').length}</strong></div>
+              <div><FileCheck2 /><span>របាយការណ៍សរុប</span><strong>{filteredSubmittedReports.length}</strong></div>
+              <div><Users /><span>អតិថិជន</span><strong>{new Set(filteredSubmittedReports.map(r => r.customer_name)).size}</strong></div>
+              <div><MapPin /><span>ទីតាំង</span><strong>{new Set(filteredSubmittedReports.map(r => r.customer_address)).size}</strong></div>
+              <div><Building2 /><span>ផលិត</span><strong>{manufactureCount}</strong></div>
+              <div><ShieldCheck /><span>តម្លើង</span><strong>{installationCount}</strong></div>
+              <div><Clock3 /><span>ជួសជុល</span><strong>{repairCount}</strong></div>
+            </div>
+
+            <div className="superdash-report-analytics">
+              <div className="superdash-analysis-card">
+                <div className="superdash-analysis-title">
+                  <BarChart3 />
+                  <div>
+                    <h4>លទ្ធផលសេវាកម្មមាត្រាសាស្ត្រតាមប្រភេទ</h4>
+                    <p>Bar Chart of Metrology Services</p>
+                  </div>
+                </div>
+                <div className="superdash-service-bars">
+                  {serviceShares.map(item => (
+                    <div className={`superdash-service-bar is-${item.tone}`} key={item.key}>
+                      <div>
+                        <span>{item.icon}</span>
+                        <strong>{item.kh} / {item.en}</strong>
+                      </div>
+                      <em>{item.count}</em>
+                      <i style={{ width: `${filteredServiceTotal > 0 ? Math.max(4, (item.count / filteredServiceTotal) * 100) : 0}%` }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="superdash-analysis-card">
+                <div className="superdash-analysis-title">
+                  <PieChart />
+                  <div>
+                    <h4>ភាគរយចំណែកសេវាកម្ម</h4>
+                    <p>Services Shares Ratio</p>
+                  </div>
+                </div>
+                <div className="superdash-share-grid">
+                  {serviceShares.map(item => (
+                    <div className={`superdash-share-item is-${item.tone}`} key={item.key}>
+                      <span>{item.icon}</span>
+                      <div>
+                        <strong>{percent(item.count, filteredServiceTotal)}</strong>
+                        <p>{item.kh} / {item.en}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <div className="superdash-report-table-card">
               <div className="superdash-report-table-title">
                 <div>
-                  <h4>តារាងរបាយការណ៍លម្អិត ({sortedSubmittedReports.length} កំណត់ត្រា)</h4>
+                  <h4>តារាងរបាយការណ៍លម្អិត ({filteredSubmittedReports.length} កំណត់ត្រា)</h4>
                   <p>ចម្រោះ និងបង្ហាញបញ្ជីរបាយការណ៍</p>
                 </div>
               </div>
-              {sortedSubmittedReports.length === 0 ? (
+              {filteredSubmittedReports.length === 0 ? (
                 <div className="superdash-empty">
                   <AlertTriangle />
-                  <p>មិនទាន់មានទិន្នន័យរបាយការណ៍នៅឡើយទេ។</p>
+                  <p>{reportSearchQuery ? 'រកមិនឃើញរបាយការណ៍តាមពាក្យស្វែងរកនេះទេ។' : 'មិនទាន់មានទិន្នន័យរបាយការណ៍នៅឡើយទេ។'}</p>
                 </div>
               ) : (
                 <div className="superdash-report-table-wrap">
@@ -274,7 +357,7 @@ export default function SuperadminDashboard({ reports, users, activeCompanyList 
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedSubmittedReports.map((report, index) => (
+                      {filteredSubmittedReports.map((report, index) => (
                         <tr key={report.id}>
                           <td>{index + 1}</td>
                           <td>
