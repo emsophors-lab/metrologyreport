@@ -394,6 +394,17 @@ app.post('/api/telegram-bot-settings', async (req, res) => {
         .limit(1)
         .maybeSingle();
       existingBot = data || null;
+    } else {
+      const username = String(input.bot_username || '').replace(/^@/, '').trim();
+      if (username) {
+        const { data } = await supabaseAdmin
+          .from('telegram_bot_settings')
+          .select('*')
+          .eq('bot_username', username)
+          .limit(1)
+          .maybeSingle();
+        existingBot = data || null;
+      }
     }
 
     const payload = sanitizeBotPayload(input, existingBot);

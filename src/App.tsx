@@ -1791,23 +1791,6 @@ export default function App() {
                 <BriefcaseBusiness className="h-3.5 w-3.5 text-[#D9A441]" />
                 <span>សកម្មភាព៖ {sessionUser?.legal_representative || sessionUser?.username}</span>
               </span>
-              
-              <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold p-2 px-3.5 rounded-lg border ${dbConfig.useFallback ? 'bg-amber-500/20 text-amber-200 border-amber-500/30':'bg-emerald-500/20 text-emerald-200 border-emerald-500/30'}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${dbConfig.useFallback ? 'bg-amber-400':'bg-emerald-400 animate-pulse'}`}></span>
-                <span>{dbConfig.useFallback ? 'Offline (Local ST)' : 'Supabase Sync: Active'}</span>
-              </span>
-
-              {sessionUser.role === 'superadmin' && (
-                <span className="nmc-superadmin-profile hidden md:inline-flex items-center gap-2.5">
-                  <span className="nmc-superadmin-avatar">
-                    <User className="h-5 w-5" />
-                  </span>
-                  <span className="text-left leading-tight">
-                    <span className="block text-xs font-black text-white">Superadmin</span>
-                    <span className="block text-[10px] text-slate-200">Superadmin</span>
-                  </span>
-                </span>
-              )}
             </div>
           </header>
 

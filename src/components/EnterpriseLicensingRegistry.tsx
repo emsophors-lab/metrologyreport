@@ -1863,9 +1863,9 @@ export default function EnterpriseLicensingRegistry({
       toastMsg('រក្សាទុកកំណត់ពត៌មានលោកអ្នករួចរាល់ / Saved Telegram Bot successfully.', 'success');
       setShowBotModal(false);
       loadRegistryData();
-    } catch (err) {
-      console.error(err);
-      toastMsg('បរាជ័យក្នុងការរក្សាទុក / Failed to save Telegram Bot setting.', 'error');
+    } catch (err: any) {
+      console.error('Failed to save Telegram Bot setting:', err?.message || err);
+      toastMsg(err?.message || 'បរាជ័យក្នុងការរក្សាទុក / Failed to save Telegram Bot setting.', 'error');
     } finally {
       setIsLoading(false);
     }
