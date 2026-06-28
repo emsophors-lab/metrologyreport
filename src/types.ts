@@ -187,9 +187,11 @@ export interface TelegramBotSetting {
   default_chat_id?: string | null;
   default_group_chat_id?: string | null;
   webhook_url?: string | null;
+  last_webhook_setup_at?: string | null;
   webhook_secret_encrypted?: string | null;
   is_active: boolean;
   description?: string | null;
+  bot_description?: string | null;
   last_test_status?: string | null;
   last_test_message?: string | null;
   last_tested_at?: string | null;

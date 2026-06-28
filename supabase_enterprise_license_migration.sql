@@ -134,15 +134,22 @@ CREATE TABLE IF NOT EXISTS telegram_bot_settings (
   bot_name TEXT,
   bot_username TEXT NOT NULL,
   bot_token_encrypted TEXT NOT NULL,
-  bot_purpose TEXT DEFAULT 'license_reminder' CHECK (bot_purpose IN ('report_notification', 'license_reminder')),
+  bot_purpose TEXT DEFAULT 'report_group',
   default_chat_id TEXT,
+  default_group_chat_id TEXT,
   webhook_url TEXT,
+  last_webhook_setup_at TIMESTAMP WITH TIME ZONE,
   webhook_secret_encrypted TEXT,
   is_active BOOLEAN DEFAULT true,
   description TEXT,
+  bot_description TEXT,
   last_test_status TEXT,
   last_test_message TEXT,
   last_tested_at TIMESTAMP WITH TIME ZONE,
+  connection_status TEXT DEFAULT 'not_verified',
+  last_error TEXT,
+  webhook_status TEXT DEFAULT 'not_configured',
+  bot_display_name TEXT,
   created_by TEXT,
   updated_by TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
@@ -262,5 +269,15 @@ ALTER TABLE public.enterprise_licenses ADD COLUMN IF NOT EXISTS last_7_day_remin
 ALTER TABLE public.enterprise_licenses ADD COLUMN IF NOT EXISTS expired_reminder_sent_at TIMESTAMPTZ;
 
 -- 11. INCREMENTAL COLUMN FOR MULTIPLE TELEGRAM BOT PURPOSES
-ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS bot_purpose TEXT DEFAULT 'license_reminder';
+ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS bot_purpose TEXT DEFAULT 'report_group';
+ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS default_group_chat_id TEXT;
+ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS bot_display_name TEXT;
+ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS connection_status TEXT DEFAULT 'not_verified';
+ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS last_tested_at TIMESTAMPTZ;
+ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS webhook_status TEXT DEFAULT 'not_configured';
+ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS webhook_url TEXT;
+ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS last_webhook_setup_at TIMESTAMPTZ;
+ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT false;
+ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS bot_description TEXT;
+ALTER TABLE telegram_bot_settings ALTER COLUMN bot_purpose SET DEFAULT 'report_group';
 

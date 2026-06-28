@@ -194,6 +194,32 @@ function apiSuccess(res: any, body: Record<string, any> = {}) {
   return res.json({ success: true, ...body });
 }
 
+function isTelegramBotSchemaError(err: any) {
+  const text = `${err?.code || ''} ${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`.toLowerCase();
+  return text.includes('pgrst204') ||
+    (text.includes('telegram_bot_settings') && (
+      text.includes('schema cache') ||
+      text.includes('default_group_chat_id') ||
+      text.includes('bot_display_name') ||
+      text.includes('connection_status') ||
+      text.includes('last_tested_at') ||
+      text.includes('webhook_status') ||
+      text.includes('webhook_url') ||
+      text.includes('last_webhook_setup_at') ||
+      text.includes('is_active') ||
+      text.includes('bot_purpose') ||
+      text.includes('bot_description')
+    ));
+}
+
+function telegramBotSchemaError(res: any) {
+  return apiError(
+    res,
+    400,
+    'Telegram bot settings schema is missing required columns. Please run supabase_telegram_bot_settings_schema_compatibility.sql in Supabase SQL Editor and refresh the schema cache.'
+  );
+}
+
 async function readResponseBodySafely(response: Response): Promise<any> {
   const text = await response.text();
   if (!text) return {};
@@ -238,6 +264,7 @@ function sanitizeBotPayload(input: any, existingBot?: any) {
     default_group_chat_id: input.default_group_chat_id || input.default_chat_id || null,
     is_active: input.is_active === true,
     description: input.description || null,
+    bot_description: input.bot_description || input.description || null,
     connection_status: input.connection_status || 'not_verified',
     last_test_status: input.last_test_status || null,
     last_test_message: input.last_test_message || null,
@@ -366,8 +393,9 @@ app.get('/api/telegram-bot-settings', async (req, res) => {
     if (error) throw error;
     return apiSuccess(res, { bots: (data || []).map(sanitizeBotForClient) });
   } catch (err: any) {
-    console.error('Failed to fetch Telegram Bot settings:', err);
-    return apiError(res, 500, err?.message || 'Failed to fetch Telegram Bot settings.');
+    if (isTelegramBotSchemaError(err)) return telegramBotSchemaError(res);
+    console.error('Failed to fetch Telegram Bot settings:', err?.message || err);
+    return apiError(res, 500, 'Failed to fetch Telegram Bot settings.');
   }
 });
 
@@ -424,7 +452,8 @@ app.post('/api/telegram-bot-settings', async (req, res) => {
       if (payload.id) {
         deactivateQuery = deactivateQuery.not('id', 'eq', payload.id);
       }
-      await deactivateQuery;
+      const { error: deactivateError } = await deactivateQuery;
+      if (deactivateError) throw deactivateError;
     }
 
     const saveQuery = payload.id
@@ -435,8 +464,9 @@ app.post('/api/telegram-bot-settings', async (req, res) => {
     if (error) throw error;
     return apiSuccess(res, { bot: sanitizeBotForClient(data || payload) });
   } catch (err: any) {
-    console.error('Failed to save Telegram Bot setting:', err);
-    return apiError(res, 500, err?.message || 'Failed to save Telegram Bot setting.');
+    if (isTelegramBotSchemaError(err)) return telegramBotSchemaError(res);
+    console.error('Failed to save Telegram Bot setting:', err?.message || err);
+    return apiError(res, 500, 'Failed to save Telegram Bot setting.');
   }
 });
 
@@ -920,6 +950,7 @@ app.post('/api/test-telegram-bot-connection', async (req, res) => {
       });
     }
   } catch (err: any) {
+    if (isTelegramBotSchemaError(err)) return telegramBotSchemaError(res);
     const safeMessage = String(err?.message || 'Failed to test Telegram Bot connection.');
     console.error('test Telegram Bot connection failed:', safeMessage);
     return apiError(res, 500, safeMessage);
@@ -999,10 +1030,11 @@ app.post('/api/set-telegram-webhook', async (req, res) => {
         .update({
           webhook_url: webhookUrl,
           webhook_status: 'configured',
+          last_webhook_setup_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
         .eq('id', targetBot.id);
-      if (updateErr) console.warn('Could not update webhook url in DB:', updateErr);
+      if (updateErr) throw updateErr;
     }
 
     return apiSuccess(res, { 
@@ -1011,8 +1043,9 @@ app.post('/api/set-telegram-webhook', async (req, res) => {
       telegram_response: body 
     });
   } catch (err: any) {
-    console.error('setWebhook error:', err);
-    return apiError(res, 500, err?.message || 'Failed to configure Telegram Webhook');
+    if (isTelegramBotSchemaError(err)) return telegramBotSchemaError(res);
+    console.error('setWebhook error:', sanitizeTelegramError(err?.message || 'Failed to configure Telegram Webhook'));
+    return apiError(res, 500, sanitizeTelegramError(err?.message || 'Failed to configure Telegram Webhook'));
   }
 });
 
@@ -1083,6 +1116,7 @@ app.get('/api/get-telegram-webhook-status', async (req, res) => {
 
     return res.json({ status: 'Failed', reason: 'Telegram API returned failure status' });
   } catch (err: any) {
+    if (isTelegramBotSchemaError(err)) return telegramBotSchemaError(res);
     console.error('getWebhookInfo error:', err);
     return apiError(res, 500, err?.message || 'Failed to query Telegram webhook info');
   }
@@ -1206,6 +1240,7 @@ app.post('/api/test-telegram-reminder', async (req, res) => {
 
     return apiSuccess(res, { status: 'success', message: 'Test message sent successfully!', bot: updatedBotForClient });
   } catch (err: any) {
+    if (isTelegramBotSchemaError(err)) return telegramBotSchemaError(res);
     const safeMessage = sanitizeTelegramError(err?.message || 'Test reminder dispatch failed');
     console.error('Failed to send test reminder:', safeMessage);
     const botId = req.body?.botId || req.body?.bot_id || null;

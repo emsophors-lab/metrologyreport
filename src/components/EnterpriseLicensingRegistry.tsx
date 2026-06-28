@@ -157,13 +157,15 @@ CREATE TABLE IF NOT EXISTS telegram_bot_settings (
   bot_name TEXT,
   bot_username TEXT NOT NULL,
   bot_token_encrypted TEXT NOT NULL,
-  bot_purpose TEXT DEFAULT 'license_reminder',
+  bot_purpose TEXT DEFAULT 'report_group',
   default_chat_id TEXT,
   default_group_chat_id TEXT,
   webhook_url TEXT,
+  last_webhook_setup_at TIMESTAMP WITH TIME ZONE,
   webhook_secret_encrypted TEXT,
   is_active BOOLEAN DEFAULT true,
   description TEXT,
+  bot_description TEXT,
   last_test_status TEXT,
   last_test_message TEXT,
   last_tested_at TIMESTAMP WITH TIME ZONE,
@@ -229,7 +231,7 @@ CREATE POLICY "Public read/write access for reminder logs" ON license_reminder_l
 CREATE POLICY "Public read/write access for renewal history" ON license_renewal_history FOR ALL USING (true);
 CREATE POLICY "Public read/write access for telegram bot settings" ON telegram_bot_settings FOR ALL USING (true);
 
-ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS bot_purpose TEXT DEFAULT 'license_reminder';
+ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS bot_purpose TEXT DEFAULT 'report_group';
 ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS default_group_chat_id TEXT;
 ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT false;
 ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS connection_status TEXT DEFAULT 'not_verified';
@@ -237,8 +239,11 @@ ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS last_tested_at TIMEST
 ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS last_error TEXT;
 ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS webhook_status TEXT DEFAULT 'not_configured';
 ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS webhook_url TEXT;
+ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS last_webhook_setup_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS bot_display_name TEXT;
+ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS bot_description TEXT;
 ALTER TABLE telegram_bot_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT now();
+ALTER TABLE telegram_bot_settings ALTER COLUMN bot_purpose SET DEFAULT 'report_group';
 `;
 
 const safeConfirm = (message: string): boolean => {
