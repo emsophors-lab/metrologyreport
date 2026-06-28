@@ -1150,8 +1150,7 @@ textarea.nmc-input:focus {
   box-shadow: none !important;
 }
 
-.nmc-superadmin-theme .superdash-map > div > div:first-child,
-.nmc-superadmin-theme .superdash-map > div > div:nth-child(2) {
+.nmc-superadmin-theme .superdash-map > div > div:first-child {
   display: none !important;
 }
 
