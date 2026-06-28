@@ -13,7 +13,6 @@ import {
   ShieldAlert,
   X
 } from 'lucide-react';
-import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
 import {
   EnterpriseLicense,
@@ -29,6 +28,11 @@ import {
   fetchReminderLogsFromSupabase,
   fetchRenewalHistoryFromSupabase
 } from '../supabaseSync';
+import {
+  generateAnalyticsDocxReport,
+  generateAnalyticsPdfReport,
+  generateAnalyticsPptxBriefing
+} from '../utils/analyticsReportExports';
 
 interface DataAnalyticsReportProps {
   currentUser: MetrologyUser;
@@ -121,16 +125,6 @@ function getRiskLevel(score: number): RiskLevel {
   if (score >= 55) return 'High';
   if (score >= 30) return 'Medium';
   return 'Low';
-}
-
-function downloadTextFile(filename: string, mime: string, content: string) {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
 }
 
 function MiniBarChart({ rows, tone = 'blue' }: { rows: Array<[string, number]>; tone?: 'blue' | 'gold' | 'red' | 'green' }) {
@@ -287,7 +281,7 @@ export default function DataAnalyticsReport({ currentUser, reports, users, onClo
       return days !== null && days > 60 && days <= 90;
     });
     const highRiskInstruments = ['Fuel Dispenser', 'Weighbridge', 'Medical', 'Scale', 'Pressure', 'Gas', 'Fuel'];
-    const risks = filteredLicenses.map(license => {
+    const risks: Array<{ id: string; company: string; license: string; score: number; level: RiskLevel }> = filteredLicenses.map(license => {
       let score = 0;
       const status = getLicenseStatus(license);
       const days = daysUntil(license.license_expiry_date);
@@ -349,30 +343,40 @@ export default function DataAnalyticsReport({ currentUser, reports, users, onClo
 
   const generatedDate = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Phnom_Penh' });
 
-  const reportText = () => [
-    'Metrology License Data Analytics Report / របាយការណ៍វិភាគទិន្នន័យអាជ្ញាប័ណ្ណមាត្រាសាស្ត្រ',
-    `Date generated: ${generatedDate}`,
-    '',
-    `Executive Summary: Total licenses ${analytics.total}, active ${analytics.active} (${analytics.activePct}%), expiring soon ${analytics.expiring}, expired ${analytics.expired}.`,
-    `GPS linked: ${analytics.gps}; No GPS: ${analytics.noGps}. Telegram linked: ${analytics.telegram}; Not linked: ${analytics.noTelegram}.`,
-    '',
-    'International benchmark note: ISO/IEC 17025 supports competence and valid measurement results. ILAC P10 highlights metrological traceability. OIML legal metrology infrastructure supports consumer protection. BIPM digital metrology encourages FAIR data and Digital Calibration Certificates.',
-    '',
-    'Recommendations for MISTI and NMC: prioritize critical/high risk enterprises, improve GPS and Telegram coverage, strengthen monthly report compliance, and prepare digital traceability data for future calibration certificate workflows.',
-    '',
-    'National Metrology Center of Cambodia'
-  ].join('\n');
+  const exportPayload = () => ({
+    generatedDate,
+    total: analytics.total,
+    active: analytics.active,
+    activePct: analytics.activePct,
+    expiring: analytics.expiring,
+    expired: analytics.expired,
+    gps: analytics.gps,
+    noGps: analytics.noGps,
+    telegram: analytics.telegram,
+    noTelegram: analytics.noTelegram,
+    reportCount: analytics.filteredReports.length,
+    noReportCount: analytics.noReportCompanies.length,
+    criticalRiskCount: analytics.risks.filter(r => r.level === 'Critical').length,
+    highRiskCount: analytics.risks.filter(r => r.level === 'High').length,
+    statusRows: analytics.statusRows,
+    provinceRows: analytics.provinceRows,
+    serviceRows: analytics.serviceRows,
+    instrumentRows: analytics.instrumentRows,
+    monthlyRows: analytics.monthlyRows,
+    riskRows: analytics.riskRows,
+    topRisks: analytics.risks.slice(0, 8).map(r => ({
+      company: r.company,
+      license: r.license,
+      level: r.level,
+      score: r.score
+    })),
+    exp30: analytics.exp30.length,
+    exp60: analytics.exp60.length,
+    exp90: analytics.exp90.length
+  });
 
   const exportPdf = () => {
-    const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(15);
-    pdf.text('Metrology License Data Analytics Report', 42, 48);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(10);
-    const lines = pdf.splitTextToSize(reportText(), 510);
-    pdf.text(lines, 42, 82);
-    pdf.save(`nmc-data-analytics-${new Date().toISOString().slice(0, 10)}.pdf`);
+    generateAnalyticsPdfReport(exportPayload());
   };
 
   const exportExcel = () => {
@@ -394,21 +398,12 @@ export default function DataAnalyticsReport({ currentUser, reports, users, onClo
     XLSX.writeFile(workbook, `nmc-data-analytics-${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  const exportWord = () => {
-    downloadTextFile(
-      `nmc-data-analytics-${new Date().toISOString().slice(0, 10)}.doc`,
-      'application/msword;charset=utf-8',
-      `<html><body><pre style="font-family:Arial, sans-serif; white-space:pre-wrap;">${reportText()}</pre></body></html>`
-    );
+  const exportWord = async () => {
+    await generateAnalyticsDocxReport(exportPayload());
   };
 
-  const exportPowerPoint = () => {
-    // TODO: Replace this HTML PowerPoint-compatible summary with a native PPTX library if one is added.
-    downloadTextFile(
-      `nmc-data-analytics-summary-${new Date().toISOString().slice(0, 10)}.ppt`,
-      'application/vnd.ms-powerpoint;charset=utf-8',
-      `<html><body><h1>Data Analytics Summary</h1><pre>${reportText()}</pre></body></html>`
-    );
+  const exportPowerPoint = async () => {
+    await generateAnalyticsPptxBriefing(exportPayload());
   };
 
   if (!canAccess) {
