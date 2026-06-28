@@ -24,6 +24,7 @@ import {
   BriefcaseBusiness,
   Landmark,
   KeyRound,
+  Bell,
   Menu,
   X,
   Languages
@@ -63,6 +64,7 @@ import UserManagement from './components/UserManagement';
 import ReportForm from './components/ReportForm';
 import ExcelReportUpload from './components/ExcelReportUpload';
 import DashboardStats from './components/DashboardStats';
+import SuperadminDashboard from './components/SuperadminDashboard';
 import DeveloperConsole from './components/DeveloperConsole';
 import ReportPrintLayout from './components/ReportPrintLayout';
 import TopServiceCompanies from './components/TopServiceCompanies';
@@ -1787,9 +1789,21 @@ export default function App() {
             <div className="flex items-center gap-2.5">
               <LanguageSwitch language={language} onChange={handleLanguageChange} dark />
 
-              <span className="hidden lg:inline-flex items-center gap-1.5 text-[10px] font-bold text-white bg-[#3F6F8F]/50 p-2 px-3.5 rounded-lg border border-white/20 shadow-xs">
-                <BriefcaseBusiness className="h-3.5 w-3.5 text-[#D9A441]" />
-                <span>សកម្មភាព៖ {sessionUser?.legal_representative || sessionUser?.username}</span>
+              {sessionUser.role === 'superadmin' && (
+                <button type="button" className="nmc-superadmin-notification" aria-label="Notifications">
+                  <Bell className="h-4 w-4" />
+                  <span>3</span>
+                </button>
+              )}
+
+              <span className="nmc-superadmin-profile hidden lg:inline-flex items-center gap-2.5 text-[10px] font-bold text-white">
+                <span className="nmc-superadmin-avatar">
+                  <User className="h-6 w-6" />
+                </span>
+                <span className="leading-tight">
+                  <strong className="block text-sm font-black">{sessionUser.role === 'superadmin' ? 'Superadmin' : (sessionUser?.legal_representative || sessionUser?.username)}</strong>
+                  <small className="block text-[10px] text-white/75">{sessionUser.role === 'superadmin' ? 'Superadmin' : sessionUser.role}</small>
+                </span>
               </span>
             </div>
           </header>
@@ -1810,6 +1824,14 @@ export default function App() {
             {/* A. DASHBOARD VIEW: Summary analysis */}
             {activeTab === 'dashboard' && (
               <div className="space-y-6 animate-fade-in duration-300">
+                {sessionUser.role === 'superadmin' ? (
+                  <SuperadminDashboard
+                    reports={reports}
+                    users={users}
+                    activeCompanyList={activeCompanyList}
+                  />
+                ) : (
+                  <>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                   <div>
                     <h3 className="font-extrabold text-slate-800 text-lg">ផ្ទាំងគ្រប់គ្រងទិន្នន័យរួម (Overall State Analyst)</h3>
@@ -1868,6 +1890,8 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+                  </>
+                )}
               </div>
             )}
 
