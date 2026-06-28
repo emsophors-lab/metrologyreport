@@ -220,6 +220,38 @@ function telegramBotSchemaError(res: any) {
   );
 }
 
+const TELEGRAM_BOT_LEGACY_COLUMNS = [
+  'id',
+  'bot_name',
+  'bot_username',
+  'bot_token_encrypted',
+  'bot_purpose',
+  'default_chat_id',
+  'webhook_url',
+  'webhook_secret_encrypted',
+  'is_active',
+  'description',
+  'last_test_status',
+  'last_test_message',
+  'last_tested_at',
+  'created_at',
+  'updated_at'
+];
+
+function toLegacyTelegramBotPayload(payload: any) {
+  const legacy: any = {};
+  for (const key of TELEGRAM_BOT_LEGACY_COLUMNS) {
+    if (payload[key] !== undefined) legacy[key] = payload[key];
+  }
+
+  legacy.default_chat_id = payload.default_group_chat_id || payload.default_chat_id || null;
+  legacy.description = payload.bot_description || payload.description || null;
+  if (legacy.bot_purpose === 'report_group') legacy.bot_purpose = 'report_notification';
+  if (legacy.bot_purpose === 'both') legacy.bot_purpose = 'report_notification';
+
+  return legacy;
+}
+
 async function readResponseBodySafely(response: Response): Promise<any> {
   const text = await response.text();
   if (!text) return {};
@@ -456,10 +488,21 @@ app.post('/api/telegram-bot-settings', async (req, res) => {
       if (deactivateError) throw deactivateError;
     }
 
-    const saveQuery = payload.id
-      ? supabaseAdmin.from('telegram_bot_settings').upsert(payload, { onConflict: 'id' })
-      : supabaseAdmin.from('telegram_bot_settings').insert(payload);
-    const { data, error } = await saveQuery.select('*').maybeSingle();
+    const saveBotPayload = async (nextPayload: any) => {
+      const saveQuery = nextPayload.id
+        ? supabaseAdmin.from('telegram_bot_settings').upsert(nextPayload, { onConflict: 'id' })
+        : supabaseAdmin.from('telegram_bot_settings').insert(nextPayload);
+      return saveQuery.select('*').maybeSingle();
+    };
+
+    let { data, error } = await saveBotPayload(payload);
+    if (error && isTelegramBotSchemaError(error)) {
+      console.warn('Telegram Bot settings full schema save failed; retrying with legacy-safe columns:', error?.message || error);
+      const legacyPayload = toLegacyTelegramBotPayload(payload);
+      const legacyResult = await saveBotPayload(legacyPayload);
+      data = legacyResult.data;
+      error = legacyResult.error;
+    }
 
     if (error) throw error;
     return apiSuccess(res, { bot: sanitizeBotForClient(data || payload) });
