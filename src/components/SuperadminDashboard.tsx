@@ -111,16 +111,18 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
   const canOpenAnalytics = currentUser.role === 'superadmin' ||
     (currentUser.role === 'admin' && (currentUser.admin_can_view_all_users || currentUser.admin_can_view_licenses));
   const companyRecords = activeCompanyList as Array<MetrologyUser & Record<string, any>>;
-  const totalLicenses = companyRecords.length;
-  const activeLicenses = companyRecords.filter(c => {
+  const licenseStatsRecords = licenseRecords as Array<EnterpriseLicense & Record<string, any>>;
+  const totalCompanies = companyRecords.length;
+  const totalLicenses = licenseStatsRecords.length;
+  const activeLicenses = licenseStatsRecords.filter(c => {
     const status = statusOf(c);
     return status ? ['active', 'renewed'].includes(status) : c.is_active !== false;
   }).length;
-  const expiringSoon = companyRecords.filter(c => statusOf(c).includes('expiring')).length;
-  const expired = companyRecords.filter(c => statusOf(c).includes('expired')).length;
-  const telegramLinked = companyRecords.filter(c => !!getField(c, ['telegram_chat_id', 'telegram_username', 'telegram_connected_at'])).length;
-  const noGps = companyRecords.filter(c => !hasGps(c)).length;
-  const licensed = companyRecords.filter(c => String(c.license_number || '').trim()).length;
+  const expiringSoon = licenseStatsRecords.filter(c => statusOf(c).includes('expiring')).length;
+  const expired = licenseStatsRecords.filter(c => statusOf(c).includes('expired')).length;
+  const telegramLinked = licenseStatsRecords.filter(c => !!getField(c, ['telegram_chat_id', 'telegram_username', 'telegram_connected_at'])).length;
+  const noGps = licenseStatsRecords.filter(c => !hasGps(c)).length;
+  const licensed = licenseStatsRecords.filter(c => String(c.license_number || '').trim()).length;
   const currentYear = String(new Date().getFullYear());
   const lastYear = String(new Date().getFullYear() - 1);
 
@@ -408,9 +410,9 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
           <h3>សង្ខេប / Summary</h3>
         </div>
         <div className="superdash-summary__grid">
-          <div><span>ក្រុមហ៊ុនសរុប</span><small>Total Companies</small><strong>{totalLicenses}</strong></div>
+          <div><span>ក្រុមហ៊ុនសរុប</span><small>Total Companies</small><strong>{totalCompanies}</strong></div>
           <div><span>មានអាជ្ញាប័ណ្ណ</span><small>Licensed</small><strong>{licensed}</strong></div>
-          <div><span>គ្មានអាជ្ញាប័ណ្ណ</span><small>Not Licensed</small><strong>{Math.max(0, totalLicenses - licensed)}</strong></div>
+          <div><span>គ្មានអាជ្ញាប័ណ្ណ</span><small>Not Licensed</small><strong>{Math.max(0, totalCompanies - licensed)}</strong></div>
           <div><span>ភ្ជាប់ Telegram</span><small>Telegram Linked</small><strong>{telegramLinked}</strong></div>
           <div><span>គ្មានទីតាំង GPS</span><small>No GPS Location</small><strong>{noGps}</strong></div>
         </div>
