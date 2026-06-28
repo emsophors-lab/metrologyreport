@@ -61,6 +61,33 @@ const MONTHS = [
 
 const STATUS_OPTIONS = ['all', 'Active', 'Expiring Soon', 'Expired', 'Suspended', 'Cancelled', 'Renewed'];
 const SERVICE_OPTIONS = ['all', 'Manufacture', 'Installation', 'Repair'];
+const CAMBODIA_PROVINCES = [
+  { value: 'រាជធានីភ្នំពេញ', names: ['រាជធានីភ្នំពេញ', 'ភ្នំពេញ', 'Phnom Penh'] },
+  { value: 'បន្ទាយមានជ័យ', names: ['បន្ទាយមានជ័យ', 'Banteay Meanchey'] },
+  { value: 'បាត់ដំបង', names: ['បាត់ដំបង', 'Battambang'] },
+  { value: 'កំពង់ចាម', names: ['កំពង់ចាម', 'Kampong Cham'] },
+  { value: 'កំពង់ឆ្នាំង', names: ['កំពង់ឆ្នាំង', 'Kampong Chhnang'] },
+  { value: 'កំពង់ស្ពឺ', names: ['កំពង់ស្ពឺ', 'Kampong Speu'] },
+  { value: 'កំពង់ធំ', names: ['កំពង់ធំ', 'Kampong Thom'] },
+  { value: 'កំពត', names: ['កំពត', 'Kampot'] },
+  { value: 'កណ្តាល', names: ['កណ្តាល', 'Kandal'] },
+  { value: 'កោះកុង', names: ['កោះកុង', 'Koh Kong'] },
+  { value: 'ក្រចេះ', names: ['ក្រចេះ', 'Kratie'] },
+  { value: 'មណ្ឌលគិរី', names: ['មណ្ឌលគិរី', 'Mondulkiri', 'Mondul Kiri'] },
+  { value: 'ឧត្តរមានជ័យ', names: ['ឧត្តរមានជ័យ', 'Oddar Meanchey', 'Otdar Meanchey'] },
+  { value: 'ប៉ៃលិន', names: ['ប៉ៃលិន', 'Pailin'] },
+  { value: 'ព្រះសីហនុ', names: ['ព្រះសីហនុ', 'Preah Sihanouk', 'Sihanoukville'] },
+  { value: 'ព្រះវិហារ', names: ['ព្រះវិហារ', 'Preah Vihear'] },
+  { value: 'ពោធិ៍សាត់', names: ['ពោធិ៍សាត់', 'Pursat'] },
+  { value: 'ព្រៃវែង', names: ['ព្រៃវែង', 'Prey Veng'] },
+  { value: 'រតនគិរី', names: ['រតនគិរី', 'Ratanakiri', 'Ratanak Kiri'] },
+  { value: 'សៀមរាប', names: ['សៀមរាប', 'Siem Reap'] },
+  { value: 'ស្ទឹងត្រែង', names: ['ស្ទឹងត្រែង', 'Stung Treng'] },
+  { value: 'ស្វាយរៀង', names: ['ស្វាយរៀង', 'Svay Rieng'] },
+  { value: 'តាកែវ', names: ['តាកែវ', 'Takeo'] },
+  { value: 'ត្បូងឃ្មុំ', names: ['ត្បូងឃ្មុំ', 'Tboung Khmum', 'Tbong Khmum'] },
+  { value: 'កែប', names: ['កែប', 'Kep'] }
+];
 
 function valueOf(record: Record<string, any>, keys: string[], fallback = 'Data not available') {
   for (const key of keys) {
@@ -109,6 +136,17 @@ function asRows(map: Record<string, number>) {
 
 function getLicenseStatus(license: EnterpriseLicense) {
   return valueOf(license as any, ['license_status', 'status', 'current_status']);
+}
+
+function getProvinceName(license: EnterpriseLicense) {
+  const source = [
+    valueOf(license as any, ['province_city', 'province'], ''),
+    valueOf(license as any, ['company_address', 'business_address', 'business_geo_address', 'address'], '')
+  ].join(' ').toLowerCase();
+  const matched = CAMBODIA_PROVINCES.find(province =>
+    province.names.some(name => source.includes(name.toLowerCase()))
+  );
+  return matched?.value || 'Data not available';
 }
 
 function hasGps(license: EnterpriseLicense) {
@@ -247,7 +285,7 @@ export default function DataAnalyticsReport({ currentUser, reports, users, onClo
       const issueOrCreated = parseDate(license.license_issue_date || license.created_at);
       if (start && issueOrCreated && issueOrCreated < start) return false;
       if (end && issueOrCreated && issueOrCreated > end) return false;
-      if (filters.province !== 'all' && valueOf(license as any, ['province_city', 'province', 'company_address'], '') !== filters.province) return false;
+      if (filters.province !== 'all' && getProvinceName(license) !== filters.province) return false;
       if (filters.status !== 'all' && getLicenseStatus(license) !== filters.status) return false;
       if (filters.instrumentType !== 'all' && valueOf(license as any, ['measuring_instrument_type', 'instrument_type'], '') !== filters.instrumentType) return false;
       return true;
@@ -260,7 +298,7 @@ export default function DataAnalyticsReport({ currentUser, reports, users, onClo
     const gps = filteredLicenses.filter(hasGps).length;
     const telegram = filteredLicenses.filter(hasTelegram).length;
     const statusRows = asRows(groupCount(filteredLicenses, getLicenseStatus));
-    const provinceRows = asRows(groupCount(filteredLicenses, l => valueOf(l as any, ['province_city', 'province', 'company_address'])));
+    const provinceRows = asRows(groupCount(filteredLicenses, getProvinceName));
     const instrumentRows = asRows(groupCount([...filteredReports, ...filteredLicenses] as any[], item =>
       valueOf(item, ['measuring_instrument', 'measuring_instrument_type', 'instrument_type'])
     ));
@@ -328,9 +366,7 @@ export default function DataAnalyticsReport({ currentUser, reports, users, onClo
     };
   }, [filters, licenses, reports]);
 
-  const provinceOptions = useMemo(() => {
-    return Array.from(new Set(licenses.map(l => valueOf(l as any, ['province_city', 'province', 'company_address'], '')).filter(Boolean))).sort();
-  }, [licenses]);
+  const provinceOptions = CAMBODIA_PROVINCES.map(province => province.value);
   const yearOptions = useMemo(() => {
     return Array.from(new Set(reports.map(r => r.report_year).filter(Boolean))).sort().reverse();
   }, [reports]);
