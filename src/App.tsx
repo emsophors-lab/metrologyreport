@@ -269,6 +269,16 @@ export default function App() {
   useSingleLanguageDisplay(language);
 
   useEffect(() => {
+    if (!isMobileMenuOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobileMenuOpen]);
+
+  useEffect(() => {
     document.documentElement.lang = language === 'km' ? 'km' : 'en';
   }, [language]);
 
@@ -1403,12 +1413,13 @@ export default function App() {
       <div className="flex-1 flex flex-col md:flex-row">
         
         {/* Mobile Navigation Header Bar */}
-        <div className="nmc-sidebar md:hidden bg-navy text-slate-200 border-b border-slate-800 flex flex-col select-none shrink-0 w-full">
-          <div className="p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+        <div className="nmc-mobile-topbar nmc-sidebar md:hidden bg-navy text-slate-200 border-b border-slate-800 flex flex-col select-none shrink-0 w-full">
+          <div className="p-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <img src={nmcLogo} alt="NMC Logo" className="h-10 w-10 shrink-0 object-contain" referrerPolicy="no-referrer" />
               <div>
-                <h4 className="font-bold text-[11px] text-gold tracking-wide font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</h4>
-                <p className="text-[9px] text-slate-400 font-medium tracking-wide">National Metrology Center of Cambodia</p>
+                <h4 className="font-bold text-[11px] text-gold tracking-wide font-muol leading-tight">NMC</h4>
+                <p className="text-[9px] text-slate-400 font-medium tracking-wide truncate">National Metrology Center</p>
               </div>
             </div>
             
@@ -1417,7 +1428,9 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                className="p-1.5 rounded-lg bg-white/5 border border-slate-800 text-slate-300 hover:text-white"
+                className="p-2.5 rounded-lg bg-white/5 border border-slate-800 text-slate-300 hover:text-white"
+                aria-label={isMobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+                aria-expanded={isMobileMenuOpen}
               >
                 {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
               </button>
@@ -1426,7 +1439,14 @@ export default function App() {
 
           {/* Collapsible Mobile Navigation Links & Session */}
           {isMobileMenuOpen && (
-            <div className="border-t border-slate-800 bg-black/10 divide-y divide-slate-850 px-4 py-2 space-y-4">
+            <div className="nmc-mobile-drawer-layer">
+              <button
+                type="button"
+                className="nmc-mobile-drawer-backdrop"
+                aria-label="Close navigation menu"
+                onClick={() => setIsMobileMenuOpen(false)}
+              />
+              <div className="nmc-mobile-drawer border-t border-slate-800 bg-black/10 divide-y divide-slate-850 px-4 py-2 space-y-4">
               {/* Profile card */}
               <div className="py-2 space-y-2">
                 <div className="flex items-center gap-2">
@@ -1602,6 +1622,7 @@ export default function App() {
                   <LogOut className="h-3.5 w-3.5" />
                   <span>ចាកចេញពីប្រព័ន្ធ / Logout</span>
                 </button>
+              </div>
               </div>
             </div>
           )}
@@ -1800,7 +1821,7 @@ export default function App() {
               </div>
             </div>
             
-            <div className="flex items-center gap-2.5">
+            <div className="hidden md:flex items-center gap-2.5">
               <LanguageSwitch language={language} onChange={handleLanguageChange} dark />
 
               <span className="nmc-superadmin-profile hidden lg:inline-flex items-center gap-2.5 text-[10px] font-bold text-white">

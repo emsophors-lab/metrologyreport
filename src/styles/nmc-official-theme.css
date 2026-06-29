@@ -2353,3 +2353,344 @@ textarea.nmc-input:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== Mobile-first corrections for the official app shell and Superadmin dashboard ===== */
+@media (max-width: 1023px) {
+  .nmc-official-system,
+  .nmc-official-system * {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .nmc-superadmin-theme .superdash-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .nmc-superadmin-theme .superdash-main-grid,
+  .nmc-superadmin-theme .superdash-report-analytics {
+    grid-template-columns: 1fr;
+  }
+
+  .nmc-superadmin-theme .superdash-map .nmc-license-map {
+    height: 380px !important;
+    min-height: 380px !important;
+  }
+
+  .nmc-superadmin-theme .superdash-summary__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .nmc-superadmin-theme .superdash-report-metrics,
+  .analytics-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .nmc-official-system {
+    min-width: 0;
+  }
+
+  .nmc-superadmin-theme .nmc-mobile-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 80;
+    width: 100% !important;
+    min-height: 64px;
+    box-shadow: 0 4px 14px rgba(0, 30, 70, 0.2);
+  }
+
+  .nmc-mobile-drawer-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    display: flex;
+    align-items: stretch;
+  }
+
+  .nmc-mobile-drawer-backdrop {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    background: rgba(3, 14, 33, 0.62);
+    cursor: pointer;
+  }
+
+  .nmc-mobile-drawer {
+    position: relative;
+    z-index: 1;
+    width: min(80vw, 320px);
+    max-width: 320px;
+    height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: linear-gradient(180deg, #003b78, #002a58) !important;
+    box-shadow: 16px 0 38px rgba(0, 22, 52, 0.34);
+  }
+
+  .nmc-mobile-drawer nav button,
+  .nmc-mobile-drawer button {
+    min-height: 44px;
+  }
+
+  .nmc-official-system .nmc-official-header,
+  .nmc-superadmin-theme .nmc-superadmin-header {
+    min-height: auto !important;
+    padding: 12px 14px 14px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center;
+    gap: 8px !important;
+  }
+
+  .nmc-superadmin-theme .nmc-superadmin-header::before {
+    width: 220px;
+    height: 48px;
+    left: 50%;
+    opacity: 0.24;
+  }
+
+  .nmc-superadmin-theme .nmc-superadmin-header::after {
+    width: 56px;
+    height: 26px;
+    opacity: 0.46;
+  }
+
+  .nmc-official-system .nmc-official-header > div:first-child,
+  .nmc-superadmin-theme .nmc-superadmin-header > div:first-child {
+    width: 100%;
+    flex-direction: column !important;
+    gap: 8px !important;
+    text-align: center !important;
+  }
+
+  .nmc-superadmin-theme .nmc-official-header__logo {
+    width: 60px !important;
+    height: 60px !important;
+  }
+
+  .nmc-superadmin-theme .nmc-official-header__title-kh,
+  .nmc-official-header__title-kh {
+    font-size: 18px !important;
+    line-height: 1.35 !important;
+    overflow-wrap: anywhere;
+  }
+
+  .nmc-superadmin-theme .nmc-official-header__title-en,
+  .nmc-official-header__title-en {
+    font-size: 15px !important;
+    line-height: 1.4 !important;
+    overflow-wrap: anywhere;
+  }
+
+  .nmc-superadmin-strip {
+    min-height: auto;
+    padding: 9px 14px;
+    align-items: stretch;
+  }
+
+  .nmc-superadmin-date {
+    width: 100%;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .nmc-superadmin-date strong {
+    min-width: 0;
+    padding: 5px 10px;
+  }
+
+  .nmc-superadmin-theme .nmc-content {
+    width: 100%;
+    padding: 12px !important;
+    overflow-x: hidden;
+  }
+
+  .nmc-superadmin-theme .superdash {
+    gap: 10px;
+  }
+
+  .nmc-superadmin-theme .superdash-feature-actions {
+    justify-content: stretch;
+  }
+
+  .nmc-superadmin-theme .superdash-feature-actions button {
+    width: 100%;
+    min-height: 46px;
+    justify-content: center;
+    padding: 11px 12px;
+    font-size: 12px;
+  }
+
+  .nmc-superadmin-theme .superdash-stats,
+  .nmc-superadmin-theme .superdash-summary__grid,
+  .nmc-superadmin-theme .superdash-report-metrics,
+  .analytics-toolbar,
+  .analytics-summary-grid,
+  .analytics-forecast,
+  .analytics-connectivity {
+    grid-template-columns: 1fr !important;
+  }
+
+  .nmc-superadmin-theme .superdash-stat {
+    min-height: 96px;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .nmc-superadmin-theme .superdash-stat__icon {
+    width: 46px;
+    height: 46px;
+  }
+
+  .nmc-superadmin-theme .superdash-stat__icon svg {
+    width: 23px;
+    height: 23px;
+  }
+
+  .nmc-superadmin-theme .superdash-stat__kh {
+    font-size: 14px;
+  }
+
+  .nmc-superadmin-theme .superdash-stat__en,
+  .nmc-superadmin-theme .superdash-stat span {
+    font-size: 12px;
+  }
+
+  .nmc-superadmin-theme .superdash-stat strong {
+    margin-top: 7px;
+    font-size: 30px;
+  }
+
+  .nmc-superadmin-theme .superdash-panel__header,
+  .nmc-superadmin-theme .superdash-report-card__header,
+  .nmc-superadmin-theme .superdash-report-table-title {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .nmc-superadmin-theme .superdash-panel__header h3,
+  .nmc-superadmin-theme main h3 {
+    font-size: 14px !important;
+    line-height: 1.45;
+  }
+
+  .nmc-superadmin-theme .superdash-chart-legend,
+  .nmc-superadmin-theme .superdash-map-legend {
+    gap: 10px;
+    font-size: 11px;
+  }
+
+  .nmc-superadmin-theme .superdash-map {
+    padding: 10px 10px 0;
+  }
+
+  .nmc-superadmin-theme .superdash-map .nmc-license-map {
+    height: 330px !important;
+    min-height: 330px !important;
+  }
+
+  .nmc-superadmin-theme .superdash-chart {
+    height: 178px;
+    overflow-x: auto;
+    grid-template-columns: repeat(12, 38px);
+    gap: 8px;
+    padding: 16px 10px 10px;
+  }
+
+  .nmc-superadmin-theme .superdash-activity {
+    grid-template-columns: 32px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .nmc-superadmin-theme .superdash-activity time {
+    grid-column: 2;
+  }
+
+  .nmc-superadmin-theme .superdash-report-card,
+  .nmc-superadmin-theme .superdash-report-table-card,
+  .nmc-superadmin-theme .superdash-analysis-card {
+    min-height: 0;
+    padding: 14px;
+  }
+
+  .nmc-superadmin-theme .superdash-report-card__header h3 {
+    font-size: 18px !important;
+    line-height: 1.35;
+  }
+
+  .nmc-superadmin-theme .superdash-report-search {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  .nmc-superadmin-theme .superdash-report-metrics div {
+    min-height: 86px;
+    grid-template-columns: 44px 1fr;
+    padding: 12px;
+  }
+
+  .nmc-superadmin-theme .superdash-report-metrics svg {
+    width: 42px;
+    height: 42px;
+    padding: 10px;
+  }
+
+  .nmc-superadmin-theme .superdash-report-table-wrap,
+  .nmc-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .analytics-overlay {
+    padding: 8px;
+  }
+
+  .analytics-modal {
+    max-height: 94dvh;
+    border-radius: 10px;
+  }
+
+  .analytics-header,
+  .analytics-actions {
+    padding: 14px;
+  }
+
+  .analytics-report-section,
+  .analytics-card {
+    margin: 12px;
+    padding: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .nmc-mobile-drawer {
+    width: min(84vw, 320px);
+  }
+
+  .nmc-superadmin-theme .nmc-official-header__logo {
+    width: 56px !important;
+    height: 56px !important;
+  }
+
+  .nmc-superadmin-theme .nmc-official-header__title-kh,
+  .nmc-official-header__title-kh {
+    font-size: 16px !important;
+  }
+
+  .nmc-superadmin-theme .nmc-official-header__title-en,
+  .nmc-official-header__title-en {
+    font-size: 13px !important;
+  }
+
+  .nmc-superadmin-theme .superdash-stat strong {
+    font-size: 28px;
+  }
+
+  .nmc-superadmin-theme .superdash-map .nmc-license-map {
+    height: 305px !important;
+    min-height: 305px !important;
+  }
+}
