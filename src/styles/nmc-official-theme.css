@@ -3104,44 +3104,129 @@ textarea.nmc-input:focus {
 .nmc-superadmin-theme .superdash-note.is-red { background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; }
 .nmc-superadmin-theme .superdash-note.is-blue { background: #F0F9FF; color: #0C4A6E; border: 1px solid #BAE6FD; }
 
-.nmc-superadmin-theme .superdash-trend-chart {
-  height: 150px;
-  display: grid;
-  grid-template-columns: repeat(6, minmax(28px, 1fr));
-  align-items: end;
-  gap: 12px;
-  padding: 12px 8px 4px;
-  background-image: linear-gradient(to top, #F3F4F6 1px, transparent 1px);
-  background-size: 100% 30px;
+.nmc-superadmin-theme .superdash-line-chart {
+  width: 100%;
+  height: 220px;
+  padding: 4px 0 0;
 }
 
-.nmc-superadmin-theme .superdash-trend-chart div {
-  height: 126px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 7px;
+.nmc-superadmin-theme .superdash-line-chart svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
 
-.nmc-superadmin-theme .superdash-trend-chart span {
-  width: 18px;
-  min-height: 6px;
-  border-radius: 5px 5px 0 0;
-  background: var(--dash-gold);
+.nmc-superadmin-theme .superdash-line-chart .grid-line {
+  stroke: #EEF1F8;
+  stroke-width: 1;
 }
 
-.nmc-superadmin-theme .superdash-trend-chart small {
-  color: #6B7280;
-  font-size: 11px;
-  font-weight: 800;
+.nmc-superadmin-theme .superdash-line-chart .axis-line {
+  stroke: #6B7280;
+  stroke-width: 1.2;
+}
+
+.nmc-superadmin-theme .superdash-line-chart .x-tick {
+  stroke: #6B7280;
+  stroke-width: 1;
+}
+
+.nmc-superadmin-theme .superdash-line-chart .axis-label {
+  fill: #6B7280;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.nmc-superadmin-theme .superdash-line-chart .y-axis {
+  text-anchor: end;
+}
+
+.nmc-superadmin-theme .superdash-line-chart .x-axis {
+  text-anchor: middle;
+}
+
+.nmc-superadmin-theme .superdash-line-chart .trend-line {
+  fill: none;
+  stroke: var(--dash-gold);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 2px 2px rgba(201,162,39,0.18));
+}
+
+.nmc-superadmin-theme .superdash-line-chart .trend-point circle {
+  fill: var(--dash-gold);
+  stroke: rgba(255,255,255,0.92);
+  stroke-width: 2;
+  cursor: pointer;
+  transition: r 140ms ease, filter 140ms ease;
+}
+
+.nmc-superadmin-theme .superdash-line-chart .trend-point:hover circle {
+  r: 8;
+  filter: drop-shadow(0 4px 8px rgba(201,162,39,0.35));
+}
+
+.nmc-superadmin-theme .superdash-line-chart .trend-tooltip {
+  opacity: 0;
+  pointer-events: none;
+  text-anchor: middle;
+  fill: #7F1D1D;
+  font-size: 12px;
+  font-weight: 900;
+  paint-order: stroke;
+  stroke: #FFFFFF;
+  stroke-width: 4px;
+  transition: opacity 140ms ease;
+}
+
+.nmc-superadmin-theme .superdash-line-chart .trend-point:hover .trend-tooltip {
+  opacity: 1;
 }
 
 .nmc-superadmin-theme .superdash-trend-metrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
   margin-top: 12px;
+}
+
+.nmc-superadmin-theme .superdash-trend-metric {
+  min-height: 86px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+}
+
+.nmc-superadmin-theme .superdash-trend-metric strong {
+  font-size: 25px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.nmc-superadmin-theme .superdash-trend-metric span {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.nmc-superadmin-theme .superdash-trend-metric.is-gold {
+  background: #FEF9C3;
+  color: #92400E;
+}
+
+.nmc-superadmin-theme .superdash-trend-metric.is-red {
+  background: #FEF2F2;
+  color: #991B1B;
+}
+
+.nmc-superadmin-theme .superdash-trend-metric.is-blue {
+  background: #F0F9FF;
+  color: #0C4A6E;
 }
 
 .nmc-superadmin-theme .superdash-heatmap-wrap,
@@ -3349,9 +3434,17 @@ textarea.nmc-input:focus {
     align-items: stretch;
   }
 
-  .nmc-superadmin-theme .superdash-trend-chart {
+  .nmc-superadmin-theme .superdash-line-chart {
+    height: 205px;
     overflow-x: auto;
-    grid-template-columns: repeat(6, 42px);
+  }
+
+  .nmc-superadmin-theme .superdash-line-chart svg {
+    min-width: 560px;
+  }
+
+  .nmc-superadmin-theme .superdash-trend-metrics {
+    grid-template-columns: 1fr;
   }
 
   .nmc-superadmin-theme .superdash-design .superdash-map .nmc-license-map {

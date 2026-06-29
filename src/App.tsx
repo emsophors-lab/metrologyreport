@@ -73,6 +73,7 @@ import LoginHistoryView from './components/LoginHistoryView';
 import BackupData from './components/BackupData';
 import EnterpriseLicensingRegistry from './components/EnterpriseLicensingRegistry';
 import ChangePasswordModal from './components/ChangePasswordModal';
+import { formatKhmerOfficialDateBlock } from './utils/khmerOfficialDate';
 
 // Import Logo Asset
 import nmcLogo from './NMClogo.png';
@@ -1385,6 +1386,8 @@ export default function App() {
     );
   }
 
+  const superadminOfficialDate = formatKhmerOfficialDateBlock(new Date(), { location: 'រាជធានីភ្នំពេញ' });
+
   return (
     <div id="application-container" className={`nmc-official-system nmc-page ${sessionUser.role === 'superadmin' ? 'nmc-superadmin-theme' : ''} min-h-screen bg-slate-100 flex flex-col justify-between selection:bg-slate-100 selection:text-[#2D327F] font-sans`}>
       
@@ -1838,7 +1841,8 @@ export default function App() {
             <div className="nmc-superadmin-strip">
               <div className="nmc-superadmin-breadcrumb">ទំព័រដើម / Dashboard</div>
               <div className="nmc-superadmin-date">
-                <span>{systemTime.split(' ')[0]} (GMT+7)</span>
+                <span>{superadminOfficialDate.lunarLine}</span>
+                <span>{superadminOfficialDate.gregorianLine} (GMT+7)</span>
                 <strong>{systemTime.split(' ')[1] || systemTime}</strong>
               </div>
             </div>

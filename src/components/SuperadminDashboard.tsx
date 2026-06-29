@@ -43,6 +43,33 @@ const MONTHS = [
 ];
 
 const CAMBODIA_PROVINCE_COUNT = 25;
+const CAMBODIA_PROVINCES = [
+  { value: 'រាជធានីភ្នំពេញ', names: ['រាជធានីភ្នំពេញ', 'ភ្នំពេញ', 'Phnom Penh'] },
+  { value: 'បន្ទាយមានជ័យ', names: ['បន្ទាយមានជ័យ', 'Banteay Meanchey'] },
+  { value: 'បាត់ដំបង', names: ['បាត់ដំបង', 'Battambang'] },
+  { value: 'កំពង់ចាម', names: ['កំពង់ចាម', 'Kampong Cham'] },
+  { value: 'កំពង់ឆ្នាំង', names: ['កំពង់ឆ្នាំង', 'Kampong Chhnang'] },
+  { value: 'កំពង់ស្ពឺ', names: ['កំពង់ស្ពឺ', 'Kampong Speu'] },
+  { value: 'កំពង់ធំ', names: ['កំពង់ធំ', 'Kampong Thom'] },
+  { value: 'កំពត', names: ['កំពត', 'Kampot'] },
+  { value: 'កណ្តាល', names: ['កណ្តាល', 'Kandal'] },
+  { value: 'កោះកុង', names: ['កោះកុង', 'Koh Kong'] },
+  { value: 'ក្រចេះ', names: ['ក្រចេះ', 'Kratie'] },
+  { value: 'មណ្ឌលគិរី', names: ['មណ្ឌលគិរី', 'Mondulkiri', 'Mondul Kiri'] },
+  { value: 'ឧត្តរមានជ័យ', names: ['ឧត្តរមានជ័យ', 'Oddar Meanchey', 'Otdar Meanchey'] },
+  { value: 'ប៉ៃលិន', names: ['ប៉ៃលិន', 'Pailin'] },
+  { value: 'ព្រះសីហនុ', names: ['ព្រះសីហនុ', 'Preah Sihanouk', 'Sihanoukville'] },
+  { value: 'ព្រះវិហារ', names: ['ព្រះវិហារ', 'Preah Vihear'] },
+  { value: 'ពោធិ៍សាត់', names: ['ពោធិ៍សាត់', 'Pursat'] },
+  { value: 'ព្រៃវែង', names: ['ព្រៃវែង', 'Prey Veng'] },
+  { value: 'រតនគិរី', names: ['រតនគិរី', 'Ratanakiri', 'Ratanak Kiri'] },
+  { value: 'សៀមរាប', names: ['សៀមរាប', 'Siem Reap'] },
+  { value: 'ស្ទឹងត្រែង', names: ['ស្ទឹងត្រែង', 'Stung Treng'] },
+  { value: 'ស្វាយរៀង', names: ['ស្វាយរៀង', 'Svay Rieng'] },
+  { value: 'តាកែវ', names: ['តាកែវ', 'Takeo'] },
+  { value: 'ត្បូងឃ្មុំ', names: ['ត្បូងឃ្មុំ', 'Tboung Khmum', 'Tbong Khmum'] },
+  { value: 'កែប', names: ['កែប', 'Kep'] }
+];
 const STATUS_COLORS = {
   active: '#16A34A',
   expiring: '#EAB308',
@@ -106,7 +133,14 @@ function countBy<T>(items: T[], getKey: (item: T) => string) {
 }
 
 function provinceOf(record: Record<string, any>) {
-  return String(getField(record, ['province_city', 'province', 'business_geo_address', 'company_address', 'address']) || 'Unknown');
+  const source = [
+    getField(record, ['province_city', 'province']),
+    getField(record, ['business_geo_address', 'company_address', 'company_address_kh', 'business_address', 'address'])
+  ].filter(Boolean).join(' ').toLowerCase();
+  const matched = CAMBODIA_PROVINCES.find(province =>
+    province.names.some(name => source.includes(name.toLowerCase()))
+  );
+  return matched?.value || 'មិនទាន់កំណត់';
 }
 
 function riskForLicense(license: EnterpriseLicense & Record<string, any>, reportsForLicense: number) {
@@ -257,8 +291,11 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
   const currentMonthRate = percent(currentMonthUniqueReports, Math.max(1, totalLicenses));
   const missingReports = Math.max(0, totalLicenses - currentMonthUniqueReports);
 
-  const provinceRows = countBy(licenseStatsRecords, provinceOf).slice(0, 9);
-  const provincesCovered = provinceRows.filter(row => row.label !== 'Unknown').length;
+  const provinceSource = (licenseStatsRecords.length > 0 ? licenseStatsRecords : companyRecords) as Array<Record<string, any>>;
+  const provinceRows = countBy(provinceSource, provinceOf)
+    .filter(row => row.label !== 'មិនទាន់កំណត់')
+    .slice(0, 9);
+  const provincesCovered = provinceRows.length;
   const maxProvince = Math.max(1, ...provinceRows.map(row => row.count));
   const instrumentRows = countBy(
     (licenseStatsRecords.length > 0 ? licenseStatsRecords : reports) as Array<Record<string, any>>,
@@ -300,6 +337,13 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
     ).size;
     return { month, rate: percent(uniqueReports, Math.max(1, totalLicenses)), count: uniqueReports };
   });
+  const trendPoints = trendRows.map((row, index) => {
+    const x = 46 + index * (548 / Math.max(1, trendRows.length - 1));
+    const clampedRate = Math.max(60, Math.min(100, row.rate));
+    const y = 22 + ((100 - clampedRate) / 40) * 142;
+    return { ...row, x, y };
+  });
+  const trendPath = trendPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
   const heatmapRows = licenseStatsRecords.slice(0, 12).map(license => {
     const submittedMonths = lastSixMonths.map(month =>
       reports.some(report => report.license_number === license.license_number && report.report_year === currentYear && reportMonthValue(report) === month.value)
@@ -311,6 +355,8 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
       rate: percent(submitted, lastSixMonths.length)
     };
   });
+  const chronicMissing = heatmapRows.filter(row => row.submittedMonths.filter(submitted => !submitted).length >= 3).length;
+  const onTimeRate = currentMonthRate;
 
   const statusTotal = Math.max(1, totalLicenses);
   const activePct = percent(activeLicenses, statusTotal);
@@ -433,18 +479,40 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
           subtitle={`Submission rate (%) · ${lastSixMonths[0]?.short}-${lastSixMonths[lastSixMonths.length - 1]?.short} ${currentYear} · Target >= 90%`}
           action={<DashboardBadge tone={currentMonthRate >= 90 ? 'green' : 'red'}>{currentMonthRate}% this month</DashboardBadge>}
         >
-          <div className="superdash-trend-chart">
-            {trendRows.map(row => (
-              <div key={row.month.value}>
-                <span style={{ height: `${Math.max(6, row.rate)}%` }} title={`${row.month.kh}: ${row.rate}%`} />
-                <small>{row.month.short}</small>
-              </div>
-            ))}
+          <div className="superdash-line-chart" role="img" aria-label="Monthly report submission trend line chart">
+            <svg viewBox="0 0 640 220" preserveAspectRatio="none">
+              {[100, 90, 80, 70, 60].map(value => {
+                const y = 22 + ((100 - value) / 40) * 142;
+                return (
+                  <g key={value}>
+                    <line className="grid-line" x1="46" x2="594" y1={y} y2={y} />
+                    <text className="axis-label y-axis" x="35" y={y + 5}>{value}</text>
+                  </g>
+                );
+              })}
+              <line className="axis-line" x1="46" x2="594" y1="164" y2="164" />
+              <line className="axis-line" x1="46" x2="46" y1="22" y2="164" />
+              <path className="trend-line" d={trendPath} />
+              {trendPoints.map(point => (
+                <g className="trend-point" key={point.month.value} transform={`translate(${point.x} ${point.y})`}>
+                  <circle r="6" />
+                  <text className="trend-tooltip" x="0" y="-14">{point.rate}% · {point.count}</text>
+                  <title>{`${point.month.kh} (${point.month.short}): ${point.rate}% · ${point.count} submitted`}</title>
+                </g>
+              ))}
+              {trendPoints.map(point => (
+                <g key={`label-${point.month.value}`}>
+                  <line className="x-tick" x1={point.x} x2={point.x} y1="164" y2="172" />
+                  <text className="axis-label x-axis" x={point.x} y="190">{point.month.short}</text>
+                </g>
+              ))}
+            </svg>
           </div>
           <div className="superdash-trend-metrics">
-            <DashboardBadge tone="gold">Current Rate {currentMonthRate}%</DashboardBadge>
-            <DashboardBadge tone="red">Missing Reports {missingReports}</DashboardBadge>
-            <DashboardBadge tone="blue">Submitted {currentMonthUniqueReports}</DashboardBadge>
+            <div className="superdash-trend-metric is-gold"><strong>{currentMonthRate}%</strong><span>Current Rate</span></div>
+            <div className="superdash-trend-metric is-red"><strong>{missingReports}</strong><span>Missing Reports</span></div>
+            <div className="superdash-trend-metric is-red"><strong>{chronicMissing} firms</strong><span>{'Chronic (>=3 mo)'}</span></div>
+            <div className="superdash-trend-metric is-blue"><strong>{onTimeRate}%</strong><span>On-time Rate</span></div>
           </div>
         </SectionCard>
       </section>
