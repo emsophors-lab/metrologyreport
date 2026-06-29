@@ -1,3 +1,5 @@
+import { toKhmerLunarDate } from 'khmer-chhankitek-calendar';
+
 const KHMER_NUMERALS: Record<string, string> = {
   '0': '០',
   '1': '១',
@@ -50,6 +52,19 @@ function dateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function formatKhmerLunarDate(date: Date): string {
+  const key = dateKey(date);
+  return VERIFIED_LUNAR_DATE_BY_ISO[key] || toKhmerLunarDate(key).lunarDateText;
+}
+
+function getKhmerLunarLine(date: Date, includeUnavailableLunarLine = true): string {
+  try {
+    return formatKhmerLunarDate(date);
+  } catch {
+    return includeUnavailableLunarLine ? UNKNOWN_LUNAR_DATE : '';
+  }
+}
+
 export function formatKhmerGregorianDate(date: Date, location = DEFAULT_LOCATION): string {
   const day = toKhmerNumerals(date.getDate());
   const month = KHMER_MONTHS[date.getMonth()] || '';
@@ -62,12 +77,10 @@ export function formatKhmerOfficialDateBlock(
   options: KhmerOfficialDateOptions = {}
 ): { lunarLine: string; gregorianLine: string; fullText: string } {
   const location = options.location || DEFAULT_LOCATION;
-  const verifiedDefault = VERIFIED_LUNAR_DATE_BY_ISO[dateKey(date)];
   const lunarLine =
     options.khmerLunarDateOverride ||
     options.lunarDateOverride ||
-    verifiedDefault ||
-    (options.includeUnavailableLunarLine === false ? '' : UNKNOWN_LUNAR_DATE);
+    getKhmerLunarLine(date, options.includeUnavailableLunarLine !== false);
   const gregorianLine = formatKhmerGregorianDate(date, location);
   return {
     lunarLine,
@@ -75,4 +88,3 @@ export function formatKhmerOfficialDateBlock(
     fullText: lunarLine ? `${lunarLine}\n${gregorianLine}` : gregorianLine
   };
 }
-
