@@ -33,6 +33,7 @@ import {
   generateAnalyticsPdfReport,
   generateAnalyticsPptxBriefing
 } from '../utils/analyticsReportExports';
+import { formatKhmerOfficialDateBlock } from '../utils/khmerOfficialDate';
 
 interface DataAnalyticsReportProps {
   currentUser: MetrologyUser;
@@ -388,6 +389,7 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
 
   const exportPayload = () => ({
     generatedDate,
+    reportDate: new Date(),
     total: analytics.total,
     active: analytics.active,
     activePct: analytics.activePct,
@@ -424,6 +426,14 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
 
   const exportExcel = () => {
     const workbook = XLSX.utils.book_new();
+    const officialDate = formatKhmerOfficialDateBlock(new Date(), { location: 'រាជធានីភ្នំពេញ' });
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ['Report', 'Metrology License Data Analytics Report'],
+      ['Generated date', generatedDate],
+      ['Official Khmer lunar date', officialDate.lunarLine],
+      ['Official Khmer Gregorian date', officialDate.gregorianLine],
+      ['Prepared by', 'National Metrology Center of Cambodia']
+    ]), 'Report Metadata');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
       { Metric: 'Total licenses', Value: analytics.total },
       { Metric: 'Active licenses', Value: analytics.active },

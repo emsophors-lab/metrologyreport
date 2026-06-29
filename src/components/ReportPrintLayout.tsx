@@ -9,6 +9,7 @@ import {
   generateLocalQRCode,
   generateLocalBarcode 
 } from '../exportUtils';
+import { formatKhmerOfficialDateBlock } from '../utils/khmerOfficialDate';
 
 interface ReportPrintLayoutProps {
   reports: MetrologyReport[];
@@ -40,7 +41,7 @@ export default function ReportPrintLayout({
   };
 
   const now = new Date();
-  const dateString = `ថ្ងៃទី ${now.getDate()} ខែ ${getMonthNameKH(String(now.getMonth() + 1).padStart(2, '0'))} ឆ្នាំ ${now.getFullYear()}`;
+  const officialDate = formatKhmerOfficialDateBlock(now, { location: 'រាជធានីភ្នំពេញ' });
 
   // Get active company name from either context
   const displayCompanyName = selectedUser?.company_name_kh || (currentUser?.role === 'company' ? currentUser?.company_name_kh : '');
@@ -465,7 +466,10 @@ export default function ReportPrintLayout({
             <div className="text-right space-y-1 flex flex-col items-end">
               {!selectedUser ? (
                 <>
-                  <p className="text-slate-500 italic font-mono text-[10px]">រាជធានីភ្នំពេញ, {dateString}</p>
+                  <div className="text-slate-600 italic text-[10px] leading-relaxed">
+                    <p>{officialDate.lunarLine}</p>
+                    <p>{officialDate.gregorianLine}</p>
+                  </div>
                   <p className="text-slate-900 font-bold text-[10px] uppercase">អ្នករៀបចំរបាយការណ៍របស់នាយកដ្ឋាន</p>
                   <div className="h-28 flex flex-col justify-end items-center min-w-[220px]">
                     <p className="text-slate-300 leading-none">........................................................................</p>
@@ -474,7 +478,10 @@ export default function ReportPrintLayout({
                 </>
               ) : (
                 <>
-                  <p className="text-slate-500 italic font-mono text-[10px]">{dateString}</p>
+                  <div className="text-slate-600 italic text-[10px] leading-relaxed">
+                    <p>{officialDate.lunarLine}</p>
+                    <p>{officialDate.gregorianLine}</p>
+                  </div>
                   <p className="text-slate-900 font-bold text-[10px] uppercase">អ្នករៀបចំរបាយការណ៍តំណាងក្រុមហ៊ុន</p>
                   <div className="h-28 flex flex-col justify-end items-center min-w-[220px]">
                     <p className="text-[11px] text-slate-950 font-extrabold mb-1">

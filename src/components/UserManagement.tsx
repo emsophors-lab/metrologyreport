@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { UserPlus, Edit2, Trash2, CheckCircle, Shield, Key, Eye, EyeOff, X, Send, FileDown, Printer, MapPin, CalendarDays, FileText } from 'lucide-react';
 import { MetrologyUser, UserRole } from '../types';
-import { exportUsersToWordDoc, getMonthNameKH } from '../exportUtils';
+import { exportUsersToWordDoc } from '../exportUtils';
 import { getApiAuthHeaders } from '../apiAuth';
+import { formatKhmerOfficialDateBlock } from '../utils/khmerOfficialDate';
 
 interface UserManagementProps {
   currentUser: MetrologyUser;
@@ -19,6 +20,7 @@ export default function UserManagement({
   onDeleteUser,
   toastMsg,
 }: UserManagementProps) {
+  const officialDate = formatKhmerOfficialDateBlock(new Date(), { location: 'រាជធានីភ្នំពេញ' });
   // Form fields
   const [userId, setUserId] = useState('');
   const [licenseNumber, setLicenseNumber] = useState('');
@@ -1192,7 +1194,10 @@ export default function UserManagement({
                     </div>
                   </div>
                   <div className="w-1/2 text-right flex flex-col items-end">
-                    <p className="text-[10px] text-slate-500 italic">ថ្ងៃទី {new Date().getDate()} ខែ {getMonthNameKH(String(new Date().getMonth() + 1).padStart(2, '0'))} ឆ្នាំ {new Date().getFullYear()}</p>
+                    <div className="text-[10px] text-slate-500 italic leading-relaxed">
+                      <p>{officialDate.lunarLine}</p>
+                      <p>{officialDate.gregorianLine}</p>
+                    </div>
                     <p className="text-[10px] font-bold text-slate-900 mt-1">អ្នករៀបចំទិន្នន័យបញ្ជីឈ្មោះ</p>
                     <div className="mt-20 w-full flex flex-col items-end">
                       <p className="text-[11px] text-slate-300">...............................................................</p>

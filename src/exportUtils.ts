@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import { MetrologyReport, MetrologyUser } from './types';
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
+import { formatKhmerOfficialDateBlock } from './utils/khmerOfficialDate';
 
 // Converts service types to Khmer headings
 export function getServiceTypeKH(type: string): string {
@@ -121,6 +122,7 @@ export function getReportQRCodeUrl(
 
 // Export data directly to Excel (using SheetJS)
 export function exportReportsToExcel(reports: MetrologyReport[], title: string = 'របាយការណ៍មាត្រាសាស្ត្រ') {
+  const officialDate = formatKhmerOfficialDateBlock(new Date(), { location: 'រាជធានីភ្នំពេញ' });
   const formattedData = reports.map((r, i) => ({
     'ល.រ (No.)': i + 1,
     'ឈ្មោះក្រុមហ៊ុន (Company)': r.company_name_kh,
@@ -146,6 +148,12 @@ export function exportReportsToExcel(reports: MetrologyReport[], title: string =
   worksheet['!cols'] = maxProps;
 
   const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+    ['Report Title', title],
+    ['Official Khmer lunar date', officialDate.lunarLine],
+    ['Official Khmer Gregorian date', officialDate.gregorianLine],
+    ['Prepared by', 'National Metrology Center of Cambodia']
+  ]), 'Report Metadata');
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Monthly Report');
 
   // Trigger download
@@ -180,7 +188,11 @@ export async function exportToWordDoc(
   const monthKH = activeMonth !== 'all' ? getMonthNameKH(activeMonth) : '';
   const yearKH = activeYear !== 'all' ? activeYear : '';
   
-  const dateString = `ថ្ងៃទី ${now.getDate()} ខែ ${getMonthNameKH(String(now.getMonth() + 1).padStart(2, '0'))} ឆ្នាំ ${now.getFullYear()}`;
+  const officialDate = formatKhmerOfficialDateBlock(now, { location: 'រាជធានីភ្នំពេញ' });
+  const officialDateHtml = `
+    <p style="font-size: 10px; font-style: italic; color: #334155; margin: 0; line-height: 1.55; font-family: 'Khmer OS Battambang', Arial, sans-serif;">${officialDate.lunarLine}</p>
+    <p style="font-size: 10px; font-style: italic; color: #334155; margin: 2px 0 0 0; line-height: 1.55; font-family: 'Khmer OS Battambang', Arial, sans-serif;">${officialDate.gregorianLine}</p>
+  `;
 
   // Generate Report Number & QR content offline
   const reportNumber = getGeneratedReportNumber(
@@ -413,7 +425,7 @@ export async function exportToWordDoc(
             <!-- Right preparing compiler column -->
             <td style="border: none; width: 50%; vertical-align: top; text-align: right; padding: 0; font-family: 'Khmer OS Battambang', Arial, sans-serif; font-size: 11px;">
               ${!isTotalReport ? `
-                <p style="font-size: 10px; font-style: italic; color: #64748b; margin: 0;">${dateString}</p>
+                ${officialDateHtml}
                 <p style="font-size: 10.5px; font-weight: bold; margin: 5px 0 0 0; color: #020617;">អ្នករៀបចំរបាយការណ៍តំណាងក្រុមហ៊ុន</p>
                 
                 <div style="margin-top: 85px; text-align: right;">
@@ -424,7 +436,7 @@ export async function exportToWordDoc(
                   <p style="font-size: 10px; color: #64748b; margin: 4px 0 0 0;">(ហត្ថលេខា និងឈ្មោះអ្នករៀបចំ)</p>
                 </div>
               ` : `
-                <p style="font-size: 10.5px; font-style: italic; color: #64748b; margin: 0; font-family: 'Khmer OS Battambang', Arial, sans-serif;">រាជធានីភ្នំពេញ, ${dateString}</p>
+                ${officialDateHtml}
                 <p style="font-size: 10.5px; font-weight: bold; margin: 5px 0 0 0; color: #020617; font-family: 'Khmer OS Muol Light', 'Moul', 'Khmer OS Muol', serif;">អ្នករៀបចំរបាយការណ៍របស់នាយកដ្ឋាន</p>
                 
                 <div style="margin-top: 85px; text-align: right;">
@@ -456,7 +468,11 @@ export async function exportToWordDoc(
 // Export the filtered Metrology enterprise/user accounts list directly to Microsoft Word (.doc) format
 export function exportUsersToWordDoc(users: MetrologyUser[]) {
   const now = new Date();
-  const dateString = `ថ្ងៃទី ${now.getDate()} ខែ ${getMonthNameKH(String(now.getMonth() + 1).padStart(2, '0'))} ឆ្នាំ ${now.getFullYear()}`;
+  const officialDate = formatKhmerOfficialDateBlock(now, { location: 'រាជធានីភ្នំពេញ' });
+  const officialDateHtml = `
+    <p style="font-size: 10px; font-style: italic; color: #334155; margin: 0; line-height: 1.55; font-family: 'Khmer OS Battambang', Arial, sans-serif;">${officialDate.lunarLine}</p>
+    <p style="font-size: 10px; font-style: italic; color: #334155; margin: 2px 0 0 0; line-height: 1.55; font-family: 'Khmer OS Battambang', Arial, sans-serif;">${officialDate.gregorianLine}</p>
+  `;
 
   let tableRows = '';
   users.forEach((u, index) => {
@@ -581,7 +597,7 @@ export function exportUsersToWordDoc(users: MetrologyUser[]) {
             </td>
 
             <td style="border: none; width: 50%; vertical-align: top; text-align: right; padding: 0; font-family: 'Khmer OS Battambang', Arial, sans-serif; font-size: 11px;">
-              <p style="font-size: 10px; font-style: italic; color: #64748b; margin: 0;">${dateString}</p>
+              ${officialDateHtml}
               <p style="font-size: 10.5px; font-weight: bold; margin: 5px 0 0 0; color: #020617;">អ្នកគ្រប់គ្រងទិន្នន័យប្រព័ន្ធ</p>
               <div style="margin-top: 80px;">
                 <p style="margin: 0; color: #94a3b8;">...............................................................</p>
@@ -606,4 +622,3 @@ export function exportUsersToWordDoc(users: MetrologyUser[]) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
-

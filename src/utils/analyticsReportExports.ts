@@ -16,11 +16,14 @@ import {
 } from 'docx';
 import { jsPDF } from 'jspdf';
 import pptxgen from 'pptxgenjs';
+import { formatKhmerOfficialDateBlock } from './khmerOfficialDate';
 
 export type AnalyticsTableRow = [string, number];
 
 export interface AnalyticsExportData {
   generatedDate: string;
+  reportDate?: Date;
+  khmerLunarDateOverride?: string;
   total: number;
   active: number;
   activePct: number;
@@ -166,7 +169,15 @@ function metricRows(data: AnalyticsExportData) {
   ];
 }
 
+function getOfficialDateBlock(data: AnalyticsExportData) {
+  return formatKhmerOfficialDateBlock(data.reportDate || new Date(), {
+    khmerLunarDateOverride: data.khmerLunarDateOverride,
+    location: 'រាជធានីភ្នំពេញ'
+  });
+}
+
 export async function generateAnalyticsDocxReport(data: AnalyticsExportData) {
+  const officialDate = getOfficialDateBlock(data);
   const doc = new Document({
     creator: NMC_EN,
     description: REPORT_TITLE_EN,
@@ -209,6 +220,8 @@ export async function generateAnalyticsDocxReport(data: AnalyticsExportData) {
           }),
           docParagraph(REPORT_TITLE_EN, { center: true, color: BLUE, spacing: 320 }),
           docParagraph(`Date generated: ${data.generatedDate}`, { center: true }),
+          docParagraph(officialDate.lunarLine, { center: true, color: BLUE, spacing: 80 }),
+          docParagraph(officialDate.gregorianLine, { center: true, color: BLUE, spacing: 240 }),
           docParagraph(`Prepared by: ${NMC_EN}`, { center: true }),
           new Paragraph({ children: [new PageBreak()] }),
 
@@ -258,7 +271,21 @@ export async function generateAnalyticsDocxReport(data: AnalyticsExportData) {
           ...RECOMMENDATIONS.map((item, index) => docParagraph(`${index + 1}. ${item}`)),
 
           docSectionTitle('10. Conclusion'),
-          docParagraph('The National Metrology Center of Cambodia should continue strengthening digital supervision, risk-based inspection, GPS completeness, Telegram connectivity, and structured reporting records to support fair trade, consumer protection, and trusted national measurement services.')
+          docParagraph('The National Metrology Center of Cambodia should continue strengthening digital supervision, risk-based inspection, GPS completeness, Telegram connectivity, and structured reporting records to support fair trade, consumer protection, and trusted national measurement services.'),
+          new Paragraph({
+            alignment: AlignmentType.RIGHT,
+            spacing: { before: 280, after: 80 },
+            children: [docText(officialDate.lunarLine, { size: 22, color: BLUE })]
+          }),
+          new Paragraph({
+            alignment: AlignmentType.RIGHT,
+            spacing: { after: 120 },
+            children: [docText(officialDate.gregorianLine, { size: 22, color: BLUE })]
+          }),
+          new Paragraph({
+            alignment: AlignmentType.RIGHT,
+            children: [docText('Prepared by / អ្នករៀបចំរបាយការណ៍', { bold: true, size: 22, color: TEXT })]
+          })
         ]
       }
     ]
@@ -284,6 +311,7 @@ function pdfAddHeader(pdf: jsPDF, title: string, page: number) {
 }
 
 export function generateAnalyticsPdfReport(data: AnalyticsExportData) {
+  const officialDate = getOfficialDateBlock(data);
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
   let y = 86;
   let page = 1;
@@ -354,6 +382,7 @@ export function generateAnalyticsPdfReport(data: AnalyticsExportData) {
   pdf.text(NMC_EN, left, y);
   y += 24;
   paragraph(`Date generated: ${data.generatedDate}. Prepared by: ${NMC_EN}.`);
+  paragraph(officialDate.fullText);
 
   heading('1. Executive Summary');
   paragraph(`This formal ministerial analytics report summarizes ${data.total} metrology licenses and ${data.reportCount} monthly reports. Active licenses represent ${data.activePct}% of filtered license records.`);
@@ -387,6 +416,16 @@ export function generateAnalyticsPdfReport(data: AnalyticsExportData) {
 
   heading('8. Conclusion');
   paragraph('NMC should continue strengthening digital evidence records, monthly compliance monitoring, GPS completeness, Telegram connectivity, and risk-based inspection for trusted measurement services.');
+  ensure(58);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(10);
+  pdf.setTextColor(0, 59, 115);
+  pdf.text(pdf.splitTextToSize(officialDate.lunarLine, 250), 552, y, { align: 'right' });
+  y += 16;
+  pdf.text(pdf.splitTextToSize(officialDate.gregorianLine, 250), 552, y, { align: 'right' });
+  y += 20;
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('Prepared by / អ្នករៀបចំរបាយការណ៍', 552, y, { align: 'right' });
 
   pdf.save(`nmc-data-analytics-${todaySlug()}.pdf`);
 }
@@ -442,6 +481,7 @@ function addRowsSlide(pptx: pptxgen, title: string, rows: AnalyticsTableRow[], n
 }
 
 export async function generateAnalyticsPptxBriefing(data: AnalyticsExportData) {
+  const officialDate = getOfficialDateBlock(data);
   const pptx = new pptxgen();
   pptx.layout = 'LAYOUT_WIDE';
   pptx.author = NMC_EN;
@@ -458,7 +498,7 @@ export async function generateAnalyticsPptxBriefing(data: AnalyticsExportData) {
   slide.addShape(PPT_RECT, { x: 0, y: 5.7, w: 13.333, h: 0.08, fill: { color: GOLD }, line: { color: GOLD } });
   slide.addText(REPORT_TITLE_EN, { x: 0.7, y: 1.4, w: 11.8, h: 0.55, fontSize: 30, bold: true, color: 'FFFFFF', align: 'center' });
   slide.addText(REPORT_TITLE_KH, { x: 0.7, y: 2.08, w: 11.8, h: 0.4, fontSize: 18, bold: true, color: 'F8E7B3', align: 'center', fit: 'shrink' });
-  slide.addText(`${NMC_EN}\n${MINISTRY_EN}\nDate generated: ${data.generatedDate}`, { x: 1.25, y: 3.15, w: 10.8, h: 1.2, fontSize: 16, color: 'FFFFFF', align: 'center', breakLine: false });
+  slide.addText(`${NMC_EN}\n${MINISTRY_EN}\n${officialDate.fullText}`, { x: 1.25, y: 3.05, w: 10.8, h: 1.55, fontSize: 15, color: 'FFFFFF', align: 'center', breakLine: false, fit: 'shrink' });
 
   slide = pptx.addSlide();
   addPptHeader(slide, 'Executive Summary');
@@ -495,6 +535,7 @@ export async function generateAnalyticsPptxBriefing(data: AnalyticsExportData) {
   addPptHeader(slide, 'Recommendations for MISTI and NMC');
   slide.addText('Recommendations for MISTI and NMC', { x: 0.62, y: 0.95, w: 10, h: 0.4, fontSize: 23, bold: true, color: BLUE });
   pptBullets(slide, RECOMMENDATIONS, 0.65, 1.35, 11.9, 4.9);
+  slide.addText(officialDate.fullText, { x: 6.6, y: 6.35, w: 5.75, h: 0.42, fontSize: 8.5, color: BLUE, align: 'right', fit: 'shrink' });
 
   const output = await pptx.write({ outputType: 'arraybuffer' });
   const blob = new Blob([output as ArrayBuffer], {
