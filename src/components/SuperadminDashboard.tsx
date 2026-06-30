@@ -547,12 +547,11 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
     return !!submittedAt && submittedAt <= deadline;
   }).length;
   const onTimeRate = submittedCurrentReports.length > 0 ? percent(onTimeSubmitted, submittedCurrentReports.length) : null;
-  const reportServiceLicenseKeys = new Set(reports.filter(isSubmittedReport).map(reportLicenseKey).filter(Boolean));
-  const serviceSource = activeLicenseRecords.length > 0 ? activeLicenseRecords : reports.filter(isSubmittedReport);
-  const repairCount = serviceSource.filter(item => String(getField(item as any, ['service_scope', 'service_type']) || '').toLowerCase().includes('repair')).length;
-  const installationCount = serviceSource.filter(item => String(getField(item as any, ['service_scope', 'service_type']) || '').toLowerCase().includes('installation')).length;
-  const manufactureCount = serviceSource.filter(item => String(getField(item as any, ['service_scope', 'service_type']) || '').toLowerCase().includes('manufactur')).length;
-  const serviceDenominator = activeLicenseRecords.length > 0 ? activeLicenses : reportServiceLicenseKeys.size || reports.length;
+  const submittedServiceReports = reports.filter(isSubmittedReport);
+  const repairCount = submittedServiceReports.filter(report => report.service_type === 'Repair').length;
+  const installationCount = submittedServiceReports.filter(report => report.service_type === 'Installation').length;
+  const manufactureCount = submittedServiceReports.filter(report => report.service_type === 'Manufacture').length;
+  const serviceDenominator = submittedServiceReports.length;
   const otherServiceCount = Math.max(0, serviceDenominator - repairCount - installationCount - manufactureCount);
 
   const statusTotal = Math.max(1, totalLicenses);
@@ -818,15 +817,15 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
           </div>
         </SectionCard>
 
-        <SectionCard title="Service Scope Mix" subtitle="Companies by service type">
-          {reports.length === 0 && !isLoading ? (
+        <SectionCard title="Service Scope Mix" subtitle="Submitted reports by service type">
+          {submittedServiceReports.length === 0 && !isLoading ? (
             <p className="superdash-design-empty">No service report data available.</p>
           ) : (
             <>
-              <ProgressRow label="Repair Services" value={repairCount} pct={percent(repairCount, Math.max(1, serviceDenominator))} color="#0B1A35" tooltip={<>ជួសជុល / Repair<br />{repairCount} firms · {percent(repairCount, Math.max(1, serviceDenominator))}% of active</>} />
-              <ProgressRow label="Installation" value={installationCount} pct={percent(installationCount, Math.max(1, serviceDenominator))} color="#C9A227" tooltip={<>តម្លើង / Installation<br />{installationCount} firms · {percent(installationCount, Math.max(1, serviceDenominator))}% of active</>} />
-              <ProgressRow label="Manufacturing" value={manufactureCount} pct={percent(manufactureCount, Math.max(1, serviceDenominator))} color="#6366F1" tooltip={<>ផលិត / Manufacturing<br />{manufactureCount} firms · {percent(manufactureCount, Math.max(1, serviceDenominator))}% of active</>} />
-              {otherServiceCount > 0 && <ProgressRow label="Other" value={otherServiceCount} pct={percent(otherServiceCount, Math.max(1, serviceDenominator))} color="#64748B" tooltip={<>Other service values<br />{otherServiceCount} firms · {percent(otherServiceCount, Math.max(1, serviceDenominator))}% of active</>} />}
+              <ProgressRow label="Repair Services" value={repairCount} pct={percent(repairCount, Math.max(1, serviceDenominator))} color="#0B1A35" tooltip={<>ជួសជុល / Repair<br />{repairCount} reports · {percent(repairCount, Math.max(1, serviceDenominator))}% of submitted</>} />
+              <ProgressRow label="Installation" value={installationCount} pct={percent(installationCount, Math.max(1, serviceDenominator))} color="#C9A227" tooltip={<>តម្លើង / Installation<br />{installationCount} reports · {percent(installationCount, Math.max(1, serviceDenominator))}% of submitted</>} />
+              <ProgressRow label="Manufacturing" value={manufactureCount} pct={percent(manufactureCount, Math.max(1, serviceDenominator))} color="#6366F1" tooltip={<>ផលិត / Manufacturing<br />{manufactureCount} reports · {percent(manufactureCount, Math.max(1, serviceDenominator))}% of submitted</>} />
+              {otherServiceCount > 0 && <ProgressRow label="Other" value={otherServiceCount} pct={percent(otherServiceCount, Math.max(1, serviceDenominator))} color="#64748B" tooltip={<>Other service values<br />{otherServiceCount} reports · {percent(otherServiceCount, Math.max(1, serviceDenominator))}% of submitted</>} />}
             </>
           )}
           <div className="superdash-note is-blue">Service mix is calculated from submitted monthly reports.</div>
