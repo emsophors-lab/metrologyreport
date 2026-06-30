@@ -70,10 +70,11 @@ html, body {
   }
   
   /* Selectively show the printable document container and its complete nested children */
-  #printable-area, #printable-area * {
+  #printable-area, #printable-area *,
+  #certified-nmc-license-sheet, #certified-nmc-license-sheet * {
     visibility: visible;
   }
-  
+
   /* Absolute focus structure at the absolute start coordinates of standard printing page layers */
   #printable-area {
     position: absolute;
@@ -84,6 +85,26 @@ html, body {
     padding: 0 !important;
     box-shadow: none !important;
     border: none !important;
+  }
+
+  #certified-nmc-license-sheet {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 8mm !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+    font-size: 11px !important;
+    overflow: visible !important;
+  }
+
+  #certified-nmc-license-sheet .leaflet-container,
+  #certified-nmc-license-sheet a[href*="google.com"] {
+    display: none !important;
   }
 
   #printable-area.user-directory-print {

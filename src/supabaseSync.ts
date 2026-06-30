@@ -1514,7 +1514,22 @@ export async function uploadFileToSupabase(
 ): Promise<{ url: string; path: string }> {
   const client = getActiveSupabaseClient();
   if (!client) {
-    throw new Error('Supabase is not connected (Running in offline/demo mode). Please connect Supabase to upload files.');
+    // Demo/offline mode: store as base64 data URL in localStorage
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64Url = reader.result as string;
+        const storageKey = `nmc_file_${bucketName}_${filePath.replace(/\//g, '_')}`;
+        try {
+          localStorage.setItem(storageKey, base64Url);
+          resolve({ url: base64Url, path: `local://${bucketName}/${filePath}` });
+        } catch (e: any) {
+          reject(new Error(`localStorage full or unavailable: ${e.message}`));
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed to read file for local storage'));
+      reader.readAsDataURL(file);
+    });
   }
 
   try {

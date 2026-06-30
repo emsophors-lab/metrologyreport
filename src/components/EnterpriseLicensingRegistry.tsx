@@ -61,6 +61,7 @@ import {
 import { getApiAuthHeaders } from '../apiAuth';
 import { logAuditEvent } from '../services/loginHistoryService';
 import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 import { BusinessLocationMap } from './BusinessLocationMap';
 import { EnterpriseLicenseMapView } from './EnterpriseLicenseMapView';
 import { MiniLocationMap } from './MiniLocationMap';
@@ -883,41 +884,38 @@ export default function EnterpriseLicensingRegistry({
     const imgElement = new Image();
     imgElement.onload = () => {
       const canvas = document.createElement('canvas');
-      // Set to high resolution square style (600x600 px) for portrait/avatar format
-      canvas.width = 600;
-      canvas.height = 600;
+      // 3.5cm x 4.5cm at 300 DPI ≈ 413 x 531 px (ratio 7:9)
+      const outW = 413;
+      const outH = 531;
+      canvas.width = outW;
+      canvas.height = outH;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Fill canvas background
       ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillRect(0, 0, outW, outH);
 
-      // Translate to canvas center to scale and rotate about the center
-      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.translate(outW / 2, outH / 2);
 
-      // Apply rotation & zoom/scale
       if (cropRotation) {
         ctx.rotate((cropRotation * Math.PI) / 180);
       }
       ctx.scale(cropScale, cropScale);
-      ctx.translate(cropPosition.x, cropPosition.y);
+      ctx.translate(cropPosition.x * (outW / 252), cropPosition.y * (outH / 324));
 
-      // Emulate object-fit: cover inside a 1:1 square canvas
       const naturalW = imgElement.naturalWidth;
       const naturalH = imgElement.naturalHeight;
       const imageRatio = naturalW / naturalH;
+      const viewportRatio = outW / outH;
       let renderWidth = 0;
       let renderHeight = 0;
 
-      if (imageRatio > 1) {
-        // Landscape: fit height, scale width
-        renderHeight = 600;
-        renderWidth = 600 * imageRatio;
+      if (imageRatio > viewportRatio) {
+        renderHeight = outH;
+        renderWidth = outH * imageRatio;
       } else {
-        // Portrait or Square: fit width, scale height
-        renderWidth = 600;
-        renderHeight = 600 / imageRatio;
+        renderWidth = outW;
+        renderHeight = outW / imageRatio;
       }
 
       ctx.drawImage(imgElement, -renderWidth / 2, -renderHeight / 2, renderWidth, renderHeight);
@@ -1654,7 +1652,8 @@ export default function EnterpriseLicensingRegistry({
   const handleSimulateBotStartCommand = async (licId: string, customChatId = '') => {
     const found = licenses.find(l => l.id === licId);
     if (!found) return;
-    if (!isCompanyUser || !isLicenseOwnedByCurrentCompany(found, currentUser)) {
+    const isAdminOrAbove = ['admin', 'superadmin'].includes(currentUser?.role?.toLowerCase() || '');
+    if (!isAdminOrAbove && (!isCompanyUser || !isLicenseOwnedByCurrentCompany(found, currentUser))) {
       toastMsg('ម្ចាស់សហគ្រាសត្រូវភ្ជាប់ Telegram ដោយខ្លួនឯង។ / Only the logged-in company user can connect Telegram for this license.', 'error');
       return;
     }
@@ -2634,172 +2633,77 @@ export default function EnterpriseLicensingRegistry({
     setActiveFormStep(1);
   };
 
-  // Export PDF template
-  const handleDownloadPDF = (lic: EnterpriseLicense) => {
+  // Export PDF — captures the HTML certificate preview so Khmer text renders correctly
+  const handleDownloadPDF = async (lic: EnterpriseLicense) => {
     try {
       if (isCompanyUser && !isLicenseOwnedByCurrentCompany(lic, currentUser)) {
         toastMsg('លោកអ្នកមិនមានសិទ្ធិទាញយកអាជ្ញាប័ណ្ណនេះទេ។ / You do not have permission to download this license.', 'error');
         return;
       }
 
+      const certEl = document.getElementById('certified-nmc-license-sheet');
+      if (!certEl) {
+        toastMsg('សូមបើកវិញ្ញាបនបត្រមុនសិន។ / Certificate preview must be open to download.', 'error');
+        return;
+      }
+
+      toastMsg('កំពុងបង្កើត PDF... / Generating PDF...', 'success');
+
+      // Temporarily scroll the certificate to top so html2canvas captures everything
+      const parentOverlay = certEl.closest('.fixed.inset-0');
+      const prevScroll = parentOverlay ? parentOverlay.scrollTop : 0;
+      if (parentOverlay) parentOverlay.scrollTop = 0;
+
+      await new Promise(r => setTimeout(r, 300));
+
+      const canvas = await html2canvas(certEl, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: '#ffffff',
+        logging: false,
+        imageTimeout: 5000,
+        onclone: (clonedDoc: Document) => {
+          // Remove map tiles and interactive elements that cause cross-origin issues
+          const maps = clonedDoc.querySelectorAll('.leaflet-container, [class*="leaflet"], canvas, iframe');
+          maps.forEach(el => el.remove());
+          // Remove buttons and links inside the cloned certificate
+          const btns = clonedDoc.querySelectorAll('#certified-nmc-license-sheet a[href*="google.com"], #certified-nmc-license-sheet button');
+          btns.forEach(el => el.remove());
+          // Replace oklch() colors with hex fallbacks (html2canvas doesn't support oklch)
+          const allEls = clonedDoc.querySelectorAll('#certified-nmc-license-sheet, #certified-nmc-license-sheet *');
+          allEls.forEach(el => {
+            const htmlEl = el as HTMLElement;
+            const cs = clonedDoc.defaultView?.getComputedStyle(htmlEl);
+            if (!cs) return;
+            if (cs.color) htmlEl.style.color = cs.color;
+            if (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)') htmlEl.style.backgroundColor = cs.backgroundColor;
+            if (cs.borderColor) htmlEl.style.borderColor = cs.borderColor;
+          });
+        }
+      });
+
+      if (parentOverlay) parentOverlay.scrollTop = prevScroll;
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.92);
+      const imgW = canvas.width;
+      const imgH = canvas.height;
+
+      const pdfW = 210; // A4 width in mm
+      const pdfH = (imgH * pdfW) / imgW;
+
       const doc = new jsPDF({
         orientation: 'p',
         unit: 'mm',
-        format: 'a4'
+        format: [pdfW, Math.max(pdfH, 297)]
       });
 
-      // Gold frameborder
-      doc.setDrawColor(212, 175, 55);
-      doc.setLineWidth(1.5);
-      doc.rect(8, 8, 194, 281);
-      
-      doc.setDrawColor(27, 38, 59);
-      doc.setLineWidth(0.5);
-      doc.rect(10, 10, 190, 277);
-
-      // Header English equivalents
-      doc.setTextColor(27, 38, 59);
-      doc.setFont('Helvetica', 'Bold');
-      doc.setFontSize(14);
-      doc.text('KINGDOM OF CAMBODIA', 105, 22, { align: 'center' });
-      doc.setFontSize(11);
-      doc.text('NATION RELIGION KING', 105, 28, { align: 'center' });
-      
-      doc.setFontSize(10);
-      doc.text('MINISTRY OF INDUSTRY, SCIENCE, TECHNOLOGY & INNOVATION', 105, 38, { align: 'center' });
-      doc.setFontSize(11);
-      doc.text('NATIONAL METROLOGY CENTER (NMC)', 105, 44, { align: 'center' });
-      
-      doc.setDrawColor(212, 175, 55);
-      doc.setLineWidth(0.8);
-      doc.line(50, 48, 150, 48);
-
-      doc.setFontSize(15);
-      doc.text('ELECTRONIC METROLOGY LICENSE CERTIFICATE', 105, 60, { align: 'center' });
-      doc.setFontSize(10);
-      doc.setFont('Helvetica', 'Oblique');
-      doc.text(`Official Register Number: ${lic.license_number}`, 105, 66, { align: 'center' });
-
-      // Info Blocks
-      doc.setFont('Helvetica', 'Bold');
-      doc.setFontSize(11);
-      doc.setTextColor(40, 50, 60);
-
-      const startY = 82;
-      const stepY = 11;
-      
-      doc.text('Enterprise Name / ឈ្មោះសហគ្រាស:', 20, startY);
-      doc.setFont('Helvetica', 'Normal');
-      doc.text(lic.company_name, 85, startY);
-
-      doc.setFont('Helvetica', 'Bold');
-      doc.text('Business Type / ទម្រង់គតិយុត្តិ:', 20, startY + stepY);
-      doc.setFont('Helvetica', 'Normal');
-      doc.text(lic.business_type || 'N/A', 85, startY + stepY);
-
-      doc.setFont('Helvetica', 'Bold');
-      doc.text('Legal Representative / តំណាងស្របច្បាប់:', 20, startY + stepY * 2);
-      doc.setFont('Helvetica', 'Normal');
-      doc.text(`${lic.license_owner_name || 'N/A'} (${lic.license_owner_position || 'Director'})`, 85, startY + stepY * 2);
-
-      // Representative details subline (Gender, DOB, Nationality)
-      const detailsList: string[] = [];
-      if (lic.representative_gender) {
-        detailsList.push(`Gender: ${lic.representative_gender === 'Male' ? 'Male/ប្រុស' : lic.representative_gender === 'Female' ? 'Female/ស្រី' : 'Other'}`);
-      }
-      if (lic.representative_date_of_birth) {
-        detailsList.push(`DOB: ${lic.representative_date_of_birth}`);
-      }
-      if (lic.representative_nationality) {
-        detailsList.push(`Nationality: ${lic.representative_nationality}`);
-      }
-      if (detailsList.length > 0) {
-        doc.setFont('Helvetica', 'Oblique');
-        doc.setFontSize(8.5);
-        doc.text(`(${detailsList.join(' | ')})`, 85, startY + stepY * 2 + 4.5);
-        doc.setFontSize(11);
-      }
-
-      doc.setFont('Helvetica', 'Bold');
-      doc.text('Address / អាសយដ្ឋាន:', 20, startY + stepY * 3);
-      doc.setFont('Helvetica', 'Normal');
-      const addrLines = doc.splitTextToSize(lic.company_address || 'Cambodia', 100);
-      doc.text(addrLines, 85, startY + stepY * 3);
-
-      // Business GPS coordinates subline
-      if (lic.business_latitude !== null && lic.business_longitude !== null && lic.business_latitude !== undefined) {
-        doc.setFont('Helvetica', 'Bold');
-        doc.text('GPS Location / កូអរដោនេភូមិសាស្ត្រ:', 20, startY + stepY * 4.3);
-        doc.setFont('Helvetica', 'Normal');
-        doc.setFontSize(9);
-        doc.text(`Lat: ${lic.business_latitude}, Lon: ${lic.business_longitude} (source: ${lic.business_location_source || 'OSM Map'})`, 85, startY + stepY * 4.3);
-        doc.setFontSize(11);
-      }
-
-      doc.setFont('Helvetica', 'Bold');
-      doc.text('Service Scope / វិសាលភាពសេវា:', 20, startY + stepY * 5);
-      doc.setFont('Helvetica', 'Normal');
-      const scopeLines = doc.splitTextToSize(lic.service_scope || 'All metrology scaling operations', 100);
-      doc.text(scopeLines, 85, startY + stepY * 5);
-
-      doc.setFont('Helvetica', 'Bold');
-      doc.text('Measuring Instruments / ឧបករណ៍មាត្រាសាស្ត្រ:', 20, startY + stepY * 7);
-      doc.setFont('Helvetica', 'Normal');
-      const instLines = doc.splitTextToSize(lic.measuring_instrument_type || 'N/A', 100);
-      doc.text(instLines, 85, startY + stepY * 7);
-
-      doc.setFont('Helvetica', 'Bold');
-      doc.text('Issue Date / ថ្ងៃចេញអាជ្ញាប័ណ្ណ:', 20, startY + stepY * 9);
-      doc.setFont('Helvetica', 'Normal');
-      doc.text(lic.license_issue_date, 85, startY + stepY * 9);
-
-      doc.setFont('Helvetica', 'Bold');
-      doc.text('Expiry Date / ថ្ងៃផុតកំណត់:', 20, startY + stepY * 10);
-      doc.setFont('Helvetica', 'Normal');
-      doc.text(lic.license_expiry_date, 85, startY + stepY * 10);
-
-      doc.setFont('Helvetica', 'Bold');
-      doc.text('Official Service Fee / តម្លៃសេវាកម្ម:', 20, startY + stepY * 11);
-      doc.setFont('Helvetica', 'Normal');
-      doc.text(lic.service_fee ? `${Number(lic.service_fee).toLocaleString()} USD` : 'NMC Complimentary', 85, startY + stepY * 11);
-
-      // Embed photo
-      const imgToUse = lic.photo_base64 || lic.license_owner_photo_url;
-      if (imgToUse) {
-        try {
-          doc.addImage(imgToUse, 'JPEG', 158, 77, 32, 40);
-          doc.setDrawColor(180, 180, 180);
-          doc.rect(158, 77, 32, 40);
-        } catch (imgErr) {
-          console.warn('Pdf photo export issue:', imgErr);
-        }
-      }
-
-      // Security dynamic validation stamp block
-      doc.setDrawColor(27, 38, 59);
-      doc.setFillColor(248, 250, 252);
-      doc.rect(155, 215, 35, 35, 'FD');
-      
-      doc.setFont('Helvetica', 'Bold');
-      doc.setFontSize(8);
-      doc.text('NMC SYSTEM', 172.5, 222, { align: 'center' });
-      doc.setFontSize(7);
-      doc.setFont('Helvetica', 'Normal');
-      doc.text('ELECTRONICALLY', 172.5, 230, { align: 'center' });
-      doc.text('AUTHORIZED', 172.5, 235, { align: 'center' });
-      doc.setFontSize(6);
-      doc.text(lic.license_number, 172.5, 245, { align: 'center' });
-
-      // Bottom disclaimer
-      doc.setFontSize(9);
-      doc.setFont('Helvetica', 'Bold');
-      doc.text('APPROVED AND ISSUED BY THE NATIONAL METROLOGY CENTER OF CAMBODIA', 105, 264, { align: 'center' });
-      
+      doc.addImage(imgData, 'JPEG', 0, 0, pdfW, pdfH);
       doc.save(`NMC-Electronic-License-${lic.license_number}.pdf`);
       toastMsg('ទាញយកវិញ្ញាបនបត្រអេឡិចត្រូនិចជោគជ័យ! / Generated PDF certificate successfully.', 'success');
     } catch (pdfErr: any) {
-      console.error(pdfErr);
-      toastMsg('បរាជ័យក្នុងការទាញយក PDF, សូមប្រើមុខងារ Print ជំនួសវិញ។', 'error');
+      console.error('PDF generation error:', pdfErr);
+      toastMsg(`បរាជ័យក្នុងការទាញយក PDF: ${pdfErr.message || 'Unknown error'}`, 'error');
     }
   };
 
@@ -6115,11 +6019,26 @@ export default function EnterpriseLicensingRegistry({
                       type="button"
                       onClick={async () => {
                         setIsWaitingConnection(true);
+
+                        if (isDemoMode) {
+                          await handleSimulateBotStartCommand(connectionLic.id);
+                          await loadRegistryData();
+                          setTimeout(() => {
+                            setIsWaitingConnection(false);
+                            const reLic = licenses.find(l => l.id === connectionLic.id);
+                            if (reLic && (reLic.telegram_connection_status === 'Connected' || reLic.telegram_chat_id)) {
+                              toastMsg('✓ ជោគជ័យ! តេឡេក្រាមត្រូវបានតភ្ជាប់ដោយជោគជ័យ។ / Telegram connected successfully!', 'success');
+                              setConnectionLic(reLic);
+                            } else {
+                              toastMsg('✕ មិនអាចភ្ជាប់បានក្នុង Demo Mode។ / Could not simulate connection.', 'error');
+                            }
+                          }, 1000);
+                          return;
+                        }
+
                         await loadRegistryData();
                         setTimeout(() => {
                           setIsWaitingConnection(false);
-                          
-                          // Check if the current license is now connected
                           const reLic = licenses.find(l => l.id === connectionLic.id);
                           if (reLic && (reLic.telegram_connection_status === 'Connected' || reLic.telegram_chat_id)) {
                             toastMsg('✓ ជោគជ័យ! តេឡេក្រាមត្រូវបានតភ្ជាប់ដោយជោគជ័យ។ / Telegram connected successfully!', 'success');
@@ -6134,20 +6053,18 @@ export default function EnterpriseLicensingRegistry({
                       <Bot className="h-4 w-4 text-white" />
                       <span>ពិនិត្យស្ថានភាពការតភ្ជាប់ (Verify Connection)</span>
                     </button>
-                    
-                    {currentUser.role !== 'company' && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await handleSimulateBotStartCommand(connectionLic.id);
-                          const reLic = licenses.find(l => l.id === connectionLic.id);
-                          if (reLic) setConnectionLic(reLic);
-                        }}
-                        className="py-1 px-3 bg-slate-50 hover:bg-slate-100 text-[#353C96] border border-[#C9D2E3]/80 rounded-lg text-[10.5px] font-bold cursor-pointer"
-                      >
-                        🤖 សាកល្បងម៉ាស៊ីនក្លែងធ្វើ (Trigger Simulator Client)
-                      </button>
-                    )}
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await handleSimulateBotStartCommand(connectionLic.id);
+                        const reLic = licenses.find(l => l.id === connectionLic.id);
+                        if (reLic) setConnectionLic(reLic);
+                      }}
+                      className="py-1 px-3 bg-slate-50 hover:bg-slate-100 text-[#353C96] border border-[#C9D2E3]/80 rounded-lg text-[10.5px] font-bold cursor-pointer"
+                    >
+                      🤖 សាកល្បងម៉ាស៊ីនក្លែងធ្វើ (Trigger Simulator Client)
+                    </button>
                   </div>
                 )}
 
@@ -6208,10 +6125,11 @@ export default function EnterpriseLicensingRegistry({
               <div className="p-5 flex flex-col items-center space-y-5">
                 {selectedPhotoPreviewUrl && !cropImageError ? (
                   <>
-                    {/* Crop Area */}
-                    <div 
+                    {/* Crop Area — 3.5cm x 4.5cm ratio (7:9) */}
+                    <div
                       ref={cropViewportRef}
-                      className="bg-[#f8fafc] border border-[#C9D2E3] rounded-xl overflow-hidden relative mx-auto w-[260px] h-[260px] md:w-[320px] md:h-[320px] shadow-sm"
+                      className="bg-[#f8fafc] border border-[#C9D2E3] rounded-xl overflow-hidden relative mx-auto shadow-sm"
+                      style={{ width: 252, height: 324 }}
                       onMouseDown={handleCropMouseDown}
                       onMouseMove={handleCropMouseMove}
                       onMouseUp={handleCropMouseUpOrLeave}
@@ -6242,6 +6160,7 @@ export default function EnterpriseLicensingRegistry({
                         }}
                       />
                     </div>
+                    <p className="text-[10px] text-slate-400 font-mono text-center">3.5 cm × 4.5 cm (413 × 531 px)</p>
 
                     {/* Controls */}
                     <div className="w-full space-y-3.5 font-sans text-xs">
