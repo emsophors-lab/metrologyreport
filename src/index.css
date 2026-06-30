@@ -64,14 +64,21 @@ html, body {
     margin: 8mm;
   }
 
+  @page certificate-license {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
   /* Hide all surrounding page clutter, sidebars, headers and footers outside the printable area */
   body * {
     visibility: hidden;
   }
   
-  /* Selectively show the printable document container and its complete nested children */
-  #printable-area, #printable-area *,
-  #certified-nmc-license-sheet, #certified-nmc-license-sheet * {
+  /* Selectively show the active print target and its complete nested children */
+  body:not(.printing-certificate-license) #printable-area,
+  body:not(.printing-certificate-license) #printable-area *,
+  body.printing-certificate-license #certified-nmc-license-sheet,
+  body.printing-certificate-license #certified-nmc-license-sheet * {
     visibility: visible;
   }
 
@@ -87,23 +94,34 @@ html, body {
     border: none !important;
   }
 
-  #certified-nmc-license-sheet {
+  body.printing-certificate-license #certified-nmc-license-sheet {
+    page: certificate-license;
     position: absolute;
     left: 0;
     top: 0;
-    width: 100% !important;
+    width: 194mm !important;
     max-width: none !important;
     margin: 0 !important;
-    padding: 8mm !important;
+    padding: 0 !important;
     box-shadow: none !important;
     border: none !important;
     background: #ffffff !important;
-    font-size: 11px !important;
+    font-size: 9.5px !important;
     overflow: visible !important;
+    break-after: avoid !important;
+    page-break-after: avoid !important;
   }
 
-  #certified-nmc-license-sheet .leaflet-container,
-  #certified-nmc-license-sheet a[href*="google.com"] {
+  body.printing-certificate-license #certified-nmc-license-sheet > div {
+    padding: 5mm !important;
+  }
+
+  body.printing-certificate-license #certified-nmc-license-sheet > div > div {
+    padding: 3mm !important;
+  }
+
+  body.printing-certificate-license #certified-nmc-license-sheet .leaflet-container,
+  body.printing-certificate-license #certified-nmc-license-sheet a[href*="google.com"] {
     display: none !important;
   }
 

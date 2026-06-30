@@ -2633,15 +2633,117 @@ export default function EnterpriseLicensingRegistry({
     setActiveFormStep(1);
   };
 
-  // Export PDF — captures the HTML certificate preview so Khmer text renders correctly
+  const replaceUnsupportedColorFunctions = (value: string) => {
+    if (!value || (!value.includes('oklab(') && !value.includes('oklch('))) return value;
+
+    const clamp = (n: number, min = 0, max = 1) => Math.min(max, Math.max(min, n));
+    const toSrgb = (channel: number) => {
+      const normalized = channel <= 0.0031308 ? 12.92 * channel : 1.055 * Math.pow(channel, 1 / 2.4) - 0.055;
+      return Math.round(clamp(normalized) * 255);
+    };
+    const parseAlpha = (alphaPart?: string) => {
+      if (!alphaPart) return 1;
+      const trimmed = alphaPart.trim();
+      return trimmed.endsWith('%') ? parseFloat(trimmed) / 100 : parseFloat(trimmed);
+    };
+    const oklabToRgb = (l: number, a: number, b: number, alpha = 1) => {
+      const lPrime = l + 0.3963377774 * a + 0.2158037573 * b;
+      const mPrime = l - 0.1055613458 * a - 0.0638541728 * b;
+      const sPrime = l - 0.0894841775 * a - 1.291485548 * b;
+      const lCube = lPrime ** 3;
+      const mCube = mPrime ** 3;
+      const sCube = sPrime ** 3;
+      const r = toSrgb(4.0767416621 * lCube - 3.3077115913 * mCube + 0.2309699292 * sCube);
+      const g = toSrgb(-1.2684380046 * lCube + 2.6097574011 * mCube - 0.3413193965 * sCube);
+      const blue = toSrgb(-0.0041960863 * lCube - 0.7034186147 * mCube + 1.707614701 * sCube);
+
+      return alpha < 1 ? `rgba(${r}, ${g}, ${blue}, ${clamp(alpha)})` : `rgb(${r}, ${g}, ${blue})`;
+    };
+
+    const parseLightness = (token = '0') => token.endsWith('%') ? parseFloat(token) / 100 : parseFloat(token);
+    const parseLabAxis = (token = '0') => token.endsWith('%') ? (parseFloat(token) / 100) * 0.4 : parseFloat(token);
+
+    return value
+      .replace(/oklch\(([^)]+)\)/gi, (_match, body: string) => {
+        const [channels, alphaPart] = body.split('/').map(part => part.trim());
+        const [lToken, cToken, hToken] = channels.split(/\s+/);
+        const l = parseLightness(lToken);
+        const c = cToken === 'none' ? 0 : parseFloat(cToken || '0');
+        const h = hToken === 'none' ? 0 : parseFloat(hToken || '0');
+        const alpha = parseAlpha(alphaPart);
+        const a = c * Math.cos((h * Math.PI) / 180);
+        const b = c * Math.sin((h * Math.PI) / 180);
+
+        return oklabToRgb(l, a, b, Number.isFinite(alpha) ? alpha : 1);
+      })
+      .replace(/oklab\(([^)]+)\)/gi, (_match, body: string) => {
+        const [channels, alphaPart] = body.split('/').map(part => part.trim());
+        const [lToken, aToken, bToken] = channels.split(/\s+/);
+        const l = parseLightness(lToken);
+        const a = aToken === 'none' ? 0 : parseLabAxis(aToken);
+        const b = bToken === 'none' ? 0 : parseLabAxis(bToken);
+        const alpha = parseAlpha(alphaPart);
+
+        return oklabToRgb(l, a, b, Number.isFinite(alpha) ? alpha : 1);
+      });
+  };
+
+  const buildSanitizedCertificateClone = (certEl: HTMLElement) => {
+    const clone = certEl.cloneNode(true) as HTMLElement;
+    const sourceElements = [certEl, ...Array.from(certEl.querySelectorAll<HTMLElement>('*'))];
+    const cloneElements = [clone, ...Array.from(clone.querySelectorAll<HTMLElement>('*'))];
+    const elementsToRemove: HTMLElement[] = [];
+
+    cloneElements.forEach((cloneEl, index) => {
+      const sourceEl = sourceElements[index];
+      if (!sourceEl) return;
+
+      const shouldRemove = sourceEl.matches('.leaflet-container, [class*="leaflet"], canvas, iframe, button') ||
+        (sourceEl.tagName === 'A' && (sourceEl as HTMLAnchorElement).href.includes('google.com'));
+      if (shouldRemove) {
+        elementsToRemove.push(cloneEl);
+        return;
+      }
+
+      const computed = window.getComputedStyle(sourceEl);
+      let cssText = '';
+      for (let i = 0; i < computed.length; i += 1) {
+        const prop = computed.item(i);
+        const value = replaceUnsupportedColorFunctions(computed.getPropertyValue(prop));
+        if (value && !value.includes('oklab(') && !value.includes('oklch(')) {
+          cssText += `${prop}:${value};`;
+        }
+      }
+
+      cloneEl.removeAttribute('class');
+      cloneEl.setAttribute('style', cssText);
+    });
+
+    elementsToRemove.forEach(el => el.remove());
+    clone.style.width = '794px';
+    clone.style.maxWidth = '794px';
+    clone.style.minHeight = 'auto';
+    clone.style.height = 'auto';
+    clone.style.overflow = 'visible';
+    clone.style.boxSizing = 'border-box';
+    clone.style.background = '#ffffff';
+    clone.style.transform = 'none';
+
+    return clone;
+  };
+
+  const getCertificateElement = () => document.getElementById('certified-nmc-license-sheet') as HTMLElement | null;
+
+  // Export PDF — captures an isolated certificate clone so Khmer text renders correctly
   const handleDownloadPDF = async (lic: EnterpriseLicense) => {
+
     try {
       if (isCompanyUser && !isLicenseOwnedByCurrentCompany(lic, currentUser)) {
         toastMsg('លោកអ្នកមិនមានសិទ្ធិទាញយកអាជ្ញាប័ណ្ណនេះទេ។ / You do not have permission to download this license.', 'error');
         return;
       }
 
-      const certEl = document.getElementById('certified-nmc-license-sheet');
+      const certEl = getCertificateElement();
       if (!certEl) {
         toastMsg('សូមបើកវិញ្ញាបនបត្រមុនសិន។ / Certificate preview must be open to download.', 'error');
         return;
@@ -2649,62 +2751,145 @@ export default function EnterpriseLicensingRegistry({
 
       toastMsg('កំពុងបង្កើត PDF... / Generating PDF...', 'success');
 
-      // Temporarily scroll the certificate to top so html2canvas captures everything
-      const parentOverlay = certEl.closest('.fixed.inset-0');
-      const prevScroll = parentOverlay ? parentOverlay.scrollTop : 0;
-      if (parentOverlay) parentOverlay.scrollTop = 0;
+      const captureHost = document.createElement('div');
+      const captureClone = buildSanitizedCertificateClone(certEl);
+      captureHost.style.position = 'fixed';
+      captureHost.style.left = '-10000px';
+      captureHost.style.top = '0';
+      captureHost.style.width = '794px';
+      captureHost.style.height = 'auto';
+      captureHost.style.background = '#ffffff';
+      captureHost.style.overflow = 'visible';
+      captureHost.appendChild(captureClone);
+      document.body.appendChild(captureHost);
 
       await new Promise(r => setTimeout(r, 300));
 
-      const canvas = await html2canvas(certEl, {
+      const canvas = await html2canvas(captureClone, {
         scale: 2,
         useCORS: true,
         allowTaint: false,
         backgroundColor: '#ffffff',
         logging: false,
         imageTimeout: 5000,
-        onclone: (clonedDoc: Document) => {
-          // Remove map tiles and interactive elements that cause cross-origin issues
-          const maps = clonedDoc.querySelectorAll('.leaflet-container, [class*="leaflet"], canvas, iframe');
-          maps.forEach(el => el.remove());
-          // Remove buttons and links inside the cloned certificate
-          const btns = clonedDoc.querySelectorAll('#certified-nmc-license-sheet a[href*="google.com"], #certified-nmc-license-sheet button');
-          btns.forEach(el => el.remove());
-          // Replace oklch() colors with hex fallbacks (html2canvas doesn't support oklch)
-          const allEls = clonedDoc.querySelectorAll('#certified-nmc-license-sheet, #certified-nmc-license-sheet *');
-          allEls.forEach(el => {
-            const htmlEl = el as HTMLElement;
-            const cs = clonedDoc.defaultView?.getComputedStyle(htmlEl);
-            if (!cs) return;
-            if (cs.color) htmlEl.style.color = cs.color;
-            if (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)') htmlEl.style.backgroundColor = cs.backgroundColor;
-            if (cs.borderColor) htmlEl.style.borderColor = cs.borderColor;
-          });
-        }
+        ignoreElements: (el) => el instanceof HTMLElement && (
+          el.matches('.leaflet-container, [class*="leaflet"], canvas, iframe, button') ||
+          (el.tagName === 'A' && (el as HTMLAnchorElement).href.includes('google.com'))
+        )
+      }).finally(() => {
+        captureHost.remove();
       });
-
-      if (parentOverlay) parentOverlay.scrollTop = prevScroll;
 
       const imgData = canvas.toDataURL('image/jpeg', 0.92);
       const imgW = canvas.width;
       const imgH = canvas.height;
 
       const pdfW = 210; // A4 width in mm
-      const pdfH = (imgH * pdfW) / imgW;
+      const pdfH = 297; // A4 height in mm
+      const imageScale = Math.min(pdfW / imgW, pdfH / imgH);
+      const renderW = imgW * imageScale;
+      const renderH = imgH * imageScale;
+      const offsetX = (pdfW - renderW) / 2;
+      const offsetY = (pdfH - renderH) / 2;
 
       const doc = new jsPDF({
         orientation: 'p',
         unit: 'mm',
-        format: [pdfW, Math.max(pdfH, 297)]
+        format: 'a4'
       });
 
-      doc.addImage(imgData, 'JPEG', 0, 0, pdfW, pdfH);
+      doc.addImage(imgData, 'JPEG', offsetX, offsetY, renderW, renderH);
       doc.save(`NMC-Electronic-License-${lic.license_number}.pdf`);
       toastMsg('ទាញយកវិញ្ញាបនបត្រអេឡិចត្រូនិចជោគជ័យ! / Generated PDF certificate successfully.', 'success');
     } catch (pdfErr: any) {
       console.error('PDF generation error:', pdfErr);
       toastMsg(`បរាជ័យក្នុងការទាញយក PDF: ${pdfErr.message || 'Unknown error'}`, 'error');
     }
+  };
+
+  const handlePrintLicense = () => {
+    const certEl = getCertificateElement();
+    if (!certEl) {
+      toastMsg('សូមបើកវិញ្ញាបនបត្រមុនសិន។ / Certificate preview must be open to print.', 'error');
+      return;
+    }
+
+    const printFrame = document.createElement('iframe');
+    printFrame.style.position = 'fixed';
+    printFrame.style.left = '-10000px';
+    printFrame.style.top = '0';
+    printFrame.style.width = '794px';
+    printFrame.style.height = '1123px';
+    printFrame.style.border = '0';
+    printFrame.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(printFrame);
+
+    const printDoc = printFrame.contentDocument || printFrame.contentWindow?.document;
+    if (!printDoc) {
+      printFrame.remove();
+      toastMsg('មិនអាចបើក Print Preview បានទេ។ / Could not open print preview.', 'error');
+      return;
+    }
+
+    const printClone = buildSanitizedCertificateClone(certEl);
+    printDoc.open();
+    printDoc.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>NMC License Certificate</title>
+          <style>
+            @page { size: A4 portrait; margin: 8mm; }
+            html, body {
+              width: 210mm;
+              min-height: 297mm;
+              margin: 0;
+              padding: 0;
+              background: #ffffff;
+            }
+            body {
+              display: flex;
+              align-items: flex-start;
+              justify-content: center;
+              overflow: hidden;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            #certified-nmc-license-sheet {
+              width: 794px !important;
+              max-width: 794px !important;
+              overflow: visible !important;
+              box-shadow: none !important;
+              border: none !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              transform-origin: top center !important;
+              break-after: avoid !important;
+              page-break-after: avoid !important;
+            }
+          </style>
+        </head>
+        <body></body>
+      </html>
+    `);
+    printDoc.close();
+    const importedClone = printDoc.importNode(printClone, true) as HTMLElement;
+    printDoc.body.appendChild(importedClone);
+
+    const pageWidthPx = 794;
+    const pageHeightPx = 1123;
+    const printScale = Math.min(1, pageWidthPx / importedClone.scrollWidth, pageHeightPx / importedClone.scrollHeight);
+    importedClone.style.transform = `scale(${printScale})`;
+    importedClone.style.marginTop = '0';
+
+    const cleanup = () => {
+      window.setTimeout(() => printFrame.remove(), 500);
+    };
+
+    printFrame.contentWindow?.addEventListener('afterprint', cleanup, { once: true });
+    printFrame.contentWindow?.focus();
+    printFrame.contentWindow?.print();
+    window.setTimeout(cleanup, 60000);
   };
 
   // Filter Logic
@@ -5471,7 +5656,7 @@ export default function EnterpriseLicensingRegistry({
               </button>
 
               <button
-                onClick={() => window.print()}
+                onClick={handlePrintLicense}
                 className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-extrabold rounded-lg transition-all active:scale-95 cursor-pointer shadow-md"
                 title="Print this official certificate layout directly"
                 type="button"
