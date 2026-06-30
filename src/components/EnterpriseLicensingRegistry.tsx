@@ -299,6 +299,9 @@ const botRequiresGroupChat = (bot: TelegramBotSetting) => {
 const getBotGroupChatId = (bot: TelegramBotSetting) =>
   (bot.default_group_chat_id || bot.default_chat_id || '').trim();
 
+const normalizeTelegramBotUsername = (username?: string | null) =>
+  String(username || '').trim().replace(/^@+/, '');
+
 const getBotPurposeLabel = (bot: TelegramBotSetting) => {
   const normalized = normalizeBotPurpose(bot.bot_purpose);
   if (normalized === 'both') return 'Both: License Reminder + Report Group Notification';
@@ -5858,7 +5861,7 @@ export default function EnterpriseLicensingRegistry({
                     required
                     value={botUsername}
                     onChange={(e) => setBotUsername(e.target.value)}
-                    placeholder="NMC_License_Bot (must end in `_bot` or `Bot`)"
+                    placeholder="Licensingreport_bot (must end in `_bot` or `Bot`)"
                     className="w-full text-xs pl-7 p-2 border border-slate-300 rounded-lg focus:ring-1 focus:ring-navy focus:outline-hidden font-mono"
                   />
                 </div>
@@ -6058,8 +6061,8 @@ export default function EnterpriseLicensingRegistry({
                     {(() => {
                       const licId = connectionLic.id;
                       const rawTok = generatedTokens[licId]?.token || '';
-                      const botUser = activeReminderBot?.bot_username || 'NMC_Reminder_Bot';
-                      const link = `https://t.me/${botUser}?start=${rawTok}`;
+                      const botUser = normalizeTelegramBotUsername(activeReminderBot?.bot_username || 'Licensingreport_bot');
+                      const link = `https://t.me/${botUser}?start=${encodeURIComponent(rawTok)}`;
                       return (
                         <a
                           href={link}

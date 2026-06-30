@@ -343,8 +343,8 @@ export const INITIAL_RENEWAL_HISTORIES: LicenseRenewalHistory[] = [];
 export const INITIAL_BOT_SETTINGS: TelegramBotSetting[] = [
   {
     id: 'bot-001',
-    bot_name: 'NMC License Reminder Bot',
-    bot_username: 'NMC_License_Bot',
+    bot_name: 'License report',
+    bot_username: 'Licensingreport_bot',
     bot_token_encrypted: '123456789:ABCdefGhIJKlmNoPQRstUVwxyZ', // Dummy token
     bot_purpose: 'license_reminder',
     default_chat_id: '-100123456789',
@@ -356,7 +356,7 @@ export const INITIAL_BOT_SETTINGS: TelegramBotSetting[] = [
     connection_status: 'connected',
     last_error: null,
     webhook_status: 'not_configured',
-    bot_display_name: 'NMC License Reminder Bot',
+    bot_display_name: 'License report',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   }

@@ -1105,7 +1105,10 @@ export async function fetchBotSettingsFromSupabase(): Promise<TelegramBotSetting
   const client = getActiveSupabaseClient();
   if (!client) {
     const local = localStorage.getItem('nmc_bot_settings');
-    return local ? JSON.parse(local) : INITIAL_BOT_SETTINGS;
+    const records: TelegramBotSetting[] = local ? JSON.parse(local) : INITIAL_BOT_SETTINGS;
+    const migrated = records.map(migrateLegacyDemoBotUsername);
+    localStorage.setItem('nmc_bot_settings', JSON.stringify(migrated));
+    return migrated;
   }
 
   const response = await fetch('/api/telegram-bot-settings', {
@@ -1127,7 +1130,9 @@ export async function fetchActiveReminderBotPublic(): Promise<TelegramBotSetting
   if (!client) {
     const local = localStorage.getItem('nmc_bot_settings');
     const records: TelegramBotSetting[] = local ? JSON.parse(local) : INITIAL_BOT_SETTINGS;
-    const active = records.find(b => b.is_active && ['license_reminder', 'both'].includes(b.bot_purpose || 'license_reminder'));
+    const migrated = records.map(migrateLegacyDemoBotUsername);
+    localStorage.setItem('nmc_bot_settings', JSON.stringify(migrated));
+    const active = migrated.find(b => b.is_active && ['license_reminder', 'both'].includes(b.bot_purpose || 'license_reminder'));
     return active ? sanitizeBotSettingForBrowserStorage(active) : null;
   }
 
@@ -1172,14 +1177,26 @@ export async function fetchActiveReminderBotPublic(): Promise<TelegramBotSetting
   }
 }
 
-function sanitizeBotSettingForBrowserStorage(setting: TelegramBotSetting, preserveSecrets = false): TelegramBotSetting {
+function migrateLegacyDemoBotUsername(setting: TelegramBotSetting): TelegramBotSetting {
+  const username = String(setting.bot_username || '').trim().replace(/^@+/, '');
+  if (!['NMC_License_Bot', 'NMC_Reminder_Bot'].includes(username)) return setting;
   return {
     ...setting,
-    bot_purpose: setting.bot_purpose || 'license_reminder',
-    connection_status: setting.connection_status || (setting.last_test_status === 'Success' ? 'connected' : setting.last_test_status === 'Failed' ? 'error' : 'not_verified'),
-    webhook_status: setting.webhook_status || (setting.webhook_url ? 'configured' : 'not_configured'),
-    bot_token_encrypted: preserveSecrets ? setting.bot_token_encrypted : (setting.bot_token_encrypted ? 'PROTECTED_SERVER_SIDE' : ''),
-    webhook_secret_encrypted: preserveSecrets ? (setting.webhook_secret_encrypted || null) : (setting.webhook_secret_encrypted ? 'PROTECTED_SERVER_SIDE' : null),
+    bot_name: setting.bot_name === 'NMC License Reminder Bot' ? 'License report' : setting.bot_name,
+    bot_display_name: setting.bot_display_name === 'NMC License Reminder Bot' ? 'License report' : setting.bot_display_name,
+    bot_username: 'Licensingreport_bot'
+  };
+}
+
+function sanitizeBotSettingForBrowserStorage(setting: TelegramBotSetting, preserveSecrets = false): TelegramBotSetting {
+  const migrated = migrateLegacyDemoBotUsername(setting);
+  return {
+    ...migrated,
+    bot_purpose: migrated.bot_purpose || 'license_reminder',
+    connection_status: migrated.connection_status || (migrated.last_test_status === 'Success' ? 'connected' : migrated.last_test_status === 'Failed' ? 'error' : 'not_verified'),
+    webhook_status: migrated.webhook_status || (migrated.webhook_url ? 'configured' : 'not_configured'),
+    bot_token_encrypted: preserveSecrets ? migrated.bot_token_encrypted : (migrated.bot_token_encrypted ? 'PROTECTED_SERVER_SIDE' : ''),
+    webhook_secret_encrypted: preserveSecrets ? (migrated.webhook_secret_encrypted || null) : (migrated.webhook_secret_encrypted ? 'PROTECTED_SERVER_SIDE' : null),
   };
 }
 
