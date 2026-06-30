@@ -258,6 +258,8 @@ export default function App() {
   const [reports, setReports] = useState<MetrologyReport[]>([]);
   const [dashboardLicenses, setDashboardLicenses] = useState<EnterpriseLicense[]>([]);
   const [isUsersLoading, setIsUsersLoading] = useState(false);
+  const [isDashboardLoading, setIsDashboardLoading] = useState(false);
+  const [dashboardDataError, setDashboardDataError] = useState<string | null>(null);
   
   // App navigation state: 'dashboard' | 'reports' | 'users' | 'developer' | 'history' | 'backup' | 'licenses'
   const [activeTab, setActiveTab ] = useState<'dashboard' | 'reports' | 'users' | 'developer' | 'history' | 'backup' | 'licenses'>('dashboard');
@@ -504,20 +506,21 @@ export default function App() {
       const activeCfg = getActiveSupabaseConfig();
       setDbConfig(activeCfg);
 
-      try {
-        const licenseRecords = await fetchLicensesFromSupabase();
-        setDashboardLicenses(licenseRecords);
-      } catch (licenseError) {
-        console.warn('Could not load dashboard license map data:', licenseError);
-      }
-
       if (!activeCfg.url || !activeCfg.anonKey || activeCfg.url.includes('YOUR_SUPABASE_URL')) {
+        try {
+          const licenseRecords = await fetchLicensesFromSupabase();
+          setDashboardLicenses(licenseRecords);
+        } catch (licenseError) {
+          console.warn('Could not load local dashboard license data:', licenseError);
+        }
         console.log('Supabase database has not been linked yet. System is operating on local storage schemas.');
         return;
       }
 
       try {
         setIsUsersLoading(true);
+        setIsDashboardLoading(true);
+        setDashboardDataError(null);
         // Sync users registry from Supabase
         const cloudUsers = await fetchUsersFromSupabase();
         if (cloudUsers && cloudUsers.length > 0) {
@@ -526,13 +529,13 @@ export default function App() {
         }
 
         // Sync metrology reports from Supabase
-        const cloudReports = await fetchReportsFromSupabase();
+        const cloudReports = await fetchReportsFromSupabase(undefined, { allowFallback: false });
         if (cloudReports) {
           setReports(cloudReports);
           localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
         }
 
-        const cloudLicenses = await fetchLicensesFromSupabase();
+        const cloudLicenses = await fetchLicensesFromSupabase(undefined, { allowFallback: false });
         setDashboardLicenses(cloudLicenses);
         
         setDbConfig({
@@ -541,13 +544,15 @@ export default function App() {
         });
         console.log('Supabase Cloud database synchronized successfully.');
       } catch (error) {
-        console.warn('Unable to sync live Supabase data, staying on secure local storage database:', error);
+        console.warn('Unable to sync live Supabase dashboard data:', error);
+        setDashboardDataError('Unable to load dashboard data from Supabase. Local cached values are not being used for Superadmin analytics.');
         setDbConfig({
           ...activeCfg,
           isConnected: false
         });
       } finally {
         setIsUsersLoading(false);
+        setIsDashboardLoading(false);
       }
     };
     
@@ -560,16 +565,23 @@ export default function App() {
       const activeCfg = getActiveSupabaseConfig();
       if (activeCfg.url && activeCfg.anonKey && !activeCfg.url.includes('YOUR_SUPABASE_URL')) {
         try {
-          const cloudReports = await fetchReportsFromSupabase(sessionUser || undefined);
+          setIsDashboardLoading(sessionUser?.role === 'superadmin');
+          setDashboardDataError(null);
+          const cloudReports = await fetchReportsFromSupabase(sessionUser || undefined, { allowFallback: sessionUser?.role !== 'superadmin' });
           if (cloudReports) {
             setReports(cloudReports);
             localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
           }
 
-          const cloudLicenses = await fetchLicensesFromSupabase(sessionUser || undefined);
+          const cloudLicenses = await fetchLicensesFromSupabase(sessionUser || undefined, { allowFallback: sessionUser?.role !== 'superadmin' });
           setDashboardLicenses(cloudLicenses);
         } catch (e) {
           console.warn('Could not refresh session reports list:', e);
+          if (sessionUser?.role === 'superadmin') {
+            setDashboardDataError('Unable to refresh Superadmin dashboard analytics from Supabase.');
+          }
+        } finally {
+          setIsDashboardLoading(false);
         }
       }
     };
@@ -1861,6 +1873,8 @@ export default function App() {
                     users={users}
                     activeCompanyList={activeCompanyList}
                     licenseRecords={dashboardLicenses}
+                    isLoading={isDashboardLoading}
+                    errorMessage={dashboardDataError}
                   />
                 ) : (
                   <>
@@ -2022,6 +2036,175 @@ export default function App() {
                     ⚠️ គណនីរបស់អ្នកត្រូវបានកំណត់សិទ្ធិមិនឱ្យបំពេញ ឬកែព័ត៌មានថ្មីឡើយ។ ប្រសិនបើត្រូវការសិទ្ធិបន្ថែម សូមទាក់ទងមកមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ។
                   </div>
                 )}
+
+                {/* Report Summary Cards - superadmin only */}
+                {sessionUser.role === 'superadmin' && (() => {
+                  const submittedReports = reports.filter(r => {
+                    const status = String((r as any).report_status || 'submitted').toLowerCase();
+                    return !['draft', 'rejected', 'cancelled'].includes(status);
+                  });
+                  const totalSubmitted = submittedReports.length;
+                  const uniqueCustomers = new Set(submittedReports.map(r => r.customer_name?.trim()).filter(Boolean)).size;
+                  const uniqueAddresses = new Set(submittedReports.map(r => r.customer_address?.trim()).filter(v => v && v !== 'N/A')).size;
+                  const mfgN = submittedReports.filter(r => String(r.service_type || '').toLowerCase().includes('manufactur')).length;
+                  const installN = submittedReports.filter(r => String(r.service_type || '').toLowerCase().includes('installation')).length;
+                  const repairN = submittedReports.filter(r => String(r.service_type || '').toLowerCase().includes('repair')).length;
+                  const pct = (v: number, t: number) => t > 0 ? Math.round((v / t) * 100) : 0;
+                  const barMax = Math.max(1, mfgN, installN, repairN);
+                  return (
+                    <div className="space-y-4">
+                      {/* Row 1: 6 stat cards */}
+                      <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
+                        {/* Total - navy bg */}
+                        <div className="bg-[#0B1A35] rounded-xl p-4 flex items-center gap-3 shadow-md">
+                          <div className="h-10 w-10 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
+                            <FileCheck2 className="h-5 w-5 text-white/80" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-white/60 uppercase tracking-wider">សេវាកម្មសរុប</p>
+                            <p className="text-xl font-extrabold text-white leading-tight">{totalSubmitted}</p>
+                          </div>
+                        </div>
+                        {/* Customers */}
+                        <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-3 shadow-sm">
+                          <div className="h-10 w-10 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center shrink-0">
+                            <Users className="h-5 w-5 text-amber-500" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">អតិថិជន</p>
+                            <p className="text-xl font-extrabold text-slate-800 leading-tight">{uniqueCustomers}</p>
+                          </div>
+                        </div>
+                        {/* Address */}
+                        <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-3 shadow-sm">
+                          <div className="h-10 w-10 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center shrink-0">
+                            <MapPin className="h-5 w-5 text-rose-400" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ទីតាំង</p>
+                            <p className="text-xl font-extrabold text-slate-800 leading-tight">{uniqueAddresses}</p>
+                          </div>
+                        </div>
+                        {/* Manufactured */}
+                        <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-3 shadow-sm">
+                          <div className="h-10 w-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
+                            <Activity className="h-5 w-5 text-emerald-500" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">ផលិត</p>
+                            <p className="text-xl font-extrabold text-slate-800 leading-tight">{mfgN}</p>
+                          </div>
+                        </div>
+                        {/* Installed */}
+                        <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-3 shadow-sm">
+                          <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
+                            <SlidersHorizontal className="h-5 w-5 text-blue-500" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">តម្លើង</p>
+                            <p className="text-xl font-extrabold text-slate-800 leading-tight">{installN}</p>
+                          </div>
+                        </div>
+                        {/* Repaired */}
+                        <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-3 shadow-sm">
+                          <div className="h-10 w-10 rounded-xl bg-orange-50 border border-orange-100 flex items-center justify-center shrink-0">
+                            <ArrowLeftRight className="h-5 w-5 text-orange-500" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-orange-600 uppercase tracking-wider">ជួសជុល</p>
+                            <p className="text-xl font-extrabold text-slate-800 leading-tight">{repairN}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Row 2: Bar Chart + Pie/Ratio */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {/* Bar Chart */}
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                          <h4 className="text-sm font-bold text-slate-700 mb-1">សន្ទស្សន៍សេវាកម្មមាត្រាសាស្ត្រតាមប្រភេទ</h4>
+                          <p className="text-[10px] text-slate-400 uppercase font-semibold tracking-wide mb-5">Bar Chart of Metrology Services</p>
+                          {totalSubmitted === 0 ? (
+                            <p className="text-center text-slate-300 text-sm py-10">មិនទាន់មានទិន្នន័យដើម្បីបង្ហាញក្រាហ្វកឡើយ។</p>
+                          ) : (
+                            <div className="space-y-4 mt-2">
+                              <div className="flex items-center gap-3">
+                                <span className="text-[10px] font-bold text-slate-500 w-16 text-right shrink-0">ផលិត</span>
+                                <div className="flex-1 h-7 bg-slate-100 rounded-lg overflow-hidden">
+                                  <div className="h-full bg-emerald-500 rounded-lg flex items-center pl-2 transition-all" style={{ width: `${(mfgN / barMax) * 100}%`, minWidth: mfgN > 0 ? '28px' : '0' }}>
+                                    {mfgN > 0 && <span className="text-[10px] font-bold text-white">{mfgN}</span>}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-[10px] font-bold text-slate-500 w-16 text-right shrink-0">តម្លើង</span>
+                                <div className="flex-1 h-7 bg-slate-100 rounded-lg overflow-hidden">
+                                  <div className="h-full bg-blue-500 rounded-lg flex items-center pl-2 transition-all" style={{ width: `${(installN / barMax) * 100}%`, minWidth: installN > 0 ? '28px' : '0' }}>
+                                    {installN > 0 && <span className="text-[10px] font-bold text-white">{installN}</span>}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-[10px] font-bold text-slate-500 w-16 text-right shrink-0">ជួសជុល</span>
+                                <div className="flex-1 h-7 bg-slate-100 rounded-lg overflow-hidden">
+                                  <div className="h-full bg-orange-500 rounded-lg flex items-center pl-2 transition-all" style={{ width: `${(repairN / barMax) * 100}%`, minWidth: repairN > 0 ? '28px' : '0' }}>
+                                    {repairN > 0 && <span className="text-[10px] font-bold text-white">{repairN}</span>}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Services Shares Ratio */}
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+                          <h4 className="text-sm font-bold text-slate-700 mb-1">ភាគរយចំណែកសេវាកម្ម</h4>
+                          <p className="text-[10px] text-slate-400 uppercase font-semibold tracking-wide mb-5">Services Shares Ratio</p>
+                          {totalSubmitted === 0 ? (
+                            <p className="text-center text-slate-300 text-sm py-10">មិនទាន់មានទិន្នន័យដើម្បីបង្ហាញក្រាហ្វិចចំណែកឡើយ។</p>
+                          ) : (
+                            <div className="flex flex-col items-center gap-5">
+                              {/* Donut chart */}
+                              <div className="relative h-36 w-36">
+                                <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90">
+                                  <circle cx="18" cy="18" r="14" fill="none" stroke="#E5E7EB" strokeWidth="4" />
+                                  {(() => {
+                                    const segments = [
+                                      { value: mfgN, color: '#10B981' },
+                                      { value: installN, color: '#3B82F6' },
+                                      { value: repairN, color: '#F97316' },
+                                    ];
+                                    let offset = 0;
+                                    const circumference = 2 * Math.PI * 14;
+                                    return segments.map((seg, i) => {
+                                      const segPct = totalSubmitted > 0 ? seg.value / totalSubmitted : 0;
+                                      const dash = segPct * circumference;
+                                      const gap = circumference - dash;
+                                      const el = (
+                                        <circle key={i} cx="18" cy="18" r="14" fill="none" stroke={seg.color} strokeWidth="4" strokeDasharray={`${dash} ${gap}`} strokeDashoffset={-offset} strokeLinecap="round" />
+                                      );
+                                      offset += dash;
+                                      return el;
+                                    });
+                                  })()}
+                                </svg>
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                  <span className="text-lg font-extrabold text-slate-700">{totalSubmitted}</span>
+                                </div>
+                              </div>
+                              {/* Legend */}
+                              <div className="flex flex-wrap justify-center gap-4 text-[11px]">
+                                <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-emerald-500 inline-block" /> ផលិត {pct(mfgN, totalSubmitted)}%</span>
+                                <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-blue-500 inline-block" /> តម្លើង {pct(installN, totalSubmitted)}%</span>
+                                <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-orange-500 inline-block" /> ជួសជុល {pct(repairN, totalSubmitted)}%</span>
+                              </div>
+                            </div>
+                          )}
+                          <p className="text-[10px] text-slate-300 text-right mt-4">ក្រាហ្វិចចំណែកទាំងនេះគិតពីចំនួនរបាយការណ៍ដែលបានបញ្ជូនរួមបញ្ចូលទៅរួមគ្នា តាមការគំរលក់ទូលម្អិតបន្ថែម។</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* 8. User Reports tabular data list */}
                 <div className="bg-white rounded-xl shadow-md border border-slate-100 overflow-hidden">

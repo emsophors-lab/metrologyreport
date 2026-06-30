@@ -427,7 +427,7 @@ export async function deleteUserFromSupabase(userId: string): Promise<void> {
  * Fetch all monthly metrology reports from Supabase
  * Implements automatic chunking/pagination to query more than 1,000 records safely.
  */
-export async function fetchReportsFromSupabase(currentUser?: MetrologyUser): Promise<MetrologyReport[]> {
+export async function fetchReportsFromSupabase(currentUser?: MetrologyUser, options: { allowFallback?: boolean } = {}): Promise<MetrologyReport[]> {
   const client = getActiveSupabaseClient();
   if (!client) {
     const local = localStorage.getItem('nmc_reports');
@@ -498,6 +498,10 @@ export async function fetchReportsFromSupabase(currentUser?: MetrologyUser): Pro
     }
     return [];
   } catch (e) {
+    if (options.allowFallback === false) {
+      console.warn('Supabase reports fetch failed without dashboard fallback:', e);
+      throw e;
+    }
     console.warn('Falling back to local storage databases on Supabase reports fetch failure:', e);
     const local = localStorage.getItem('nmc_reports');
     const all: MetrologyReport[] = local ? JSON.parse(local) : INITIAL_REPORTS;
@@ -654,7 +658,7 @@ export async function deleteReportFromSupabase(reportId: string): Promise<void> 
 /**
  * Fetch licenses from Supabase with safe offline fallback
  */
-export async function fetchLicensesFromSupabase(currentUser?: MetrologyUser): Promise<EnterpriseLicense[]> {
+export async function fetchLicensesFromSupabase(currentUser?: MetrologyUser, options: { allowFallback?: boolean } = {}): Promise<EnterpriseLicense[]> {
   const client = getActiveSupabaseClient();
   if (!client) {
     const local = localStorage.getItem('nmc_licenses');
@@ -682,15 +686,22 @@ export async function fetchLicensesFromSupabase(currentUser?: MetrologyUser): Pr
       return records;
     }
     
-    // Seed if empty on Supabase
-    const local = localStorage.getItem('nmc_licenses');
-    const records = local ? JSON.parse(local) : INITIAL_LICENSES;
-    await client.from('enterprise_licenses').insert(records);
-    if (currentUser && currentUser.role === 'company') {
-      return records.filter((l: any) => isLicenseOwnedByCurrentCompany(l, currentUser));
+    // Seed only when demo data is explicitly enabled; otherwise an empty Supabase table is a real empty state.
+    if (isDemoDataEnabled()) {
+      const local = localStorage.getItem('nmc_licenses');
+      const records = local ? JSON.parse(local) : INITIAL_LICENSES;
+      await client.from('enterprise_licenses').insert(records);
+      if (currentUser && currentUser.role === 'company') {
+        return records.filter((l: any) => isLicenseOwnedByCurrentCompany(l, currentUser));
+      }
+      return records;
     }
-    return records;
+    return [];
   } catch (e) {
+    if (options.allowFallback === false) {
+      console.warn('Supabase enterprise_licenses fetch failed without dashboard fallback:', e);
+      throw e;
+    }
     console.warn('Failed to fetch from enterprise_licenses Supabase table. Using local storage Fallback.', e);
     const local = localStorage.getItem('nmc_licenses');
     const all = local ? JSON.parse(local) : INITIAL_LICENSES;

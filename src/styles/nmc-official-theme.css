@@ -3053,6 +3053,8 @@ textarea.nmc-input:focus {
 .nmc-superadmin-theme .superdash-progress-row {
   display: grid;
   gap: 5px;
+  position: relative;
+  outline: none;
 }
 
 .nmc-superadmin-theme .superdash-progress-row > div {
@@ -3091,6 +3093,35 @@ textarea.nmc-input:focus {
   border-radius: inherit;
 }
 
+.nmc-superadmin-theme .superdash-hover-tooltip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  min-width: 180px;
+  max-width: min(260px, 86vw);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 8px;
+  background: #FFFFFF;
+  color: #111827;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.45;
+  padding: 9px 10px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.nmc-superadmin-theme .superdash-progress-row:hover .superdash-hover-tooltip,
+.nmc-superadmin-theme .superdash-progress-row:focus .superdash-hover-tooltip,
+.nmc-superadmin-theme .superdash-progress-row:focus-within .superdash-hover-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .nmc-superadmin-theme .superdash-note {
   margin-top: 12px;
   border-radius: 8px;
@@ -3119,6 +3150,12 @@ textarea.nmc-input:focus {
 .nmc-superadmin-theme .superdash-line-chart .grid-line {
   stroke: #EEF1F8;
   stroke-width: 1;
+}
+
+.nmc-superadmin-theme .superdash-line-chart .target-line {
+  stroke: #94A3B8;
+  stroke-width: 1.4;
+  stroke-dasharray: 7 6;
 }
 
 .nmc-superadmin-theme .superdash-line-chart .axis-line {
@@ -3154,12 +3191,23 @@ textarea.nmc-input:focus {
   filter: drop-shadow(0 2px 2px rgba(201,162,39,0.18));
 }
 
+.nmc-superadmin-theme .superdash-line-chart .trend-line--previous {
+  stroke: #64748B;
+  stroke-width: 3;
+  stroke-dasharray: 8 7;
+  filter: none;
+}
+
 .nmc-superadmin-theme .superdash-line-chart .trend-point circle {
   fill: var(--dash-gold);
   stroke: rgba(255,255,255,0.92);
   stroke-width: 2;
   cursor: pointer;
   transition: r 140ms ease, filter 140ms ease;
+}
+
+.nmc-superadmin-theme .superdash-line-chart .trend-point--previous circle {
+  fill: #64748B;
 }
 
 .nmc-superadmin-theme .superdash-line-chart .trend-point:hover circle {
@@ -3291,6 +3339,7 @@ textarea.nmc-input:focus {
 
 .nmc-superadmin-theme .superdash-heatmap .is-submitted { background: #16A34A; }
 .nmc-superadmin-theme .superdash-heatmap .is-missing { background: #DC2626; }
+.nmc-superadmin-theme .superdash-heatmap .is-not_yet_due { background: #E5E7EB; color: #64748B; }
 .nmc-superadmin-theme .superdash-heatmap strong {
   display: inline-flex;
   border-radius: 999px;

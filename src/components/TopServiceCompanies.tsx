@@ -32,6 +32,14 @@ const MONTH_OPTIONS = [
   { value: '12', label: 'ធ្នូ' }
 ];
 
+function normalizeReportMonth(reportMonth: string) {
+  const raw = String(reportMonth || '').trim();
+  const numeric = raw.match(/\d{1,2}/)?.[0];
+  if (numeric) return numeric.padStart(2, '0');
+  const matched = MONTH_OPTIONS.find(month => raw.includes(month.label));
+  return matched?.value || raw;
+}
+
 export default function TopServiceCompanies({ reports, users }: TopServiceCompaniesProps) {
   // 1. Filter States
   const [viewMode, setViewMode] = useState<'month' | 'year' | 'all'>('all');
@@ -55,7 +63,7 @@ export default function TopServiceCompanies({ reports, users }: TopServiceCompan
       return report.report_year === selectedYear;
     }
     if (viewMode === 'month') {
-      return report.report_year === selectedYear && report.report_month === selectedMonth;
+      return report.report_year === selectedYear && normalizeReportMonth(report.report_month) === selectedMonth;
     }
     return true;
   });

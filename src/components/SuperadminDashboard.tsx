@@ -25,6 +25,8 @@ interface SuperadminDashboardProps {
   users: MetrologyUser[];
   activeCompanyList: MetrologyUser[];
   licenseRecords?: EnterpriseLicense[];
+  isLoading?: boolean;
+  errorMessage?: string | null;
 }
 
 const MONTHS = [
@@ -91,34 +93,123 @@ function getField(record: Record<string, any>, keys: string[]) {
   return null;
 }
 
-function hasGps(record: Record<string, any>) {
-  return !!getField(record, ['business_latitude', 'latitude', 'lat', 'gps_latitude']) &&
-    !!getField(record, ['business_longitude', 'longitude', 'lng', 'gps_longitude']);
+function getDateField(record: Record<string, any>, keys: string[]) {
+  const value = getField(record, keys);
+  if (!value) return null;
+  const date = new Date(String(value).includes('T') ? String(value) : `${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function statusOf(record: Record<string, any>) {
-  return String(getField(record, ['license_status', 'status', 'current_status']) || '').toLowerCase();
+function getLicenseExpiryDate(record: Record<string, any>) {
+  return getDateField(record, ['license_expiry_date', 'expiry_date', 'expiration_date', 'license_expiration_date']);
+}
+
+function isValidCoordinate(value: any, min: number, max: number) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= min && numeric <= max && numeric !== 0;
+}
+
+function hasGps(record: Record<string, any>) {
+  const lat = getField(record, ['business_latitude', 'latitude', 'lat', 'gps_latitude']);
+  const lng = getField(record, ['business_longitude', 'longitude', 'lng', 'gps_longitude']);
+  return isValidCoordinate(lat, -90, 90) && isValidCoordinate(lng, 60, 180);
 }
 
 function percent(value: number, total: number) {
   return total > 0 ? Math.round((value / total) * 100) : 0;
 }
 
-function daysUntil(dateValue?: string | null) {
+function formatRate(value: number | null) {
+  return value === null ? 'N/A' : `${value}%`;
+}
+
+function getPhnomPenhToday() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Phnom_Penh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+  const year = Number(parts.find(part => part.type === 'year')?.value || new Date().getFullYear());
+  const month = Number(parts.find(part => part.type === 'month')?.value || new Date().getMonth() + 1);
+  const day = Number(parts.find(part => part.type === 'day')?.value || new Date().getDate());
+  return new Date(year, month - 1, day);
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function addMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function daysUntil(dateValue?: string | Date | null) {
   if (!dateValue) return 9999;
-  const end = new Date(`${dateValue}T00:00:00`);
+  const end = dateValue instanceof Date ? dateValue : new Date(String(dateValue).includes('T') ? dateValue : `${dateValue}T00:00:00`);
   if (Number.isNaN(end.getTime())) return 9999;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return Math.ceil((end.getTime() - today.getTime()) / 86400000);
 }
 
-function reportMonthValue(report: MetrologyReport) {
+function daysUntilFrom(dateValue: Date | null, today: Date) {
+  if (!dateValue) return 9999;
+  const start = new Date(today);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(dateValue);
+  end.setHours(0, 0, 0, 0);
+  return Math.ceil((end.getTime() - start.getTime()) / 86400000);
+}
+
+function isOperationalLicense(record: Record<string, any>) {
+  return record.is_active !== false;
+}
+
+function isActiveOnDate(record: Record<string, any>, date: Date) {
+  if (!isOperationalLicense(record)) return false;
+  const issueDate = getDateField(record, ['license_issue_date', 'issue_date']);
+  const expiryDate = getLicenseExpiryDate(record);
+  if (issueDate && issueDate > date) return false;
+  return !expiryDate || expiryDate >= date;
+}
+
+function isSubmittedReport(report: MetrologyReport & Record<string, any>) {
+  const status = String(getField(report, ['report_status', 'status']) || 'submitted').toLowerCase();
+  return !['draft', 'rejected', 'cancelled'].includes(status);
+}
+
+function reportLicenseKey(report: MetrologyReport & Record<string, any>) {
+  return String(getField(report, ['enterprise_license_id', 'license_id', 'license_number']) || '').trim();
+}
+
+function licenseKey(license: EnterpriseLicense & Record<string, any>) {
+  return String(getField(license, ['license_number', 'license_id', 'id']) || '').trim();
+}
+
+function isMonthDue(year: number, month: number, today: Date, deadlineDay = 15) {
+  const deadline = new Date(year, month, deadlineDay);
+  deadline.setHours(23, 59, 59, 999);
+  return today > deadline;
+}
+
+function reportMonthValue(report: MetrologyReport & Record<string, any>) {
   const raw = String(report.report_month || '').trim();
   const numeric = raw.match(/\d{1,2}/)?.[0];
   if (numeric) return numeric.padStart(2, '0');
+  const date = getDateField(report, ['submitted_at', 'created_at', 'service_end_date', 'updated_at']);
+  if (date) return String(date.getMonth() + 1).padStart(2, '0');
   const idx = MONTHS.findIndex(m => raw.includes(m.kh) || raw.toLowerCase().includes(m.short.toLowerCase()));
   return idx >= 0 ? String(idx + 1).padStart(2, '0') : '';
+}
+
+function reportYearValue(report: MetrologyReport & Record<string, any>) {
+  const rawYear = String(report.report_year || '').match(/\d{4}/)?.[0];
+  if (rawYear) return rawYear;
+  const date = getDateField(report, ['submitted_at', 'created_at', 'service_end_date', 'updated_at']);
+  return date ? String(date.getFullYear()) : '';
 }
 
 function countBy<T>(items: T[], getKey: (item: T) => string) {
@@ -144,10 +235,9 @@ function provinceOf(record: Record<string, any>) {
 }
 
 function riskForLicense(license: EnterpriseLicense & Record<string, any>, reportsForLicense: number) {
-  const days = daysUntil(license.license_expiry_date);
-  const status = statusOf(license);
+  const days = daysUntil(getLicenseExpiryDate(license));
   const score =
-    (status.includes('expired') || days < 0 ? 42 : 0) +
+    (days < 0 ? 42 : 0) +
     (days >= 0 && days <= 30 ? 22 : days <= 90 ? 12 : 0) +
     (!hasGps(license) ? 16 : 0) +
     (!getField(license, ['telegram_chat_id', 'telegram_username', 'telegram_connected_at']) ? 10 : 0) +
@@ -237,19 +327,36 @@ function SectionCard({
   );
 }
 
-function ProgressRow({ label, value, pct, color }: { label: string; value: string | number; pct: number; color: string }) {
+function HoverTooltip({ children }: { children: React.ReactNode }) {
+  return <span className="superdash-hover-tooltip">{children}</span>;
+}
+
+function ProgressRow({
+  label,
+  value,
+  pct,
+  color,
+  tooltip
+}: {
+  label: string;
+  value: string | number;
+  pct: number;
+  color: string;
+  tooltip?: React.ReactNode;
+}) {
   return (
-    <div className="superdash-progress-row">
+    <div className="superdash-progress-row" tabIndex={0}>
       <div>
         <span>{label}</span>
         <strong style={{ color }}>{value}</strong>
       </div>
       <em><i style={{ width: `${Math.min(100, Math.max(0, pct))}%`, background: color }} /></em>
+      {tooltip && <HoverTooltip>{tooltip}</HoverTooltip>}
     </div>
   );
 }
 
-export default function SuperadminDashboard({ currentUser, reports, users, activeCompanyList, licenseRecords = [] }: SuperadminDashboardProps) {
+export default function SuperadminDashboard({ currentUser, reports, users, activeCompanyList, licenseRecords = [], isLoading = false, errorMessage = null }: SuperadminDashboardProps) {
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showAlert, setShowAlert] = useState(true);
   const canOpenAnalytics = currentUser.role === 'superadmin' ||
@@ -257,55 +364,83 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
   const companyRecords = activeCompanyList as Array<MetrologyUser & Record<string, any>>;
   const licenseStatsRecords = licenseRecords as Array<EnterpriseLicense & Record<string, any>>;
   const totalCompanies = companyRecords.length;
-  const totalLicenses = licenseStatsRecords.length;
-  const activeLicenses = licenseStatsRecords.filter(c => {
-    const status = statusOf(c);
-    return status ? ['active', 'renewed'].includes(status) : c.is_active !== false;
+  const todayPhnomPenh = getPhnomPenhToday();
+  const operationalLicenses = licenseStatsRecords.filter(isOperationalLicense);
+  const activeLicenseRecords = operationalLicenses.filter(c => isActiveOnDate(c, todayPhnomPenh));
+  const totalLicenses = operationalLicenses.length;
+  const activeLicenses = activeLicenseRecords.length;
+  const activeStrict = operationalLicenses.filter(c => daysUntilFrom(getLicenseExpiryDate(c), todayPhnomPenh) > 90).length;
+  const expiringSoon = operationalLicenses.filter(c => {
+    const days = daysUntilFrom(getLicenseExpiryDate(c), todayPhnomPenh);
+    return days >= 0 && days <= 90;
   }).length;
-  const expiringSoon = licenseStatsRecords.filter(c => statusOf(c).includes('expiring') || (daysUntil(c.license_expiry_date) >= 0 && daysUntil(c.license_expiry_date) <= 90)).length;
-  const expired = licenseStatsRecords.filter(c => statusOf(c).includes('expired') || daysUntil(c.license_expiry_date) < 0).length;
-  const expiring30 = licenseStatsRecords.filter(c => daysUntil(c.license_expiry_date) >= 0 && daysUntil(c.license_expiry_date) <= 30).length;
-  const expiring60 = licenseStatsRecords.filter(c => daysUntil(c.license_expiry_date) >= 0 && daysUntil(c.license_expiry_date) <= 60).length;
-  const telegramLinked = licenseStatsRecords.filter(c => !!getField(c, ['telegram_chat_id', 'telegram_username', 'telegram_connected_at'])).length;
-  const noGps = licenseStatsRecords.filter(c => !hasGps(c)).length;
-  const gpsTracked = Math.max(0, totalLicenses - noGps);
-  const licensed = licenseStatsRecords.filter(c => String(c.license_number || '').trim()).length;
-  const currentYear = String(new Date().getFullYear());
-  const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
+  const expired = operationalLicenses.filter(c => daysUntilFrom(getLicenseExpiryDate(c), todayPhnomPenh) < 0).length;
+  const expiring30 = operationalLicenses.filter(c => {
+    const days = daysUntilFrom(getLicenseExpiryDate(c), todayPhnomPenh);
+    return days >= 0 && days <= 30;
+  }).length;
+  const expiring31To60 = operationalLicenses.filter(c => {
+    const days = daysUntilFrom(getLicenseExpiryDate(c), todayPhnomPenh);
+    return days >= 31 && days <= 60;
+  }).length;
+  const expiring61To90 = operationalLicenses.filter(c => {
+    const days = daysUntilFrom(getLicenseExpiryDate(c), todayPhnomPenh);
+    return days >= 61 && days <= 90;
+  }).length;
+  const telegramLinked = activeLicenseRecords.filter(c => {
+    const linkedFlag = getField(c, ['telegram_linked', 'is_telegram_linked']);
+    return (linkedFlag === true || String(linkedFlag).toLowerCase() === 'true') &&
+      !!getField(c, ['telegram_user_id', 'telegram_chat_id']);
+  }).length;
+  const noGps = activeLicenseRecords.filter(c => !hasGps(c)).length;
+  const gpsTracked = Math.max(0, activeLicenses - noGps);
+  const licensed = activeLicenseRecords.filter(c => String(c.license_number || '').trim()).length;
+  const currentYear = String(todayPhnomPenh.getFullYear());
+  const currentMonth = String(todayPhnomPenh.getMonth() + 1).padStart(2, '0');
+  const currentMonthDue = isMonthDue(todayPhnomPenh.getFullYear(), todayPhnomPenh.getMonth() + 1, todayPhnomPenh);
 
   const reportsByLicense = useMemo(() => {
     const grouped = new Map<string, number>();
     reports.forEach(report => {
-      const key = String(report.license_number || '').trim();
+      if (!isSubmittedReport(report)) return;
+      const key = reportLicenseKey(report);
       if (key) grouped.set(key, (grouped.get(key) || 0) + 1);
     });
     return grouped;
   }, [reports]);
 
+  const activeLicenseKeys = new Set(activeLicenseRecords.map(licenseKey).filter(Boolean));
   const currentMonthUniqueReports = new Set(
     reports
-      .filter(r => r.report_year === currentYear && reportMonthValue(r) === currentMonth)
-      .map(r => r.license_number)
-      .filter(Boolean)
+      .filter(r => isSubmittedReport(r) && reportYearValue(r) === currentYear && reportMonthValue(r) === currentMonth)
+      .map(reportLicenseKey)
+      .filter(key => key && activeLicenseKeys.has(key))
   ).size;
-  const currentMonthRate = percent(currentMonthUniqueReports, Math.max(1, totalLicenses));
-  const missingReports = Math.max(0, totalLicenses - currentMonthUniqueReports);
+  const currentMonthRate = activeLicenses > 0 ? percent(currentMonthUniqueReports, activeLicenses) : null;
+  const missingReports = currentMonthDue ? Math.max(0, activeLicenses - currentMonthUniqueReports) : 0;
 
-  const provinceSource = (licenseStatsRecords.length > 0 ? licenseStatsRecords : companyRecords) as Array<Record<string, any>>;
-  const provinceRows = countBy(provinceSource, provinceOf)
-    .filter(row => row.label !== 'មិនទាន់កំណត់')
-    .slice(0, 9);
-  const provincesCovered = provinceRows.length;
+  const provinceSource = (activeLicenseRecords.length > 0 ? activeLicenseRecords : companyRecords) as Array<Record<string, any>>;
+  const allProvinceRows = CAMBODIA_PROVINCES.map(province => ({
+    label: province.value,
+    count: provinceSource.filter(record => provinceOf(record) === province.value).length
+  })).sort((a, b) => b.count - a.count);
+  const visibleProvinceRows = allProvinceRows.slice(0, 8);
+  const otherProvinceRows = allProvinceRows.slice(8);
+  const otherProvinceCount = otherProvinceRows.reduce((sum, row) => sum + row.count, 0);
+  const provinceRows = otherProvinceRows.length > 0
+    ? [...visibleProvinceRows, { label: `Others (${otherProvinceRows.length} provinces)`, count: otherProvinceCount }]
+    : visibleProvinceRows;
+  const provincesCovered = allProvinceRows.filter(row => row.count > 0).length;
   const maxProvince = Math.max(1, ...provinceRows.map(row => row.count));
   const instrumentRows = countBy(
-    (licenseStatsRecords.length > 0 ? licenseStatsRecords : reports) as Array<Record<string, any>>,
+    (activeLicenseRecords.length > 0 ? activeLicenseRecords : reports.filter(isSubmittedReport)) as Array<Record<string, any>>,
     item => String(getField(item as any, ['measuring_instrument_type', 'measuring_instrument', 'service_scope']) || 'Other Instruments')
   ).slice(0, 9);
   const maxInstrument = Math.max(1, ...instrumentRows.map(row => row.count));
 
-  const riskRows = licenseStatsRecords
+  const allRiskRows = activeLicenseRecords
     .map(license => {
-      const reportCount = reportsByLicense.get(String(license.license_number || '').trim()) || 0;
+      const reportCount = reportsByLicense.get(licenseKey(license)) || reportsByLicense.get(String(license.license_number || '').trim()) || 0;
       const risk = riskForLicense(license, reportCount);
       return {
         license,
@@ -315,63 +450,145 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
         days: risk.days
       };
     })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 8);
+    .sort((a, b) => b.score - a.score);
+  const riskRows = allRiskRows.slice(0, 8);
   const riskCounts = (['Low', 'Medium', 'High', 'Critical'] as Array<keyof typeof RISK_COLORS>).map(level => ({
     level,
-    count: riskRows.filter(row => row.level === level).length
+    count: allRiskRows.filter(row => row.level === level).length
   }));
-  const highCritical = riskRows.filter(row => row.level === 'High' || row.level === 'Critical').length;
+  const highCritical = allRiskRows.filter(row => row.level === 'High' || row.level === 'Critical').length;
 
-  const now = new Date();
+  const now = todayPhnomPenh;
   const lastSixMonths = Array.from({ length: 6 }, (_, index) => {
-    const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
-    return MONTHS[date.getMonth()];
+    const date = addMonths(new Date(now.getFullYear(), now.getMonth(), 1), -(5 - index));
+    return {
+      ...MONTHS[date.getMonth()],
+      year: date.getFullYear(),
+      monthNumber: date.getMonth() + 1,
+      monthStart: date
+    };
   });
   const trendRows = lastSixMonths.map(month => {
-    const uniqueReports = new Set(
+    const denominator = operationalLicenses.filter(license => isActiveOnDate(license, month.monthStart)).length;
+    const thisYearCount = new Set(
       reports
-        .filter(r => r.report_year === currentYear && reportMonthValue(r) === month.value)
-        .map(r => r.license_number)
-        .filter(Boolean)
+        .filter(r => isSubmittedReport(r) && reportYearValue(r) === String(month.year) && reportMonthValue(r) === month.value)
+        .map(reportLicenseKey)
+        .filter(key => key && operationalLicenses.some(license => licenseKey(license) === key && isActiveOnDate(license, month.monthStart)))
     ).size;
-    return { month, rate: percent(uniqueReports, Math.max(1, totalLicenses)), count: uniqueReports };
+    const previousYearMonthStart = new Date(month.year - 1, month.monthNumber - 1, 1);
+    const previousYearDenominator = operationalLicenses.filter(license => isActiveOnDate(license, previousYearMonthStart)).length;
+    const lastYearCount = new Set(
+      reports
+        .filter(r => isSubmittedReport(r) && reportYearValue(r) === String(month.year - 1) && reportMonthValue(r) === month.value)
+        .map(reportLicenseKey)
+        .filter(key => key && operationalLicenses.some(license => licenseKey(license) === key && isActiveOnDate(license, previousYearMonthStart)))
+    ).size;
+    return {
+      month,
+      rate: denominator > 0 ? percent(thisYearCount, denominator) : null,
+      count: thisYearCount,
+      denominator,
+      lastYearCount,
+      lastYearRate: previousYearDenominator > 0 ? percent(lastYearCount, previousYearDenominator) : null
+    };
   });
+  const hasLastYearTrend = trendRows.some(row => row.lastYearRate !== null);
+  const trendMax = 100;
   const trendPoints = trendRows.map((row, index) => {
     const x = 46 + index * (548 / Math.max(1, trendRows.length - 1));
-    const clampedRate = Math.max(60, Math.min(100, row.rate));
-    const y = 22 + ((100 - clampedRate) / 40) * 142;
+    const y = 22 + ((trendMax - (row.rate ?? 0)) / trendMax) * 142;
+    return { ...row, x, y };
+  });
+  const lastYearTrendPoints = trendRows.map((row, index) => {
+    const x = 46 + index * (548 / Math.max(1, trendRows.length - 1));
+    const y = 22 + ((trendMax - (row.lastYearRate ?? 0)) / trendMax) * 142;
     return { ...row, x, y };
   });
   const trendPath = trendPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
-  const heatmapRows = licenseStatsRecords.slice(0, 12).map(license => {
-    const submittedMonths = lastSixMonths.map(month =>
-      reports.some(report => report.license_number === license.license_number && report.report_year === currentYear && reportMonthValue(report) === month.value)
-    );
-    const submitted = submittedMonths.filter(Boolean).length;
+  const lastYearTrendPath = lastYearTrendPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+  const heatmapRows = activeLicenseRecords.slice(0, 12).map(license => {
+    const submittedMonths = lastSixMonths.map(month => {
+      const submitted = reports.some(report =>
+        isSubmittedReport(report) &&
+        reportYearValue(report) === String(month.year) &&
+        reportMonthValue(report) === month.value &&
+        (reportLicenseKey(report) === licenseKey(license) || reportLicenseKey(report) === String(license.license_number || '').trim())
+      );
+      if (submitted) return 'submitted';
+      return isMonthDue(month.year, month.monthNumber, todayPhnomPenh) ? 'missing' : 'not_yet_due';
+    });
+    const submitted = submittedMonths.filter(status => status === 'submitted').length;
+    const dueMonths = submittedMonths.filter(status => status !== 'not_yet_due').length;
     return {
       name: license.company_name_kh || license.company_name || license.license_number,
       submittedMonths,
-      rate: percent(submitted, lastSixMonths.length)
+      rate: dueMonths > 0 ? percent(submitted, dueMonths) : null
     };
   });
-  const chronicMissing = heatmapRows.filter(row => row.submittedMonths.filter(submitted => !submitted).length >= 3).length;
-  const onTimeRate = currentMonthRate;
+  const chronicMissing = heatmapRows.filter(row => row.submittedMonths.filter(status => status === 'missing').length >= 3).length;
+  const submittedCurrentReports = reports.filter(r => isSubmittedReport(r) && reportYearValue(r) === currentYear && reportMonthValue(r) === currentMonth);
+  const onTimeSubmitted = submittedCurrentReports.filter(report => {
+    const submittedAt = getDateField(report, ['submitted_at', 'created_at']);
+    const deadline = new Date(todayPhnomPenh.getFullYear(), todayPhnomPenh.getMonth() + 1, 15, 23, 59, 59, 999);
+    return !!submittedAt && submittedAt <= deadline;
+  }).length;
+  const onTimeRate = submittedCurrentReports.length > 0 ? percent(onTimeSubmitted, submittedCurrentReports.length) : null;
+  const reportServiceLicenseKeys = new Set(reports.filter(isSubmittedReport).map(reportLicenseKey).filter(Boolean));
+  const serviceSource = activeLicenseRecords.length > 0 ? activeLicenseRecords : reports.filter(isSubmittedReport);
+  const repairCount = serviceSource.filter(item => String(getField(item as any, ['service_scope', 'service_type']) || '').toLowerCase().includes('repair')).length;
+  const installationCount = serviceSource.filter(item => String(getField(item as any, ['service_scope', 'service_type']) || '').toLowerCase().includes('installation')).length;
+  const manufactureCount = serviceSource.filter(item => String(getField(item as any, ['service_scope', 'service_type']) || '').toLowerCase().includes('manufactur')).length;
+  const serviceDenominator = activeLicenseRecords.length > 0 ? activeLicenses : reportServiceLicenseKeys.size || reports.length;
+  const otherServiceCount = Math.max(0, serviceDenominator - repairCount - installationCount - manufactureCount);
 
   const statusTotal = Math.max(1, totalLicenses);
-  const activePct = percent(activeLicenses, statusTotal);
+  const activePct = percent(activeStrict, statusTotal);
   const expiringPct = percent(expiringSoon, statusTotal);
   const expiredPct = percent(expired, statusTotal);
+  const gpsRate = activeLicenses > 0 ? percent(gpsTracked, activeLicenses) : null;
+  const telegramRate = activeLicenses > 0 ? percent(telegramLinked, activeLicenses) : null;
+  const reportRateLabel = formatRate(currentMonthRate);
+  const gpsRateLabel = formatRate(gpsRate);
+  const telegramRateLabel = formatRate(telegramRate);
+  const dataCompletenessRate = activeLicenses > 0 ? Math.round(activeLicenseRecords.reduce((sum, license) => {
+    const checks = [
+      getField(license, ['company_name', 'company_name_kh']),
+      getField(license, ['license_owner_name', 'representative_name', 'legal_representative']),
+      getField(license, ['phone_number', 'phone']),
+      getField(license, ['email']),
+      getField(license, ['company_address', 'address']),
+      provinceOf(license) !== 'មិនទាន់កំណត់',
+      hasGps(license),
+      getField(license, ['license_issue_date', 'issue_date']),
+      getField(license, ['license_expiry_date', 'expiry_date', 'expiration_date']),
+      getField(license, ['service_scope', 'business_type']),
+      getField(license, ['measuring_instrument_type', 'measuring_instruments', 'measuring_instrument'])
+    ];
+    return sum + percent(checks.filter(Boolean).length, checks.length);
+  }, 0) / activeLicenses) : null;
+  const forecastMax = Math.max(1, expired, expiring30, expiring31To60, expiring61To90);
+  const alertItems = [
+    expired > 0 ? `${expired} licenses expired` : '',
+    expiring30 > 0 ? `${expiring30} licenses expire in 30 days` : '',
+    currentMonthRate !== null && currentMonthRate < 90 ? `Report rate ${currentMonthRate}% (target: >=90%)` : '',
+    (riskCounts.find(r => r.level === 'Critical')?.count || 0) > 0 ? `${riskCounts.find(r => r.level === 'Critical')?.count || 0} Critical-risk enterprises require inspection` : ''
+  ].filter(Boolean);
+  const shouldShowAlert = totalLicenses > 5 && alertItems.length > 0;
   const donutStyle = {
     background: `conic-gradient(${STATUS_COLORS.active} 0 ${activePct}%, ${STATUS_COLORS.expiring} ${activePct}% ${activePct + expiringPct}%, ${STATUS_COLORS.expired} ${activePct + expiringPct}% ${activePct + expiringPct + expiredPct}%, #E5E7EB ${activePct + expiringPct + expiredPct}% 100%)`
   };
 
-  const licenseMapSource = licenseRecords.length > 0 ? licenseRecords : companyRecords;
+  const licenseMapSource = activeLicenseRecords.length > 0 ? activeLicenseRecords : companyRecords;
   const mapRecords = licenseMapSource.map(company => ({
     ...company,
     company_name: company.company_name_en || company.company_name_kh || company.company_name,
     company_name_kh: company.company_name_kh,
-    license_status: getField(company, ['license_status', 'status']) || (company.is_active === false ? 'Expired' : 'Active'),
+    license_status: daysUntilFrom(getLicenseExpiryDate(company), todayPhnomPenh) < 0
+      ? 'Expired'
+      : daysUntilFrom(getLicenseExpiryDate(company), todayPhnomPenh) <= 90
+        ? 'Expiring Soon'
+        : 'Active',
     business_latitude: getField(company, ['business_latitude', 'latitude', 'lat', 'gps_latitude']),
     business_longitude: getField(company, ['business_longitude', 'longitude', 'lng', 'gps_longitude'])
   }));
@@ -384,8 +601,8 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
           <p>មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ (NMC) · Metrology License Report System</p>
         </div>
         <div className="superdash-design-topbar__actions">
-          <DashboardBadge tone="red"><ShieldAlert /> {riskCounts.find(r => r.level === 'Critical')?.count || 0} Critical</DashboardBadge>
-          <DashboardBadge tone="gold"><Clock3 /> {expiring30} Expiring</DashboardBadge>
+          <DashboardBadge tone="red"><ShieldAlert /> {isLoading ? '...' : (riskCounts.find(r => r.level === 'Critical')?.count || 0)} Critical</DashboardBadge>
+          <DashboardBadge tone="gold"><Clock3 /> {isLoading ? '...' : expiring30} Expiring</DashboardBadge>
           <DashboardBadge tone="green"><Send /> Bot Active</DashboardBadge>
           {canOpenAnalytics && (
             <button type="button" onClick={() => setShowAnalytics(true)}>
@@ -396,12 +613,24 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
         </div>
       </div>
 
-      {showAlert && highCritical + expiring30 + expired > 0 && (
+      {isLoading && (
+        <div className="superdash-note is-blue">
+          Loading Superadmin dashboard analytics from Supabase...
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="superdash-note is-red">
+          <strong>Dashboard data error:</strong> {errorMessage}
+        </div>
+      )}
+
+      {showAlert && shouldShowAlert && (
         <div className="superdash-alert-banner">
           <div>
             <AlertTriangle />
             <p>
-              <strong>Action Required:</strong> {highCritical} high or critical risk enterprises · {expiring30} licenses expire within 30 days · Monthly report rate is {currentMonthRate}%.
+              <strong>Action Required:</strong> {alertItems.join(' · ')}.
             </p>
           </div>
           <button type="button" onClick={() => setShowAlert(false)} aria-label="Dismiss dashboard alert">
@@ -411,16 +640,16 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
       )}
 
       <section className="superdash-kpi-row superdash-kpi-row--five">
-        <KpiCard label="Total Licenses" value={totalLicenses} sub="All registered enterprises" icon={<FileCheck2 />} tone="navy" />
-        <KpiCard label="Active Licenses" value={activeLicenses} sub={`${percent(activeLicenses, totalLicenses)}% of portfolio`} icon={<CheckCircle2 />} tone="green" />
-        <KpiCard label="Expiring <=90 Days" value={expiringSoon} sub={`${expiring30} critical within 30 days`} icon={<Clock3 />} tone="gold" />
-        <KpiCard label="Expired Licenses" value={expired} sub="Enforcement required" icon={<ShieldAlert />} tone="red" />
-        <KpiCard label={`Report Rate (${MONTHS[Number(currentMonth) - 1]?.short || 'Now'})`} value={`${currentMonthRate}%`} sub={`${missingReports} missing reports`} icon={<BarChart3 />} tone="purple" />
+        <KpiCard label="Total Licenses" value={isLoading && totalLicenses === 0 ? 'Loading' : totalLicenses} sub="All records in enterprise_licenses" icon={<FileCheck2 />} tone="navy" />
+        <KpiCard label="Active Licenses" value={isLoading && totalLicenses === 0 ? 'Loading' : activeLicenses} sub={`${formatRate(totalLicenses > 0 ? percent(activeLicenses, totalLicenses) : null)} active or unexpired`} icon={<CheckCircle2 />} tone="green" />
+        <KpiCard label="Expiring <=90 Days" value={isLoading && totalLicenses === 0 ? 'Loading' : expiringSoon} sub={`${expiring30} critical within 30 days`} icon={<Clock3 />} tone="gold" />
+        <KpiCard label="Expired Licenses" value={isLoading && totalLicenses === 0 ? 'Loading' : expired} sub="Expiry date before today" icon={<ShieldAlert />} tone="red" />
+        <KpiCard label={`Report Rate (${MONTHS[Number(currentMonth) - 1]?.short || 'Now'})`} value={isLoading && totalLicenses === 0 ? 'Loading' : reportRateLabel} sub={currentMonthDue ? `${missingReports} missing reports` : 'Current month not yet due'} icon={<BarChart3 />} tone="purple" />
       </section>
 
       <section className="superdash-mini-kpi-row">
-        <MiniKpi label="GPS Tracked" value={`${percent(gpsTracked, totalLicenses)}%`} sub={`${gpsTracked} of ${totalLicenses} enterprises`} icon={<MapPin />} tone="cyan" />
-        <MiniKpi label="Telegram Linked" value={`${percent(telegramLinked, totalLicenses)}%`} sub={`${telegramLinked} of ${totalLicenses} connected`} icon={<MessageCircle />} tone="indigo" />
+        <MiniKpi label="GPS Tracked" value={gpsRateLabel} sub={`${gpsTracked} of ${activeLicenses} active enterprises`} icon={<MapPin />} tone="cyan" />
+        <MiniKpi label="Telegram Linked" value={telegramRateLabel} sub={`${telegramLinked} of ${activeLicenses} active connected`} icon={<MessageCircle />} tone="indigo" />
         <MiniKpi label="Provinces Covered" value={`${provincesCovered} / ${CAMBODIA_PROVINCE_COUNT}`} sub={`${Math.max(0, CAMBODIA_PROVINCE_COUNT - provincesCovered)} provinces have no provider`} icon={<MapPin />} tone="orange" />
         <MiniKpi label="High + Critical Risk" value={highCritical} sub="Priority inspection list below" icon={<Gauge />} tone="red" />
       </section>
@@ -430,9 +659,9 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
           <div className="superdash-donut-wrap">
             <div className="superdash-donut" style={donutStyle}><span>{totalLicenses}</span></div>
             <div className="superdash-status-list">
-              <ProgressRow label="Active" value={activeLicenses} pct={activePct} color={STATUS_COLORS.active} />
-              <ProgressRow label="Expiring Soon" value={expiringSoon} pct={expiringPct} color={STATUS_COLORS.expiring} />
-              <ProgressRow label="Expired" value={expired} pct={expiredPct} color={STATUS_COLORS.expired} />
+              <ProgressRow label="Active" value={activeStrict} pct={activePct} color={STATUS_COLORS.active} tooltip={<>សកម្ម / Active<br />{activeStrict} licenses · {activePct}% of total</>} />
+              <ProgressRow label="Expiring Soon" value={expiringSoon} pct={expiringPct} color={STATUS_COLORS.expiring} tooltip={<>ជិតផុតកំណត់ / Expiring Soon<br />{expiringSoon} licenses · {expiringPct}% of total</>} />
+              <ProgressRow label="Expired" value={expired} pct={expiredPct} color={STATUS_COLORS.expired} tooltip={<>ផុតកំណត់ / Expired<br />{expired} licenses · {expiredPct}% of total</>} />
             </div>
           </div>
         </SectionCard>
@@ -443,7 +672,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
               <p className="superdash-design-empty">No province data available.</p>
             ) : provinceRows.map(row => (
               <div key={row.label}>
-                <ProgressRow label={row.label} value={row.count} pct={(row.count / maxProvince) * 100} color="#C9A227" />
+                <ProgressRow label={row.label} value={row.count} pct={(row.count / maxProvince) * 100} color="#C9A227" tooltip={<>{row.label}<br />Enterprises: {row.count} · {percent(row.count, Math.max(1, provinceSource.length))}%</>} />
               </div>
             ))}
           </div>
@@ -456,7 +685,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
           <div className="superdash-risk-bars">
             {riskCounts.map(row => (
               <div key={row.level}>
-                <ProgressRow label={row.level} value={row.count} pct={percent(row.count, Math.max(1, riskRows.length))} color={RISK_COLORS[row.level]} />
+                <ProgressRow label={row.level} value={row.count} pct={percent(row.count, Math.max(1, allRiskRows.length))} color={RISK_COLORS[row.level]} tooltip={<>{row.level} risk<br />{row.count} enterprises · {percent(row.count, Math.max(1, allRiskRows.length))}% of active enterprises</>} />
               </div>
             ))}
           </div>
@@ -465,10 +694,10 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
 
       <section className="superdash-design-grid superdash-design-grid--forecast">
         <SectionCard title="License Expiry Forecast" subtitle="Renewal actions required">
-          <ProgressRow label="Expired (overdue)" value={expired} pct={percent(expired, totalLicenses)} color="#6B7280" />
-          <ProgressRow label="Expires <= 30 days" value={expiring30} pct={percent(expiring30, totalLicenses)} color="#DC2626" />
-          <ProgressRow label="Expires <= 60 days" value={expiring60} pct={percent(expiring60, totalLicenses)} color="#EA580C" />
-          <ProgressRow label="Expires <= 90 days" value={expiringSoon} pct={percent(expiringSoon, totalLicenses)} color="#EAB308" />
+          <ProgressRow label="Expired (overdue)" value={expired} pct={(expired / forecastMax) * 100} color="#6B7280" tooltip={<>ផុតកំណត់ / Expired<br />{expired} licenses</>} />
+          <ProgressRow label="Expires <= 30 days" value={expiring30} pct={(expiring30 / forecastMax) * 100} color="#DC2626" tooltip={<>ត្រូវបន្តឆាប់ៗ / Within 30 days<br />{expiring30} licenses</>} />
+          <ProgressRow label="Expires 31-60 days" value={expiring31To60} pct={(expiring31To60 / forecastMax) * 100} color="#EA580C" tooltip={<>31-60 days<br />{expiring31To60} licenses</>} />
+          <ProgressRow label="Expires 61-90 days" value={expiring61To90} pct={(expiring61To90 / forecastMax) * 100} color="#EAB308" tooltip={<>61-90 days<br />{expiring61To90} licenses</>} />
           <div className="superdash-note is-red">
             Telegram reminders can prioritize the 30-day and expired license groups.
           </div>
@@ -477,12 +706,15 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
         <SectionCard
           title="Monthly Report Submission Trend"
           subtitle={`Submission rate (%) · ${lastSixMonths[0]?.short}-${lastSixMonths[lastSixMonths.length - 1]?.short} ${currentYear} · Target >= 90%`}
-          action={<DashboardBadge tone={currentMonthRate >= 90 ? 'green' : 'red'}>{currentMonthRate}% this month</DashboardBadge>}
+          action={<DashboardBadge tone={(currentMonthRate ?? 0) >= 90 ? 'green' : 'red'}>{reportRateLabel} this month</DashboardBadge>}
         >
           <div className="superdash-line-chart" role="img" aria-label="Monthly report submission trend line chart">
+            {reports.length === 0 && !isLoading ? (
+              <p className="superdash-design-empty">No monthly report data available from Supabase.</p>
+            ) : (
             <svg viewBox="0 0 640 220" preserveAspectRatio="none">
-              {[100, 90, 80, 70, 60].map(value => {
-                const y = 22 + ((100 - value) / 40) * 142;
+              {[100, 90, 75, 50, 25, 0].map(value => {
+                const y = 22 + ((trendMax - value) / trendMax) * 142;
                 return (
                   <g key={value}>
                     <line className="grid-line" x1="46" x2="594" y1={y} y2={y} />
@@ -490,14 +722,22 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
                   </g>
                 );
               })}
+              <line className="target-line" x1="46" x2="594" y1={22 + ((100 - 90) / 100) * 142} y2={22 + ((100 - 90) / 100) * 142} />
               <line className="axis-line" x1="46" x2="594" y1="164" y2="164" />
               <line className="axis-line" x1="46" x2="46" y1="22" y2="164" />
+              {hasLastYearTrend && <path className="trend-line trend-line--previous" d={lastYearTrendPath} />}
               <path className="trend-line" d={trendPath} />
               {trendPoints.map(point => (
                 <g className="trend-point" key={point.month.value} transform={`translate(${point.x} ${point.y})`}>
                   <circle r="6" />
-                  <text className="trend-tooltip" x="0" y="-14">{point.rate}% · {point.count}</text>
-                  <title>{`${point.month.kh} (${point.month.short}): ${point.rate}% · ${point.count} submitted`}</title>
+                  <text className="trend-tooltip" x="0" y="-14">{point.month.short}: {formatRate(point.rate)}</text>
+                  <title>{`${point.month.kh} (${point.month.short}) - Rate: ${formatRate(point.rate)}, Submitted: ${point.count}, Active denominator: ${point.denominator}${hasLastYearTrend ? `, Last Year Rate: ${formatRate(point.lastYearRate)}` : ''}`}</title>
+                </g>
+              ))}
+              {hasLastYearTrend && lastYearTrendPoints.map(point => (
+                <g className="trend-point trend-point--previous" key={`previous-${point.month.value}`} transform={`translate(${point.x} ${point.y})`}>
+                  <circle r="5" />
+                  <title>{`${point.month.kh} (${point.month.short}) - Last Year Rate: ${formatRate(point.lastYearRate)}, Submitted: ${point.lastYearCount}`}</title>
                 </g>
               ))}
               {trendPoints.map(point => (
@@ -507,12 +747,17 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
                 </g>
               ))}
             </svg>
+            )}
+          </div>
+          <div className="superdash-chart-legend">
+            <span><i style={{ background: '#C9A227' }} /> This Year: {currentYear}</span>
+            {hasLastYearTrend && <span><i style={{ background: '#64748B' }} /> Last Year: {Number(currentYear) - 1}</span>}
           </div>
           <div className="superdash-trend-metrics">
-            <div className="superdash-trend-metric is-gold"><strong>{currentMonthRate}%</strong><span>Current Rate</span></div>
-            <div className="superdash-trend-metric is-red"><strong>{missingReports}</strong><span>Missing Reports</span></div>
+            <div className="superdash-trend-metric is-gold"><strong>{reportRateLabel}</strong><span>Current Rate</span></div>
+            <div className="superdash-trend-metric is-red"><strong>{currentMonthDue ? missingReports : 'N/A'}</strong><span>Missing Reports</span></div>
             <div className="superdash-trend-metric is-red"><strong>{chronicMissing} firms</strong><span>{'Chronic (>=3 mo)'}</span></div>
-            <div className="superdash-trend-metric is-blue"><strong>{onTimeRate}%</strong><span>On-time Rate</span></div>
+            <div className="superdash-trend-metric is-blue"><strong>{formatRate(onTimeRate)}</strong><span>On-time Rate</span></div>
           </div>
         </SectionCard>
       </section>
@@ -536,10 +781,10 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
               ) : heatmapRows.map(row => (
                 <tr key={row.name}>
                   <td>{row.name}</td>
-                  {row.submittedMonths.map((submitted, index) => (
-                    <td key={index}><span className={submitted ? 'is-submitted' : 'is-missing'}>{submitted ? '✓' : '×'}</span></td>
+                  {row.submittedMonths.map((status, index) => (
+                    <td key={index}><span className={`is-${status}`}>{status === 'submitted' ? '✓' : status === 'missing' ? '×' : '-'}</span></td>
                   ))}
-                  <td><strong className={row.rate >= 80 ? 'is-good' : row.rate >= 50 ? 'is-warn' : 'is-bad'}>{row.rate}%</strong></td>
+                  <td><strong className={row.rate === null ? 'is-warn' : row.rate >= 80 ? 'is-good' : row.rate >= 50 ? 'is-warn' : 'is-bad'}>{formatRate(row.rate)}</strong></td>
                 </tr>
               ))}
             </tbody>
@@ -554,16 +799,23 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
               <p className="superdash-design-empty">No instrument data available.</p>
             ) : instrumentRows.map((row, index) => (
               <div key={row.label}>
-                <ProgressRow label={row.label} value={row.count} pct={(row.count / maxInstrument) * 100} color={index < 4 ? '#DC2626' : index < 7 ? '#C9A227' : '#0B1A35'} />
+                <ProgressRow label={row.label} value={row.count} pct={(row.count / maxInstrument) * 100} color={index < 4 ? '#DC2626' : index < 7 ? '#C9A227' : '#0B1A35'} tooltip={<>{row.label}<br />Instrument records: {row.count} · {percent(row.count, Math.max(1, instrumentRows.reduce((sum, item) => sum + item.count, 0)))}%</>} />
               </div>
             ))}
           </div>
         </SectionCard>
 
         <SectionCard title="Service Scope Mix" subtitle="Companies by service type">
-          <ProgressRow label="Repair Services" value={reports.filter(r => r.service_type === 'Repair').length} pct={percent(reports.filter(r => r.service_type === 'Repair').length, Math.max(1, reports.length))} color="#0B1A35" />
-          <ProgressRow label="Installation" value={reports.filter(r => r.service_type === 'Installation').length} pct={percent(reports.filter(r => r.service_type === 'Installation').length, Math.max(1, reports.length))} color="#C9A227" />
-          <ProgressRow label="Manufacturing" value={reports.filter(r => r.service_type === 'Manufacture').length} pct={percent(reports.filter(r => r.service_type === 'Manufacture').length, Math.max(1, reports.length))} color="#6366F1" />
+          {reports.length === 0 && !isLoading ? (
+            <p className="superdash-design-empty">No service report data available.</p>
+          ) : (
+            <>
+              <ProgressRow label="Repair Services" value={repairCount} pct={percent(repairCount, Math.max(1, serviceDenominator))} color="#0B1A35" tooltip={<>ជួសជុល / Repair<br />{repairCount} firms · {percent(repairCount, Math.max(1, serviceDenominator))}% of active</>} />
+              <ProgressRow label="Installation" value={installationCount} pct={percent(installationCount, Math.max(1, serviceDenominator))} color="#C9A227" tooltip={<>តម្លើង / Installation<br />{installationCount} firms · {percent(installationCount, Math.max(1, serviceDenominator))}% of active</>} />
+              <ProgressRow label="Manufacturing" value={manufactureCount} pct={percent(manufactureCount, Math.max(1, serviceDenominator))} color="#6366F1" tooltip={<>ផលិត / Manufacturing<br />{manufactureCount} firms · {percent(manufactureCount, Math.max(1, serviceDenominator))}% of active</>} />
+              {otherServiceCount > 0 && <ProgressRow label="Other" value={otherServiceCount} pct={percent(otherServiceCount, Math.max(1, serviceDenominator))} color="#64748B" tooltip={<>Other service values<br />{otherServiceCount} firms · {percent(otherServiceCount, Math.max(1, serviceDenominator))}% of active</>} />}
+            </>
+          )}
           <div className="superdash-note is-blue">Service mix is calculated from submitted monthly reports.</div>
         </SectionCard>
       </section>
@@ -607,9 +859,9 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
       </SectionCard>
 
       <section className="superdash-design-grid superdash-design-grid--gauges">
-        <MiniKpi label="GPS Coverage" value={`${percent(gpsTracked, totalLicenses)}%`} sub={`${gpsTracked} / ${totalLicenses} enterprises`} icon={<MapPin />} tone="cyan" />
-        <MiniKpi label="Telegram Linked" value={`${percent(telegramLinked, totalLicenses)}%`} sub={`${telegramLinked} / ${totalLicenses} enterprises`} icon={<MessageCircle />} tone="indigo" />
-        <MiniKpi label="Data Completeness" value={`${percent(licensed, Math.max(1, totalCompanies))}%`} sub={`${licensed} licensed / ${totalCompanies} companies`} icon={<ShieldCheck />} tone="red" />
+        <MiniKpi label="GPS Coverage" value={gpsRateLabel} sub={`${gpsTracked} / ${activeLicenses} active enterprises`} icon={<MapPin />} tone="cyan" />
+        <MiniKpi label="Telegram Linked" value={telegramRateLabel} sub={`${telegramLinked} / ${activeLicenses} active enterprises`} icon={<MessageCircle />} tone="indigo" />
+        <MiniKpi label="Data Completeness" value={formatRate(dataCompletenessRate)} sub={`${licensed} licensed / ${activeLicenses} active companies`} icon={<ShieldCheck />} tone="red" />
       </section>
 
       <section className="superdash-panel superdash-map-panel">
