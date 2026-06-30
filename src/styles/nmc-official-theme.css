@@ -3290,6 +3290,10 @@ textarea.nmc-input:focus {
   border-collapse: collapse;
 }
 
+.nmc-superadmin-theme .superdash-heatmap {
+  min-width: 980px;
+}
+
 .nmc-superadmin-theme .superdash-heatmap th,
 .nmc-superadmin-theme .superdash-risk-table th {
   background: #F9FAFB !important;

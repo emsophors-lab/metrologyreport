@@ -142,10 +142,6 @@ function addDays(date: Date, days: number) {
   return next;
 }
 
-function addMonths(date: Date, months: number) {
-  return new Date(date.getFullYear(), date.getMonth() + months, 1);
-}
-
 function daysUntil(dateValue?: string | Date | null) {
   if (!dateValue) return 9999;
   const end = dateValue instanceof Date ? dateValue : new Date(String(dateValue).includes('T') ? dateValue : `${dateValue}T00:00:00`);
@@ -475,17 +471,17 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
   }));
   const highCritical = allRiskRows.filter(row => row.level === 'High' || row.level === 'Critical').length;
 
-  const now = reportingAnchorDate;
-  const lastSixMonths = Array.from({ length: 6 }, (_, index) => {
-    const date = addMonths(new Date(now.getFullYear(), now.getMonth(), 1), -(5 - index));
+  const reportYear = reportingAnchorDate.getFullYear();
+  const reportYearMonths = MONTHS.map((month, index) => {
+    const date = new Date(reportYear, index, 1);
     return {
-      ...MONTHS[date.getMonth()],
+      ...month,
       year: date.getFullYear(),
       monthNumber: date.getMonth() + 1,
       monthStart: date
     };
   });
-  const trendRows = lastSixMonths.map(month => {
+  const trendRows = reportYearMonths.map(month => {
     const denominator = operationalLicenses.filter(license => isActiveOnDate(license, month.monthStart)).length;
     const thisYearCount = new Set(
       reports
@@ -525,7 +521,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
   const trendPath = trendPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
   const lastYearTrendPath = lastYearTrendPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
   const heatmapRows = activeLicenseRecords.slice(0, 12).map(license => {
-    const submittedMonths = lastSixMonths.map(month => {
+    const submittedMonths = reportYearMonths.map(month => {
       const submitted = reports.some(report =>
         isSubmittedReport(report) &&
         reportYearValue(report) === String(month.year) &&
@@ -722,7 +718,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
 
         <SectionCard
           title="Monthly Report Submission Trend"
-          subtitle={`Submission rate (%) · ${lastSixMonths[0]?.short}-${lastSixMonths[lastSixMonths.length - 1]?.short} ${currentYear} · Target >= 90%`}
+          subtitle={`Submission rate (%) · Jan-Dec ${currentYear} · Target >= 90%`}
           action={<DashboardBadge tone={(currentMonthRate ?? 0) >= 90 ? 'green' : 'red'}>{reportRateLabel} this month</DashboardBadge>}
         >
           <div className="superdash-line-chart" role="img" aria-label="Monthly report submission trend line chart">
@@ -781,20 +777,20 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
 
       <SectionCard
         title="Monthly Report Compliance Heatmap"
-        subtitle={`Showing ${heatmapRows.length} enterprises · ${lastSixMonths[0]?.short}-${lastSixMonths[lastSixMonths.length - 1]?.short} ${currentYear}`}
+        subtitle={`Showing ${heatmapRows.length} enterprises · Jan-Dec ${currentYear}`}
       >
         <div className="superdash-heatmap-wrap">
           <table className="superdash-heatmap">
             <thead>
               <tr>
                 <th>Enterprise</th>
-                {lastSixMonths.map(month => <th key={month.value}>{month.short}</th>)}
+                {reportYearMonths.map(month => <th key={month.value}>{month.short}</th>)}
                 <th>Rate</th>
               </tr>
             </thead>
             <tbody>
               {heatmapRows.length === 0 ? (
-                <tr><td colSpan={lastSixMonths.length + 2}>No license data available.</td></tr>
+                <tr><td colSpan={reportYearMonths.length + 2}>No license data available.</td></tr>
               ) : heatmapRows.map(row => (
                 <tr key={row.name}>
                   <td>{row.name}</td>
