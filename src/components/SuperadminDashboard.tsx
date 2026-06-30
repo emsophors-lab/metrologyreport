@@ -199,10 +199,11 @@ function reportMonthValue(report: MetrologyReport & Record<string, any>) {
   const raw = String(report.report_month || '').trim();
   const numeric = raw.match(/\d{1,2}/)?.[0];
   if (numeric) return numeric.padStart(2, '0');
+  const idx = MONTHS.findIndex(m => raw.includes(m.kh) || raw.toLowerCase().includes(m.short.toLowerCase()));
+  if (idx >= 0) return String(idx + 1).padStart(2, '0');
   const date = getDateField(report, ['submitted_at', 'created_at', 'service_end_date', 'updated_at']);
   if (date) return String(date.getMonth() + 1).padStart(2, '0');
-  const idx = MONTHS.findIndex(m => raw.includes(m.kh) || raw.toLowerCase().includes(m.short.toLowerCase()));
-  return idx >= 0 ? String(idx + 1).padStart(2, '0') : '';
+  return '';
 }
 
 function reportYearValue(report: MetrologyReport & Record<string, any>) {
@@ -210,6 +211,13 @@ function reportYearValue(report: MetrologyReport & Record<string, any>) {
   if (rawYear) return rawYear;
   const date = getDateField(report, ['submitted_at', 'created_at', 'service_end_date', 'updated_at']);
   return date ? String(date.getFullYear()) : '';
+}
+
+function reportPeriodDate(report: MetrologyReport & Record<string, any>) {
+  const year = Number(reportYearValue(report));
+  const month = Number(reportMonthValue(report));
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) return null;
+  return new Date(year, month - 1, 1);
 }
 
 function countBy<T>(items: T[], getKey: (item: T) => string) {
@@ -395,9 +403,18 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
   const noGps = activeLicenseRecords.filter(c => !hasGps(c)).length;
   const gpsTracked = Math.max(0, activeLicenses - noGps);
   const licensed = activeLicenseRecords.filter(c => String(c.license_number || '').trim()).length;
-  const currentYear = String(todayPhnomPenh.getFullYear());
-  const currentMonth = String(todayPhnomPenh.getMonth() + 1).padStart(2, '0');
-  const currentMonthDue = isMonthDue(todayPhnomPenh.getFullYear(), todayPhnomPenh.getMonth() + 1, todayPhnomPenh);
+  const currentCalendarMonthStart = new Date(todayPhnomPenh.getFullYear(), todayPhnomPenh.getMonth(), 1);
+  const latestSubmittedReportPeriod = reports
+    .filter(isSubmittedReport)
+    .map(reportPeriodDate)
+    .filter((date): date is Date => !!date)
+    .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+  const reportingAnchorDate = latestSubmittedReportPeriod && latestSubmittedReportPeriod > currentCalendarMonthStart
+    ? latestSubmittedReportPeriod
+    : currentCalendarMonthStart;
+  const currentYear = String(reportingAnchorDate.getFullYear());
+  const currentMonth = String(reportingAnchorDate.getMonth() + 1).padStart(2, '0');
+  const currentMonthDue = isMonthDue(reportingAnchorDate.getFullYear(), reportingAnchorDate.getMonth() + 1, todayPhnomPenh);
 
   const reportsByLicense = useMemo(() => {
     const grouped = new Map<string, number>();
@@ -458,7 +475,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
   }));
   const highCritical = allRiskRows.filter(row => row.level === 'High' || row.level === 'Critical').length;
 
-  const now = todayPhnomPenh;
+  const now = reportingAnchorDate;
   const lastSixMonths = Array.from({ length: 6 }, (_, index) => {
     const date = addMonths(new Date(now.getFullYear(), now.getMonth(), 1), -(5 - index));
     return {
@@ -530,7 +547,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
   const submittedCurrentReports = reports.filter(r => isSubmittedReport(r) && reportYearValue(r) === currentYear && reportMonthValue(r) === currentMonth);
   const onTimeSubmitted = submittedCurrentReports.filter(report => {
     const submittedAt = getDateField(report, ['submitted_at', 'created_at']);
-    const deadline = new Date(todayPhnomPenh.getFullYear(), todayPhnomPenh.getMonth() + 1, 15, 23, 59, 59, 999);
+    const deadline = new Date(reportingAnchorDate.getFullYear(), reportingAnchorDate.getMonth() + 1, 15, 23, 59, 59, 999);
     return !!submittedAt && submittedAt <= deadline;
   }).length;
   const onTimeRate = submittedCurrentReports.length > 0 ? percent(onTimeSubmitted, submittedCurrentReports.length) : null;

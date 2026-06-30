@@ -1097,9 +1097,9 @@ export default function UserManagement({
 
             {/* Scrollable A4 Sheet content */}
             <div className="overflow-y-auto p-4 md:p-8 bg-slate-800 flex-1 flex justify-center print:bg-white print:p-0">
-              <div id="printable-area" className="w-full max-w-4xl bg-white text-slate-950 p-6 md:p-10 shadow-lg rounded-md print:shadow-none print:rounded-none print:p-0 text-left">
+              <div id="printable-area" className="user-directory-print w-full max-w-[1120px] bg-white text-slate-950 p-6 md:p-10 shadow-lg rounded-md print:shadow-none print:rounded-none text-left">
                 {/* State header crown */}
-                <div className="flex justify-between items-start border-b border-slate-300 pb-4 mb-6">
+                <div className="user-directory-print__header flex justify-between items-start border-b border-slate-300 pb-4 mb-6">
                   <div className="font-sans text-left">
                     <p className="text-[10px] font-bold text-slate-800 uppercase tracking-wide">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
                     <p className="text-xs font-bold text-[#2D327F] underline mt-0.5">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
@@ -1113,7 +1113,7 @@ export default function UserManagement({
                 </div>
 
                 {/* Title */}
-                <div className="text-center mb-6">
+                <div className="user-directory-print__title text-center mb-6">
                   <h2 className="text-sm font-black text-slate-900">បញ្ជីឈ្មោះគណនីសហគ្រាស និងមន្ត្រីទាំងអស់ (NMC)</h2>
                   <p className="text-[10px] text-slate-500 font-medium italic mt-0.5">(NMC Metrology Licensee Enterprises and Officiary Metadata Directory)</p>
                   <p className="text-[9px] text-slate-600 mt-1.5 font-mono">
@@ -1129,17 +1129,27 @@ export default function UserManagement({
                 )}
 
                 {/* Print Table */}
-                <table className="w-full border-collapse border border-slate-350 text-[10px] text-slate-900 text-left font-sans">
+                <table className="user-directory-print__table w-full border-collapse border border-slate-350 text-[9.5px] text-slate-900 text-left font-sans">
+                  <colgroup>
+                    <col style={{ width: '4%' }} />
+                    <col style={{ width: '18%' }} />
+                    <col style={{ width: '11%' }} />
+                    <col style={{ width: '15%' }} />
+                    <col style={{ width: '17%' }} />
+                    <col style={{ width: '19%' }} />
+                    <col style={{ width: '7%' }} />
+                    <col style={{ width: '9%' }} />
+                  </colgroup>
                   <thead>
-                    <tr className="bg-slate-100 border-b border-slate-350 text-[9px] font-bold text-slate-800">
-                      <th className="border border-slate-350 p-2 text-center w-10">ល.រ</th>
-                      <th className="border border-slate-350 p-2 text-left">ឈ្មោះសហគ្រាស / សេចក្តីលម្អិត</th>
-                      <th className="border border-slate-350 p-2 text-center w-28">លេខអាជ្ញាប័ណ្ណ</th>
-                      <th className="border border-slate-350 p-2 text-left">អ្នកតំណាងស្របច្បាប់</th>
-                      <th className="border border-slate-350 p-2 text-left">ទូរស័ព្ទ / អ៊ីម៉ែល</th>
+                    <tr className="bg-slate-100 border-b border-slate-350 text-[8.5px] font-bold text-slate-800">
+                      <th className="border border-slate-350 p-1.5 text-center">ល.រ</th>
+                      <th className="border border-slate-350 p-1.5 text-left">ឈ្មោះសហគ្រាស / សេចក្តីលម្អិត</th>
+                      <th className="border border-slate-350 p-1.5 text-center">លេខអាជ្ញាប័ណ្ណ</th>
+                      <th className="border border-slate-350 p-1.5 text-left">អ្នកតំណាងស្របច្បាប់</th>
+                      <th className="border border-slate-350 p-1.5 text-left">ទូរស័ព្ទ / អ៊ីម៉ែល</th>
                       <th className="border border-slate-350 p-1.5 text-left">អាសយដ្ឋាន</th>
-                      <th className="border border-slate-350 p-2 text-center w-20">ប្រភេទសិទ្ធិ</th>
-                      <th className="border border-slate-350 p-2 text-center w-24">កាលបរិច្ឆេទបង្កើត</th>
+                      <th className="border border-slate-350 p-1.5 text-center">ប្រភេទសិទ្ធិ</th>
+                      <th className="border border-slate-350 p-1.5 text-center">កាលបរិច្ឆេទបង្កើត</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1152,29 +1162,29 @@ export default function UserManagement({
                     ) : (
                       filteredUsers.map((u, i) => (
                         <tr key={u.id} className="border-b border-slate-350 bg-white">
-                          <td className="border border-slate-350 p-2 text-center font-mono">{i + 1}</td>
-                          <td className="border border-slate-350 p-2 font-bold font-sans">
+                          <td className="border border-slate-350 p-1.5 text-center font-mono">{i + 1}</td>
+                          <td className="border border-slate-350 p-1.5 font-bold font-sans">
                             <div>{u.company_name_kh}</div>
                             <div className="text-[8px] text-slate-500 font-mono mt-0.5">{u.company_name_en}</div>
                           </td>
-                          <td className="border border-slate-350 p-2 text-center font-bold font-mono">
+                          <td className="border border-slate-350 p-1.5 text-center font-bold font-mono">
                             {u.license_number}
                           </td>
-                          <td className="border border-slate-350 p-2 font-sans">
+                          <td className="border border-slate-350 p-1.5 font-sans">
                             <div className="font-semibold">{u.legal_representative}</div>
                             <div className="text-[8px] text-slate-500 mt-0.5">({u.representative_position})</div>
                           </td>
-                          <td className="border border-slate-350 p-2 font-mono text-left">
+                          <td className="border border-slate-350 p-1.5 font-mono text-left">
                             {u.phone} <br />
                             <span className="text-[8.5px] text-slate-500">{u.email}</span>
                           </td>
-                          <td className="border border-slate-350 p-2 text-slate-700 text-[9px] font-sans">
+                          <td className="border border-slate-350 p-1.5 text-slate-700 text-[8.5px] font-sans">
                             {u.address}
                           </td>
-                          <td className="border border-slate-350 p-2 text-center uppercase font-mono text-[8.5px]">
+                          <td className="border border-slate-350 p-1.5 text-center uppercase font-mono text-[8px]">
                             {u.role === 'superadmin' ? 'Superadmin' : u.role === 'admin' ? 'Admin' : 'Company'}
                           </td>
-                          <td className="border border-slate-350 p-2 text-center font-mono text-[8.5px]">
+                          <td className="border border-slate-350 p-1.5 text-center font-mono text-[8px]">
                             {u.created_at ? new Date(u.created_at).toLocaleDateString('km-KH') : 'N/A'}
                           </td>
                         </tr>
