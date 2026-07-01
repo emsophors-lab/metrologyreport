@@ -185,10 +185,12 @@ function licenseKey(license: EnterpriseLicense & Record<string, any>) {
   return String(getField(license, ['license_number', 'license_id', 'id']) || '').trim();
 }
 
-function isMonthDue(year: number, month: number, today: Date, deadlineDay = 15) {
-  const deadline = new Date(year, month, deadlineDay);
-  deadline.setHours(23, 59, 59, 999);
-  return today > deadline;
+function isMonthDue(year: number, month: number, today: Date) {
+  const nextMonthStart = new Date(year, month, 1);
+  nextMonthStart.setHours(0, 0, 0, 0);
+  const todayStart = new Date(today);
+  todayStart.setHours(0, 0, 0, 0);
+  return todayStart >= nextMonthStart;
 }
 
 function reportMonthValue(report: MetrologyReport & Record<string, any>) {
@@ -891,7 +893,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
       <TopServiceCompanies reports={reports} users={users} />
 
       <footer className="superdash-design-footer">
-        NMC Metrology License Report System · National Metrology Center of Cambodia · Last updated: {new Date().toLocaleDateString()}
+        ឆ្នាំ២០២៦ © រក្សាសិទ្ធិគ្រប់យ៉ាងដោយ៖ ​នាយកដ្ឋានមាត្រាសាស្ត្រឧស្សាហកម្ម | មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ
       </footer>
 
       {showAnalytics && (

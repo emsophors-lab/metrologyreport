@@ -876,7 +876,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
 
             {/* Footnote information branding */}
             <div className="nmc-footer-sec">
-              រក្សាសិទ្ធិ © ២០២៦ មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ
+              ឆ្នាំ២០២៦ © រក្សាសិទ្ធិគ្រប់យ៉ាងដោយ៖ ​នាយកដ្ឋានមាត្រាសាស្ត្រឧស្សាហកម្ម | មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ
             </div>
 
           </div>

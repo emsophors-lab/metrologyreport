@@ -2619,7 +2619,7 @@ export default function App() {
 
       {/* Official State Footer */}
       <footer className="bg-slate-900 text-slate-400 border-t border-slate-850 py-4 px-6 text-center text-[10px] flex flex-col sm:flex-row items-center justify-between gap-3 select-none">
-        <p className="font-sans">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ (NMC) នៃក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
+        <p className="font-sans">ឆ្នាំ២០២៦ © រក្សាសិទ្ធិគ្រប់យ៉ាងដោយ៖ ​នាយកដ្ឋានមាត្រាសាស្ត្រឧស្សាហកម្ម | មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
         <p className="font-mono text-slate-500">System Time Session: {systemTime} (GMT+7)</p>
       </footer>
 

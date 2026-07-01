@@ -117,7 +117,7 @@ export default function NMCOfficialThemeExample() {
       </main>
 
       <footer className="nmc-footer">
-        © មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ / National Metrology Center of Cambodia
+        ឆ្នាំ២០២៦ © រក្សាសិទ្ធិគ្រប់យ៉ាងដោយ៖ ​នាយកដ្ឋានមាត្រាសាស្ត្រឧស្សាហកម្ម | មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ
       </footer>
     </div>
   );

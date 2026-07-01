@@ -201,7 +201,7 @@ export default function ReportPrintLayout({
 
           {/* Footer branding */}
           <div className="bg-slate-50 p-4 border-t border-slate-150 flex flex-col items-center justify-center text-center text-[9px] text-slate-400 gap-0.5">
-            <p className="font-semibold text-slate-500">© មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+            <p className="font-semibold text-slate-500">ឆ្នាំ២០២៦ © រក្សាសិទ្ធិគ្រប់យ៉ាងដោយ៖ ​នាយកដ្ឋានមាត្រាសាស្ត្រឧស្សាហកម្ម | មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
             <p className="font-medium text-slate-400">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្គេកវិទ្យា និងនវានុវត្តន៍</p>
           </div>
         </div>

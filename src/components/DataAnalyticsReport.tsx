@@ -552,7 +552,7 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
             <li>Use monthly report gaps as a compliance trigger for enterprise outreach.</li>
             <li>Prepare structured instrument and calibration data for future digital metrology workflows.</li>
           </ul>
-          <footer>National Metrology Center of Cambodia</footer>
+          <footer>ឆ្នាំ២០២៦ © រក្សាសិទ្ធិគ្រប់យ៉ាងដោយ៖ ​នាយកដ្ឋានមាត្រាសាស្ត្រឧស្សាហកម្ម | មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</footer>
         </section>
       </div>
     </div>

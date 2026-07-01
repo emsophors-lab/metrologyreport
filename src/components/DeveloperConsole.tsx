@@ -101,7 +101,7 @@ export default function DeveloperConsole({ config, onUpdateConfig, toastMsg }: D
 
     <!-- Footer -->
     <footer class="bg-slate-900 text-slate-400 py-6 text-center text-xs">
-      រក្សាសិទ្ធិគ្រប់យ៉ាង © ២០២៦ មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ
+      ឆ្នាំ២០២៦ © រក្សាសិទ្ធិគ្រប់យ៉ាងដោយ៖ ​នាយកដ្ឋានមាត្រាសាស្ត្រឧស្សាហកម្ម | មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ
     </footer>
   </div>
 </body>
