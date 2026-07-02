@@ -334,6 +334,23 @@ async function getActiveBot(purpose: TelegramBotPurpose = 'license_reminder') {
         : usableCandidates[0];
       if (usable) return usable;
     }
+    if (!error && normalizeBotPurpose(purpose) === 'license_reminder') {
+      const fallback = await supabaseAdmin
+        .from('telegram_bot_settings')
+        .select('*')
+        .eq('is_active', true)
+        .not('bot_token_encrypted', 'is', null)
+        .not('bot_username', 'is', null)
+        .limit(10);
+      if (!fallback.error && fallback.data && fallback.data.length > 0) {
+        const usableFallback = fallback.data.find((bot: any) =>
+          String(bot.bot_token_encrypted || '').trim() &&
+          !isProtectedSecretValue(bot.bot_token_encrypted) &&
+          String(bot.bot_username || '').trim()
+        );
+        if (usableFallback) return usableFallback;
+      }
+    }
     if (error && normalizeBotPurpose(purpose) === 'license_reminder') {
       const legacy = await supabaseAdmin
         .from('telegram_bot_settings')

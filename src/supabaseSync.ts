@@ -1132,7 +1132,8 @@ export async function fetchActiveReminderBotPublic(): Promise<TelegramBotSetting
     const records: TelegramBotSetting[] = local ? JSON.parse(local) : INITIAL_BOT_SETTINGS;
     const migrated = records.map(migrateLegacyDemoBotUsername);
     localStorage.setItem('nmc_bot_settings', JSON.stringify(migrated));
-    const active = migrated.find(b => b.is_active && ['license_reminder', 'both'].includes(b.bot_purpose || 'license_reminder'));
+    const activeReminder = migrated.find(b => b.is_active && ['license_reminder', 'both'].includes(b.bot_purpose || 'license_reminder'));
+    const active = activeReminder || migrated.find(b => b.is_active && String(b.bot_username || '').trim());
     return active ? sanitizeBotSettingForBrowserStorage(active) : null;
   }
 
@@ -1144,11 +1145,16 @@ export async function fetchActiveReminderBotPublic(): Promise<TelegramBotSetting
       .limit(10);
 
     if (error) throw error;
-    const active = (data || []).find((bot: any) =>
+    const activeReminder = (data || []).find((bot: any) =>
       ['license_reminder', 'both'].includes(bot.bot_purpose || 'license_reminder') &&
       String(bot.bot_username || '').trim() &&
       String(bot.bot_token_encrypted || '').trim()
     ) as Partial<TelegramBotSetting> | undefined;
+    const activeFallback = (data || []).find((bot: any) =>
+      String(bot.bot_username || '').trim() &&
+      String(bot.bot_token_encrypted || '').trim()
+    ) as Partial<TelegramBotSetting> | undefined;
+    const active = activeReminder || activeFallback;
     if (!active) return null;
     return {
       id: String(active.id || ''),

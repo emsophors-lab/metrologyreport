@@ -2735,14 +2735,14 @@ textarea.nmc-input:focus {
 .nmc-superadmin-theme .superdash-design-topbar h2 {
   margin: 0;
   color: var(--dash-navy);
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 900;
 }
 
 .nmc-superadmin-theme .superdash-design-topbar p {
   margin: 2px 0 0;
   color: var(--dash-muted);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -2764,7 +2764,7 @@ textarea.nmc-input:focus {
   background: var(--dash-navy);
   color: #fff;
   padding: 7px 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -2781,7 +2781,7 @@ textarea.nmc-input:focus {
   gap: 5px;
   border-radius: 20px;
   padding: 3px 10px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -2824,7 +2824,7 @@ textarea.nmc-input:focus {
 .nmc-superadmin-theme .superdash-alert-banner p {
   margin: 0;
   color: #B91C1C;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -2878,7 +2878,7 @@ textarea.nmc-input:focus {
 .nmc-superadmin-theme .superdash-design-kpi p {
   margin: 0 0 6px;
   color: #6B7280;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2887,7 +2887,7 @@ textarea.nmc-input:focus {
 .nmc-superadmin-theme .superdash-design-kpi strong {
   display: block;
   margin-bottom: 5px;
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 950;
   line-height: 1;
 }
@@ -2900,7 +2900,7 @@ textarea.nmc-input:focus {
 
 .nmc-superadmin-theme .superdash-design-kpi span {
   color: #9CA3AF;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -2945,7 +2945,7 @@ textarea.nmc-input:focus {
 
 .nmc-superadmin-theme .superdash-mini-kpi strong {
   display: block;
-  font-size: 21px;
+  font-size: 23px;
   font-weight: 950;
   line-height: 1;
 }
@@ -2958,7 +2958,7 @@ textarea.nmc-input:focus {
 .nmc-superadmin-theme .superdash-mini-kpi p {
   margin: 3px 0 0;
   color: #374151;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -2966,7 +2966,7 @@ textarea.nmc-input:focus {
   display: block;
   margin-top: 1px;
   color: #9CA3AF;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -3001,14 +3001,14 @@ textarea.nmc-input:focus {
 .nmc-superadmin-theme .superdash-design-card h3 {
   margin: 0;
   color: var(--dash-navy) !important;
-  font-size: 13px !important;
+  font-size: 16px !important;
   font-weight: 900;
 }
 
 .nmc-superadmin-theme .superdash-design-card p {
   margin: 2px 0 0;
   color: #9CA3AF;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -3066,7 +3066,7 @@ textarea.nmc-input:focus {
 
 .nmc-superadmin-theme .superdash-progress-row span {
   color: #374151;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3074,7 +3074,7 @@ textarea.nmc-input:focus {
 }
 
 .nmc-superadmin-theme .superdash-progress-row strong {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 950;
   flex: 0 0 auto;
 }
@@ -3105,7 +3105,7 @@ textarea.nmc-input:focus {
   background: #FFFFFF;
   color: #111827;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 850;
   line-height: 1.45;
   padding: 9px 10px;
@@ -3126,7 +3126,7 @@ textarea.nmc-input:focus {
   margin-top: 12px;
   border-radius: 8px;
   padding: 9px 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   line-height: 1.45;
 }
@@ -3170,7 +3170,7 @@ textarea.nmc-input:focus {
 
 .nmc-superadmin-theme .superdash-line-chart .axis-label {
   fill: #6B7280;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -3220,7 +3220,7 @@ textarea.nmc-input:focus {
   pointer-events: none;
   text-anchor: middle;
   fill: #7F1D1D;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 900;
   paint-order: stroke;
   stroke: #FFFFFF;
@@ -3258,7 +3258,7 @@ textarea.nmc-input:focus {
 
 .nmc-superadmin-theme .superdash-trend-metric span {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 750;
 }
 
@@ -3300,7 +3300,7 @@ textarea.nmc-input:focus {
   color: #6B7280 !important;
   border-bottom: 2px solid #E5E7EB;
   padding: 9px 10px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   text-align: left;
 }
@@ -3315,7 +3315,7 @@ textarea.nmc-input:focus {
   padding: 9px 10px;
   border-bottom: 1px solid #F3F4F6;
   color: #374151;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 750;
 }
 
@@ -3348,7 +3348,7 @@ textarea.nmc-input:focus {
   display: inline-flex;
   border-radius: 999px;
   padding: 2px 9px;
-  font-size: 11px;
+  font-size: 13px;
 }
 .nmc-superadmin-theme .superdash-heatmap .is-good { color: #166534; background: #DCFCE7; }
 .nmc-superadmin-theme .superdash-heatmap .is-warn { color: #92400E; background: #FEF9C3; }
@@ -3368,7 +3368,7 @@ textarea.nmc-input:focus {
   display: block;
   margin-top: 2px;
   color: #9CA3AF;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .nmc-superadmin-theme .superdash-risk-table td em {
@@ -3380,7 +3380,7 @@ textarea.nmc-input:focus {
 }
 
 .nmc-superadmin-theme .superdash-risk-table td b {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 950;
   vertical-align: middle;
 }
@@ -3389,13 +3389,13 @@ textarea.nmc-input:focus {
   border-radius: 999px;
   color: #fff;
   padding: 3px 10px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
 }
 
 .nmc-superadmin-theme .superdash-design-empty {
   color: #9CA3AF;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   text-align: center;
   padding: 20px 0;
@@ -3417,7 +3417,7 @@ textarea.nmc-input:focus {
   color: #AEB6C5 !important;
   background: transparent !important;
   border-top: 1px solid #E5E7EB !important;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
 }
 

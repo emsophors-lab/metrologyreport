@@ -51,8 +51,8 @@ export default function ChangePasswordModal({
     value: string,
     onChange: (value: string) => void
   ) => (
-    <div className="space-y-1.5">
-      <label htmlFor={id} className="text-xs font-bold text-slate-700">
+    <div className="space-y-2">
+      <label htmlFor={id} className="block text-[14px] font-extrabold leading-relaxed text-slate-700">
         {label}
       </label>
       <div className="relative">
@@ -61,16 +61,16 @@ export default function ChangePasswordModal({
           type={visibleFields[field] ? 'text' : 'password'}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 pr-10 text-sm text-slate-900 outline-none transition focus:border-[#353C96] focus:ring-2 focus:ring-[#353C96]/20"
+          className="h-12 w-full rounded-lg border border-slate-300 bg-white px-4 pr-12 text-[16px] font-semibold text-slate-900 outline-none transition focus:border-[#353C96] focus:ring-2 focus:ring-[#353C96]/20"
           autoComplete={field === 'current' ? 'current-password' : 'new-password'}
         />
         <button
           type="button"
           onClick={() => toggleField(field)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+          className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
           aria-label={visibleFields[field] ? 'Hide password' : 'Show password'}
         >
-          {visibleFields[field] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          {visibleFields[field] ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
         </button>
       </div>
     </div>
@@ -152,30 +152,30 @@ export default function ChangePasswordModal({
 
   return (
     <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between bg-[#4F6F8D] px-5 py-4 text-white">
-          <div className="flex items-center gap-2">
-            <span className="rounded-lg bg-white/15 p-2">
-              <KeyRound className="h-4 w-4" />
+      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+        <div className="flex shrink-0 items-center justify-between bg-[#4F6F8D] px-6 py-4 text-white">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/15">
+              <KeyRound className="h-5 w-5" />
             </span>
-            <div>
-              <h3 className="text-sm font-black">ប្តូរពាក្យសម្ងាត់</h3>
-              <p className="text-[11px] font-semibold text-white/80">Change Password</p>
+            <div className="min-w-0">
+              <h3 className="text-[17px] font-black leading-tight">ប្តូរពាក្យសម្ងាត់</h3>
+              <p className="mt-0.5 text-[13px] font-semibold text-white/80">Change Password</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-white/80 hover:bg-white/10 hover:text-white"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4 p-5">
-          <div className="flex items-start gap-2 rounded-lg border border-blue-100 bg-blue-50 p-3 text-[11px] font-semibold leading-relaxed text-blue-900">
-            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+        <form onSubmit={handleSubmit} className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
+          <div className="flex items-start gap-3 rounded-lg border border-blue-100 bg-blue-50 p-4 text-[14px] font-bold leading-relaxed text-blue-900">
+            <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
             <span>គណនីនេះអាចប្តូរបានតែពាក្យសម្ងាត់ផ្ទាល់ខ្លួនប៉ុណ្ណោះ។ / This changes only your own account password.</span>
           </div>
 
@@ -202,7 +202,7 @@ export default function ChangePasswordModal({
           )}
 
           {message && (
-            <div className={`rounded-lg border px-3 py-2 text-xs font-semibold leading-relaxed ${
+            <div className={`rounded-lg border px-4 py-3 text-[14px] font-bold leading-relaxed ${
               message.type === 'success'
                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                 : 'border-rose-200 bg-rose-50 text-rose-700'
@@ -211,18 +211,18 @@ export default function ChangePasswordModal({
             </div>
           )}
 
-          <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+          <div className="flex flex-col-reverse gap-3 pt-1 sm:flex-row sm:justify-end">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              className="min-h-11 rounded-lg border border-slate-300 px-5 py-2.5 text-[14px] font-extrabold text-slate-700 hover:bg-slate-50"
               disabled={isSubmitting}
             >
               បោះបង់ / Cancel
             </button>
             <button
               type="submit"
-              className="rounded-lg bg-[#353C96] px-4 py-2 text-xs font-black text-white shadow hover:bg-[#2D327F] disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-11 rounded-lg bg-[#353C96] px-5 py-2.5 text-[14px] font-black text-white shadow hover:bg-[#2D327F] disabled:cursor-not-allowed disabled:opacity-60"
               disabled={isSubmitting}
             >
               {isSubmitting ? 'កំពុងប្តូរ... / Changing...' : 'ប្តូរពាក្យសម្ងាត់ / Change Password'}

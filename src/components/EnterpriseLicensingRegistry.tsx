@@ -292,6 +292,9 @@ const botSupportsPurpose = (bot: TelegramBotSetting, purpose: 'license_reminder'
   return normalized === purpose || normalized === 'both';
 };
 
+const botSupportsCompanyConnection = (bot: TelegramBotSetting) =>
+  botSupportsPurpose(bot, 'license_reminder') || botSupportsPurpose(bot, 'report_group');
+
 const botRequiresGroupChat = (bot: TelegramBotSetting) => {
   const normalized = normalizeBotPurpose(bot.bot_purpose);
   return normalized === 'report_group' || normalized === 'both';
@@ -441,6 +444,7 @@ export default function EnterpriseLicensingRegistry({
   const [editingLicense, setEditingLicense] = useState<EnterpriseLicense | null>(null);
   const [showRenewModal, setShowRenewModal] = useState<EnterpriseLicense | null>(null);
   const [showCertificateModal, setShowCertificateModal] = useState<EnterpriseLicense | null>(null);
+  const [pendingCertificatePdf, setPendingCertificatePdf] = useState<EnterpriseLicense | null>(null);
 
   // Add/Edit License form fields
   const [companyUserId, setCompanyUserId] = useState('');
@@ -607,7 +611,7 @@ export default function EnterpriseLicensingRegistry({
   // Bot settings state
   const [botSettings, setBotSettings] = useState<TelegramBotSetting[]>([]);
   const activeReminderBot = botSettings.find(b =>
-    botSupportsPurpose(b, 'license_reminder') &&
+    (botSupportsPurpose(b, 'license_reminder') || (isCompanyUser && botSupportsCompanyConnection(b))) &&
     hasUsableBotIdentity(b, isCompanyUser)
   );
   const [showBotModal, setShowBotModal] = useState(false);
@@ -2745,7 +2749,8 @@ export default function EnterpriseLicensingRegistry({
 
       const certEl = getCertificateElement();
       if (!certEl) {
-        toastMsg('សូមបើកវិញ្ញាបនបត្រមុនសិន។ / Certificate preview must be open to download.', 'error');
+        setShowCertificateModal(lic);
+        setPendingCertificatePdf(lic);
         return;
       }
 
@@ -2806,6 +2811,19 @@ export default function EnterpriseLicensingRegistry({
       toastMsg(`បរាជ័យក្នុងការទាញយក PDF: ${pdfErr.message || 'Unknown error'}`, 'error');
     }
   };
+
+  useEffect(() => {
+    if (!pendingCertificatePdf || !showCertificateModal || pendingCertificatePdf.id !== showCertificateModal.id) return;
+
+    const timer = window.setTimeout(() => {
+      if (!getCertificateElement()) return;
+      const licenseToDownload = pendingCertificatePdf;
+      setPendingCertificatePdf(null);
+      void handleDownloadPDF(licenseToDownload);
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [pendingCertificatePdf, showCertificateModal]);
 
   const handlePrintLicense = () => {
     const certEl = getCertificateElement();

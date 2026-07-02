@@ -191,10 +191,10 @@ select,
 textarea {
   border: 1px solid #3F7C9B !important;
   border-radius: 4px !important;
-  height: 44px !important;
+  height: 48px !important;
   color: #1F2937 !important;
   background-color: #FFFFFF !important;
-  font-size: 14px !important;
+  font-size: 16px !important;
   padding-left: 12px !important;
   padding-right: 12px !important;
 }
@@ -238,13 +238,69 @@ input:focus, select:focus, textarea:focus {
 
 .gov-label {
   font-family: "Noto Sans Khmer", "Khmer OS Battambang", "Inter", sans-serif;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   color: #1F2A44;
 }
 
 .gov-button {
   font-family: "Noto Sans Khmer", "Khmer OS Battambang", "Inter", sans-serif;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
+}
+
+/* Khmer-readable system scale: keep dense data compact, but stop tiny UI text. */
+#application-container label,
+#application-container input,
+#application-container select,
+#application-container textarea,
+#application-container button {
+  font-size: max(14px, 1em);
+}
+
+#application-container [class*="text-[9px]"],
+#application-container [class*="text-[9.5px]"],
+#application-container [class*="text-[10px]"] {
+  font-size: 12px !important;
+}
+
+#application-container [class*="text-[10.5px]"],
+#application-container [class*="text-[11px]"] {
+  font-size: 13px !important;
+}
+
+#application-container [class*="text-[12px]"],
+#application-container [class*="text-xs"] {
+  font-size: 14px !important;
+}
+
+#application-container [class*="text-[13px]"] {
+  font-size: 14.5px !important;
+}
+
+#application-container [class*="text-sm"] {
+  font-size: 15px !important;
+}
+
+#certified-nmc-license-sheet [class*="text-[9px]"],
+#certified-nmc-license-sheet [class*="text-[9.5px]"] {
+  font-size: 9.5px !important;
+}
+
+#certified-nmc-license-sheet [class*="text-[10px]"],
+#certified-nmc-license-sheet [class*="text-[10.5px]"] {
+  font-size: 10px !important;
+}
+
+#certified-nmc-license-sheet [class*="text-[11px]"] {
+  font-size: 11px !important;
+}
+
+#certified-nmc-license-sheet [class*="text-[12px]"],
+#certified-nmc-license-sheet [class*="text-xs"] {
+  font-size: 12px !important;
+}
+
+#certified-nmc-license-sheet [class*="text-sm"] {
+  font-size: 14px !important;
 }

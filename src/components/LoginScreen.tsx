@@ -367,7 +367,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           z-index: 3;
           width: 100%;
           max-width: 1200px;
-          min-height: 100vh;
+          min-height: 100svh;
           margin: 0 auto;
           display: flex;
           flex-direction: row;
@@ -380,8 +380,9 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
         @media (max-width: 991px) {
           .nmc-layout {
             flex-direction: column;
-            justify-content: center;
-            padding: 30px 20px;
+            justify-content: flex-start;
+            gap: 22px;
+            padding: 24px 18px;
             align-items: center;
           }
         }
@@ -399,7 +400,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
             flex: none;
             padding-right: 0;
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 0;
             max-width: 580px;
           }
         }
@@ -421,13 +422,14 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
 
         @media (max-width: 991px) {
           .nmc-welcome-title {
-            font-size: 1.7rem;
-            margin-bottom: 12px;
+            font-size: 1.55rem;
+            line-height: 1.45;
+            margin-bottom: 10px;
           }
         }
 
         .nmc-welcome-text {
-          font-size: 1.05rem;
+          font-size: 1.12rem;
           line-height: 1.9;
           color: #e2e8f0;
           text-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
@@ -436,7 +438,8 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
 
         @media (max-width: 991px) {
           .nmc-welcome-text {
-            font-size: 0.92rem;
+            font-size: 1rem;
+            line-height: 1.7;
           }
         }
 
@@ -466,8 +469,8 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           backdrop-filter: blur(20px) saturate(190%);
           -webkit-backdrop-filter: blur(20px) saturate(190%);
           border: 1px solid rgba(255, 255, 255, 0.22);
-          border-radius: 28px;
-          padding: 38px 34px;
+          border-radius: 24px;
+          padding: 30px 32px;
           box-shadow: 0 20px 45px rgba(0, 0, 0, 0.4);
           box-sizing: border-box;
           text-align: center;
@@ -489,8 +492,8 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           right: 0;
           height: 4px;
           display: flex;
-          border-top-left-radius: 28px;
-          border-top-right-radius: 28px;
+          border-top-left-radius: 24px;
+          border-top-right-radius: 24px;
           overflow: hidden;
         }
 
@@ -506,14 +509,14 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
 
         /* Header logo boxes */
         .nmc-card-logo-box {
-          width: 86px;
-          height: 86px;
+          width: 78px;
+          height: 78px;
           background-color: #ffffff;
           border-radius: 50%;
           display: flex;
           align-items: center;
           justify-content: center;
-          margin: 6px auto 16px auto;
+          margin: 2px auto 14px auto;
           padding: 8px;
           box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
           border: 1.5px solid rgba(255, 255, 255, 0.9);
@@ -535,7 +538,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           font-size: 1.25rem;
           color: #ffffff;
           line-height: 1.5;
-          margin: 0 0 20px 0;
+          margin: 0 0 16px 0;
           letter-spacing: 0.5px;
         }
 
@@ -546,24 +549,24 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           color: #fecaca;
           padding: 10px 14px;
           border-radius: 10px;
-          font-size: 0.84rem;
+          font-size: 0.95rem;
           line-height: 1.5;
-          margin-bottom: 20px;
+          margin-bottom: 16px;
           text-align: left;
           animation: slideInDown 0.3s ease-out;
         }
 
         /* Form groups */
         .nmc-form-g {
-          margin-bottom: 18px;
+          margin-bottom: 14px;
           text-align: left;
         }
 
         .nmc-label-txt {
-          font-size: 0.8rem;
+          font-size: 1rem;
           font-weight: bold;
           color: #cbd5e1;
-          margin-bottom: 6px;
+          margin-bottom: 8px;
           display: block;
         }
 
@@ -588,8 +591,9 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           background: rgba(255, 255, 255, 0.08);
           border: 1px solid rgba(255, 255, 255, 0.18);
           border-radius: 14px;
-          padding: 14px 16px 14px 44px;
-          font-size: 0.95rem;
+          min-height: 52px;
+          padding: 12px 16px 12px 46px;
+          font-size: 1.08rem;
           color: #ffffff;
           outline: none;
           box-sizing: border-box;
@@ -627,7 +631,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
         .nmc-check-row {
           display: flex;
           align-items: center;
-          margin-bottom: 24px;
+          margin-bottom: 18px;
           text-align: left;
         }
 
@@ -635,7 +639,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           display: flex;
           align-items: center;
           color: #cbd5e1;
-          font-size: 0.88rem;
+          font-size: 1rem;
           cursor: pointer;
           user-select: none;
         }
@@ -643,8 +647,8 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
         .nmc-chk-input {
           appearance: none;
           -webkit-appearance: none;
-          width: 18px;
-          height: 18px;
+          width: 20px;
+          height: 20px;
           border: 1.5px solid rgba(255, 255, 255, 0.35);
           border-radius: 5px;
           margin-right: 8px;
@@ -664,7 +668,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
         .nmc-chk-input:checked::before {
           content: "✓";
           color: #ffffff;
-          font-size: 11px;
+          font-size: 13px;
           font-weight: bold;
         }
 
@@ -675,9 +679,10 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 14px;
           color: #ffffff;
-          font-size: 1rem;
+          font-size: 1.12rem;
           font-weight: bold;
-          padding: 14px;
+          min-height: 54px;
+          padding: 12px 15px;
           cursor: pointer;
           box-shadow: 0 4px 15px rgba(57, 120, 154, 0.35);
           display: flex;
@@ -700,17 +705,77 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
         .nmc-gold-accent-line {
           height: 1.5px;
           background: linear-gradient(90deg, transparent, rgba(251, 191, 36, 0.4) 50%, transparent);
-          margin-top: 20px;
+          margin-top: 18px;
           width: 100%;
         }
 
         /* Footer */
         .nmc-footer-sec {
           text-align: center;
-          font-size: 0.8rem;
+          font-size: 0.9rem;
           color: rgba(255, 255, 255, 0.45);
-          margin-top: 24px;
+          margin-top: 18px;
           line-height: 1.5;
+        }
+
+        @media (max-width: 640px) {
+          .nmc-layout {
+            padding: 18px 14px;
+            gap: 16px;
+          }
+
+          .nmc-welcome-title {
+            font-size: 1.34rem;
+          }
+
+          .nmc-welcome-text {
+            font-size: 0.94rem;
+          }
+
+          .nmc-form-area {
+            max-width: 420px;
+          }
+
+          .nmc-glass-card {
+            padding: 24px 24px;
+            border-radius: 22px;
+          }
+
+          .nmc-card-logo-box {
+            width: 68px;
+            height: 68px;
+            margin-bottom: 10px;
+          }
+
+          .nmc-card-title {
+            font-size: 1.08rem;
+            margin-bottom: 12px;
+          }
+
+          .nmc-error-box {
+            font-size: 0.9rem;
+            padding: 9px 12px;
+            margin-bottom: 14px;
+          }
+
+          .nmc-label-txt,
+          .nmc-check-lbl {
+            font-size: 0.96rem;
+          }
+
+          .nmc-input-box {
+            min-height: 50px;
+            font-size: 1rem;
+          }
+
+          .nmc-action-btn {
+            min-height: 52px;
+            font-size: 1.04rem;
+          }
+
+          .nmc-footer-sec {
+            font-size: 0.82rem;
+          }
         }
 
         /* Animations */
