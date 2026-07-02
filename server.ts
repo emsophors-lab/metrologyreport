@@ -445,6 +445,21 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.get('/api/active-telegram-bot', async (req, res) => {
+  try {
+    const purpose = String(req.query.purpose || 'license_reminder');
+    const requestedPurpose: TelegramBotPurpose =
+      purpose === 'report_group' || purpose === 'report_notification'
+        ? 'report_group'
+        : 'license_reminder';
+    const activeBot = await getActiveBot(requestedPurpose);
+    return apiSuccess(res, { bot: activeBot ? sanitizeBotForClient(activeBot) : null });
+  } catch (err: any) {
+    console.error('Failed to fetch active public Telegram Bot:', err?.message || err);
+    return apiError(res, 500, 'Failed to fetch active Telegram Bot metadata.');
+  }
+});
+
 app.get('/api/telegram-bot-settings', async (req, res) => {
   try {
     if (!(await requireApiRole(req, res, ['superadmin', 'admin']))) return;

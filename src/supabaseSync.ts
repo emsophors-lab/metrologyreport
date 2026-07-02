@@ -1127,6 +1127,18 @@ export async function fetchBotSettingsFromSupabase(): Promise<TelegramBotSetting
 
 export async function fetchActiveReminderBotPublic(): Promise<TelegramBotSetting | null> {
   const client = getActiveSupabaseClient();
+  try {
+    const response = await fetch('/api/active-telegram-bot?purpose=license_reminder', {
+      headers: await getApiJsonHeaders(),
+    });
+    const data = await readJsonResponseSafely(response);
+    if (response.ok && data) {
+      return data.bot ? sanitizeBotSettingForBrowserStorage(data.bot) : null;
+    }
+  } catch (e) {
+    console.warn('Public active Telegram Bot API lookup failed; falling back to Supabase/local lookup:', e);
+  }
+
   if (!client) {
     const local = localStorage.getItem('nmc_bot_settings');
     const records: TelegramBotSetting[] = local ? JSON.parse(local) : INITIAL_BOT_SETTINGS;
@@ -1140,7 +1152,7 @@ export async function fetchActiveReminderBotPublic(): Promise<TelegramBotSetting
   try {
     const { data, error } = await client
       .from('telegram_bot_settings')
-      .select('id, bot_name, bot_username, bot_token_encrypted, bot_purpose, is_active, description, connection_status, last_test_status, last_test_message, last_error, last_tested_at, webhook_status, webhook_url, bot_display_name, created_at, updated_at')
+      .select('*')
       .eq('is_active', true)
       .limit(10);
 
