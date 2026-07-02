@@ -4,6 +4,7 @@ import nmcLogo from './NMClogo.png';
 import { getActiveSupabaseClient } from '../supabaseSync';
 import { isDemoLoginAllowed, INITIAL_USERS } from '../demoData';
 import { verifyUserPassword } from '../utils/passwordUtils';
+import LoginMetrologyAnimation from './LoginMetrologyAnimation';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: MetrologyUser) => void;
@@ -329,7 +330,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           min-height: 100vh;
           position: relative;
           overflow-x: hidden;
-          font-family: 'Battambang', Arial, sans-serif;
+          font-family: 'Battambang', 'Khmer OS Siemreap', 'Khmer OS Battambang', 'Noto Sans Khmer', Arial, sans-serif;
           display: flex;
           justify-content: center;
           align-items: center;
@@ -357,7 +358,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           left: 0;
           width: 100%;
           height: 100%;
-          background: linear-gradient(135deg, rgba(31, 42, 68, 0.95) 0%, rgba(79, 111, 141, 0.88) 50%, rgba(63, 111, 143, 0.78) 100%);
+          background: linear-gradient(135deg, rgba(10, 22, 48, 0.96) 0%, rgba(31, 42, 68, 0.9) 50%, rgba(47, 82, 110, 0.82) 100%);
           z-index: 2;
         }
 
@@ -393,6 +394,105 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           padding-right: 50px;
           text-align: left;
           animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        /* Official MISTI / NMC branding header */
+        .nmc-official-header {
+          margin-bottom: 18px;
+          padding-bottom: 14px;
+          border-bottom: 1px solid rgba(201, 162, 39, 0.3);
+        }
+
+        .nmc-official-ministry {
+          font-family: 'Moul', 'Khmer OS Siemreap', 'Khmer OS Battambang', 'Noto Sans Khmer', cursive;
+          font-size: 1.05rem;
+          line-height: 1.9;
+          color: #f3d98b;
+          text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+          margin: 0;
+        }
+
+        .nmc-official-center-kh {
+          font-family: 'Moul', 'Khmer OS Siemreap', 'Khmer OS Battambang', 'Noto Sans Khmer', cursive;
+          font-size: 0.95rem;
+          line-height: 1.9;
+          color: #ffffff;
+          text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+          margin: 2px 0 0 0;
+        }
+
+        .nmc-official-center-en {
+          font-family: 'Inter', Arial, sans-serif;
+          font-size: 0.85rem;
+          font-weight: 600;
+          letter-spacing: 1.5px;
+          text-transform: uppercase;
+          color: rgba(226, 232, 240, 0.85);
+          margin: 6px 0 0 0;
+        }
+
+        @media (max-width: 991px) {
+          .nmc-official-header {
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+          }
+
+          .nmc-official-ministry {
+            font-size: 0.85rem;
+          }
+
+          .nmc-official-center-kh {
+            font-size: 0.8rem;
+          }
+
+          .nmc-official-center-en {
+            font-size: 0.72rem;
+            letter-spacing: 1px;
+          }
+        }
+
+        /* Metrology animation panel wrapper */
+        .nmc-metrology-visual {
+          margin-top: 24px;
+          width: 100%;
+        }
+
+        @media (max-width: 991px) {
+          .nmc-metrology-visual {
+            margin-top: 14px;
+          }
+        }
+
+        /* System name tagline under the animation */
+        .nmc-system-tagline {
+          margin-top: 12px;
+          text-align: center;
+        }
+
+        .nmc-system-tagline-en {
+          font-family: 'Inter', Arial, sans-serif;
+          font-size: 0.92rem;
+          font-weight: 600;
+          letter-spacing: 1.2px;
+          color: rgba(243, 217, 139, 0.9);
+          margin: 0;
+        }
+
+        .nmc-system-tagline-kh {
+          font-size: 0.88rem;
+          color: rgba(226, 232, 240, 0.75);
+          margin: 4px 0 0 0;
+          line-height: 1.7;
+        }
+
+        @media (max-width: 991px) {
+          .nmc-system-tagline-en {
+            font-size: 0.8rem;
+          }
+
+          .nmc-system-tagline-kh {
+            font-size: 0.78rem;
+          }
         }
 
         @media (max-width: 991px) {
@@ -809,12 +909,29 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
       {/* Main Container Layout */}
       <div className="nmc-layout">
         
-        {/* Left Side: Welcome Description section */}
+        {/* Left Side: Official branding, welcome text and metrology animation */}
         <div className="nmc-welcome-area">
+
+          {/* Official MISTI / NMC header */}
+          <div className="nmc-official-header">
+            <p className="nmc-official-ministry">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
+            <p className="nmc-official-center-kh">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+            <p className="nmc-official-center-en">National Metrology Center of Cambodia</p>
+          </div>
+
           <h1 className="nmc-welcome-title">ប្រព័ន្ធរបាយការណ៍មាត្រាសាស្ត្រ</h1>
           <p className="nmc-welcome-text">
             ប្រព័ន្ធគ្រប់គ្រងសម្រាប់ការបំពេញ និងដាក់របាយការណ៍ស្តីពីការផលិត ការដំឡើង និងការជួសជុលឧបករណ៍មាត្រាសាស្ត្រ របស់ក្រុមហ៊ុនដែលមានអាជ្ញាបណ្ណ និងទទួលស្គាល់ផ្លូវការពីរដ្ឋ។
           </p>
+
+          {/* Animated metrology visual panel (decorative, CSS/SVG only) */}
+          <div className="nmc-metrology-visual">
+            <LoginMetrologyAnimation />
+            <div className="nmc-system-tagline">
+              <p className="nmc-system-tagline-en">Digital Metrology License Report System</p>
+              <p className="nmc-system-tagline-kh">ប្រព័ន្ធរបាយការណ៍អាជ្ញាបណ្ណមាត្រាសាស្ត្រឌីជីថល</p>
+            </div>
+          </div>
         </div>
 
         {/* Right Side: Modern Glassmorphic Login card */}
