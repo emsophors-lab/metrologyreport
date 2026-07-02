@@ -346,6 +346,55 @@ async function saveTelegramBotPayload(payload: any) {
   return legacyResult;
 }
 
+function getDefaultWebhookUrl(req: any) {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const protocol = forwardedProto || (req.secure ? 'https' : 'https');
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  if (!host) return 'https://metrologyreport.vercel.app/api/telegram-webhook';
+  return `${protocol}://${host}/api/telegram-webhook`;
+}
+
+async function configureTelegramWebhook(bot: any, webhookUrl: string) {
+  const botToken = bot?.bot_token_encrypted;
+  if (!botToken || isProtectedSecretValue(botToken) || botToken === 'env-fallback') {
+    throw new Error('Cannot set webhook without a valid, real Telegram Bot Token.');
+  }
+
+  const tgUrl = `https://api.telegram.org/bot${botToken}/setWebhook`;
+  const response = await fetch(tgUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: webhookUrl })
+  });
+
+  const body = await readResponseBodySafely(response);
+  if (!response.ok || !body.ok) {
+    throw new Error(sanitizeTelegramError(body.description || body.raw || 'Telegram setWebhook failed', botToken));
+  }
+
+  if (supabaseAdmin && bot?.id && bot.id !== 'env-fallback') {
+    const metadataUpdate = {
+      webhook_url: webhookUrl,
+      webhook_status: 'configured',
+      last_webhook_setup_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    const { error: updateErr } = await supabaseAdmin
+      .from('telegram_bot_settings')
+      .update(metadataUpdate)
+      .eq('id', bot.id);
+
+    if (updateErr && !isTelegramBotSchemaError(updateErr)) {
+      throw updateErr;
+    }
+    if (updateErr) {
+      console.warn('Telegram webhook configured, but metadata update skipped for legacy schema:', updateErr?.message || updateErr);
+    }
+  }
+
+  return body;
+}
+
 async function getActiveBot(purpose: TelegramBotPurpose = 'license_reminder') {
   if (!supabaseAdmin) {
     // Fallback to environment variables
@@ -457,6 +506,42 @@ app.get('/api/active-telegram-bot', async (req, res) => {
   } catch (err: any) {
     console.error('Failed to fetch active public Telegram Bot:', err?.message || err);
     return apiError(res, 500, 'Failed to fetch active Telegram Bot metadata.');
+  }
+});
+
+app.post('/api/ensure-telegram-webhook', async (req, res) => {
+  try {
+    if (!(await requireApiRole(req, res, ['superadmin', 'admin', 'company']))) return;
+
+    const purpose = String(req.body?.purpose || req.query.purpose || 'license_reminder');
+    const requestedPurpose: TelegramBotPurpose =
+      purpose === 'report_group' || purpose === 'report_notification'
+        ? 'report_group'
+        : 'license_reminder';
+    const webhookUrl = String(req.body?.webhook_url || req.body?.webhookUrl || getDefaultWebhookUrl(req)).trim();
+    if (!/^https:\/\//i.test(webhookUrl) || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/i.test(webhookUrl)) {
+      return apiError(res, 400, 'Webhook requires public HTTPS deployment. Localhost cannot be used for Telegram webhook.');
+    }
+
+    const activeBot = await getActiveBot(requestedPurpose);
+    if (!activeBot) {
+      return apiError(res, 400, getPurposeMissingMessage(requestedPurpose));
+    }
+
+    const telegramResponse = await configureTelegramWebhook(activeBot, webhookUrl);
+    return apiSuccess(res, {
+      status: 'success',
+      webhook_url: webhookUrl,
+      bot: sanitizeBotForClient({
+        ...activeBot,
+        webhook_url: webhookUrl,
+        webhook_status: 'configured'
+      }),
+      telegram_response: telegramResponse
+    });
+  } catch (err: any) {
+    console.error('ensureWebhook error:', sanitizeTelegramError(err?.message || 'Failed to ensure Telegram Webhook'));
+    return apiError(res, 500, sanitizeTelegramError(err?.message || 'Failed to ensure Telegram Webhook'));
   }
 });
 
@@ -1089,32 +1174,10 @@ app.post('/api/set-telegram-webhook', async (req, res) => {
       return apiError(res, 400, 'Cannot set webhook without a valid, real Telegram Bot Token.');
     }
 
-    // Call Telegram API setWebhook
-    const tgUrl = `https://api.telegram.org/bot${botToken}/setWebhook`;
-    const response = await fetch(tgUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: webhookUrl })
-    });
-
-    const body = await readResponseBodySafely(response);
-    if (!response.ok || !body.ok) {
-      throw new Error(sanitizeTelegramError(body.description || body.raw || 'Telegram setWebhook failed', botToken));
-    }
-
-    // Update database
-    if (supabaseAdmin && targetBot) {
-      const { error: updateErr } = await supabaseAdmin
-        .from('telegram_bot_settings')
-        .update({
-          webhook_url: webhookUrl,
-          webhook_status: 'configured',
-          last_webhook_setup_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', targetBot.id);
-      if (updateErr) throw updateErr;
-    }
+    const body = await configureTelegramWebhook(
+      targetBot || { id: botId || 'custom-token', bot_token_encrypted: botToken },
+      webhookUrl
+    );
 
     return apiSuccess(res, { 
       status: 'success', 

@@ -430,6 +430,7 @@ export default function EnterpriseLicensingRegistry({
 
   // Database States
   const [licenses, setLicenses] = useState<EnterpriseLicense[]>([]);
+  const licensesRef = useRef<EnterpriseLicense[]>([]);
   const [reminderLogs, setReminderLogs] = useState<LicenseReminderLog[]>([]);
   const [renewalHistory, setRenewalHistory] = useState<LicenseRenewalHistory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -734,6 +735,7 @@ export default function EnterpriseLicensingRegistry({
         return l;
       });
       
+      licensesRef.current = resolvedLics;
       setLicenses(resolvedLics);
       setReminderLogs(logs);
       setRenewalHistory(history);
@@ -1597,7 +1599,11 @@ export default function EnterpriseLicensingRegistry({
     try {
       await saveLicenseToSupabase(updated);
       toastMsg('បង្កើតតំណភ្ជាប់តេឡេក្រាមដោយជោគជ័យ / Created Telegram Connection Link.', 'success');
-      setLicenses(prev => prev.map(l => l.id === licId ? updated : l));
+      setLicenses(prev => {
+        const next = prev.map(l => l.id === licId ? updated : l);
+        licensesRef.current = next;
+        return next;
+      });
     } catch (err) {
       console.error(err);
       toastMsg('Failed to create Telegram connection link.', 'error');
@@ -1760,6 +1766,26 @@ export default function EnterpriseLicensingRegistry({
     return 'NotConnected';
   };
 
+  const ensureTelegramWebhookReady = async () => {
+    const response = await fetch('/api/ensure-telegram-webhook', {
+      method: 'POST',
+      headers: await getApiAuthHeaders(),
+      body: JSON.stringify({ purpose: 'license_reminder' })
+    });
+    const data = await readResponseJsonSafely(response);
+    if (!response.ok) {
+      throw new Error(data?.message || data?.error || `Unable to configure Telegram webhook: ${response.status}`);
+    }
+    return data;
+  };
+
+  const refreshCurrentLicense = async (licenseId: string) => {
+    const freshLicenses = await fetchLicensesFromSupabase(currentUser);
+    licensesRef.current = freshLicenses;
+    setLicenses(freshLicenses);
+    return freshLicenses.find(l => l.id === licenseId) || null;
+  };
+
   // Launch guided connection wizard (modal overlay)
   const handleStartConnectionWizard = async (lic: EnterpriseLicense) => {
     if (!isCompanyUser || !isLicenseOwnedByCurrentCompany(lic, currentUser)) {
@@ -1769,6 +1795,14 @@ export default function EnterpriseLicensingRegistry({
 
     if (!activeReminderBot) {
       toastMsg('សូមកំណត់ License Reminder Bot សកម្ម ឬ Bot ដែលមាន Purpose Both ជាមុនសិន។ / Please configure an active License Reminder Bot or a bot with purpose Both.', 'error');
+      return;
+    }
+
+    try {
+      await ensureTelegramWebhookReady();
+    } catch (err: any) {
+      console.error('Unable to prepare Telegram webhook:', err?.message || err);
+      toastMsg(`មិនអាចកំណត់ Telegram Webhook បានទេ៖ ${err?.message || 'Please ask the system administrator to set the webhook.'}`, 'error');
       return;
     }
 
@@ -6228,7 +6262,7 @@ export default function EnterpriseLicensingRegistry({
                           await loadRegistryData();
                           setTimeout(() => {
                             setIsWaitingConnection(false);
-                            const reLic = licenses.find(l => l.id === connectionLic.id);
+                            const reLic = licensesRef.current.find(l => l.id === connectionLic.id);
                             if (reLic && (reLic.telegram_connection_status === 'Connected' || reLic.telegram_chat_id)) {
                               toastMsg('✓ ជោគជ័យ! តេឡេក្រាមត្រូវបានតភ្ជាប់ដោយជោគជ័យ។ / Telegram connected successfully!', 'success');
                               setConnectionLic(reLic);
@@ -6242,7 +6276,7 @@ export default function EnterpriseLicensingRegistry({
                         await loadRegistryData();
                         setTimeout(() => {
                           setIsWaitingConnection(false);
-                          const reLic = licenses.find(l => l.id === connectionLic.id);
+                          const reLic = licensesRef.current.find(l => l.id === connectionLic.id);
                           if (reLic && (reLic.telegram_connection_status === 'Connected' || reLic.telegram_chat_id)) {
                             toastMsg('✓ ជោគជ័យ! តេឡេក្រាមត្រូវបានតភ្ជាប់ដោយជោគជ័យ។ / Telegram connected successfully!', 'success');
                             setConnectionLic(reLic);
@@ -6261,7 +6295,7 @@ export default function EnterpriseLicensingRegistry({
                       type="button"
                       onClick={async () => {
                         await handleSimulateBotStartCommand(connectionLic.id);
-                        const reLic = licenses.find(l => l.id === connectionLic.id);
+                        const reLic = licensesRef.current.find(l => l.id === connectionLic.id);
                         if (reLic) setConnectionLic(reLic);
                       }}
                       className="py-1 px-3 bg-slate-50 hover:bg-slate-100 text-[#353C96] border border-[#C9D2E3]/80 rounded-lg text-[10.5px] font-bold cursor-pointer"
