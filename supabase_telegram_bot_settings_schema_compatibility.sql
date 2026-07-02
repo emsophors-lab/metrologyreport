@@ -4,6 +4,7 @@
 ALTER TABLE public.telegram_bot_settings ADD COLUMN IF NOT EXISTS default_group_chat_id TEXT;
 ALTER TABLE public.telegram_bot_settings ADD COLUMN IF NOT EXISTS bot_display_name TEXT;
 ALTER TABLE public.telegram_bot_settings ADD COLUMN IF NOT EXISTS connection_status TEXT DEFAULT 'not_verified';
+ALTER TABLE public.telegram_bot_settings ADD COLUMN IF NOT EXISTS last_test_message TEXT;
 ALTER TABLE public.telegram_bot_settings ADD COLUMN IF NOT EXISTS last_tested_at TIMESTAMPTZ;
 ALTER TABLE public.telegram_bot_settings ADD COLUMN IF NOT EXISTS webhook_status TEXT DEFAULT 'not_configured';
 ALTER TABLE public.telegram_bot_settings ADD COLUMN IF NOT EXISTS webhook_url TEXT;

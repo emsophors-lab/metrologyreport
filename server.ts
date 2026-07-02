@@ -202,6 +202,7 @@ function isTelegramBotSchemaError(err: any) {
       text.includes('default_group_chat_id') ||
       text.includes('bot_display_name') ||
       text.includes('connection_status') ||
+      text.includes('last_test_message') ||
       text.includes('last_tested_at') ||
       text.includes('webhook_status') ||
       text.includes('webhook_url') ||
@@ -210,6 +211,11 @@ function isTelegramBotSchemaError(err: any) {
       text.includes('bot_purpose') ||
       text.includes('bot_description')
     ));
+}
+
+function isTelegramBotPurposeConstraintError(err: any) {
+  const text = `${err?.code || ''} ${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`.toLowerCase();
+  return text.includes('23514') && text.includes('bot_purpose');
 }
 
 function telegramBotSchemaError(res: any) {
@@ -294,6 +300,50 @@ function sanitizeBotPayload(input: any, existingBot?: any) {
   }
 
   return payload;
+}
+
+function getLegacyTelegramBotPayload(payload: any) {
+  const legacy = { ...payload };
+  [
+    'default_group_chat_id',
+    'webhook_url',
+    'last_webhook_setup_at',
+    'webhook_secret_encrypted',
+    'webhook_status',
+    'bot_display_name',
+    'bot_description',
+    'connection_status',
+    'last_test_status',
+    'last_test_message',
+    'last_error',
+    'last_tested_at'
+  ].forEach(field => delete legacy[field]);
+  return legacy;
+}
+
+async function saveTelegramBotPayload(payload: any) {
+  const runSave = async (body: any) => {
+    const query = body.id
+      ? supabaseAdmin.from('telegram_bot_settings').upsert(body, { onConflict: 'id' })
+      : supabaseAdmin.from('telegram_bot_settings').insert(body);
+    return query.select('*').maybeSingle();
+  };
+
+  const result = await runSave(payload);
+  if (!result.error) return result;
+  if (isTelegramBotPurposeConstraintError(result.error) && payload.bot_purpose === 'both') {
+    console.warn('Retrying Telegram Bot save with legacy bot_purpose value:', result.error?.message || result.error);
+    return runSave({ ...getLegacyTelegramBotPayload(payload), bot_purpose: 'report_group' });
+  }
+  if (!isTelegramBotSchemaError(result.error)) return result;
+
+  console.warn('Retrying Telegram Bot save with legacy-compatible columns:', result.error?.message || result.error);
+  const legacyResult = await runSave(getLegacyTelegramBotPayload(payload));
+  if (isTelegramBotPurposeConstraintError(legacyResult.error) && payload.bot_purpose === 'both') {
+    console.warn('Retrying legacy Telegram Bot save with report_group purpose:', legacyResult.error?.message || legacyResult.error);
+    return runSave({ ...getLegacyTelegramBotPayload(payload), bot_purpose: 'report_group' });
+  }
+  return legacyResult;
 }
 
 async function getActiveBot(purpose: TelegramBotPurpose = 'license_reminder') {
@@ -464,7 +514,7 @@ app.post('/api/telegram-bot-settings', async (req, res) => {
       const capabilities = getPurposeCandidates(payload.bot_purpose);
       let deactivateQuery = supabaseAdmin
         .from('telegram_bot_settings')
-        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .update({ is_active: false })
         .in('bot_purpose', capabilities);
       if (payload.id) {
         deactivateQuery = deactivateQuery.not('id', 'eq', payload.id);
@@ -473,10 +523,7 @@ app.post('/api/telegram-bot-settings', async (req, res) => {
       if (deactivateError) throw deactivateError;
     }
 
-    const saveQuery = payload.id
-      ? supabaseAdmin.from('telegram_bot_settings').upsert(payload, { onConflict: 'id' })
-      : supabaseAdmin.from('telegram_bot_settings').insert(payload);
-    const { data, error } = await saveQuery.select('*').maybeSingle();
+    const { data, error } = await saveTelegramBotPayload(payload);
 
     if (error) throw error;
     return apiSuccess(res, { bot: sanitizeBotForClient(data || payload) });
