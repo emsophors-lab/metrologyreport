@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MetrologyUser } from '../types';
-import nmcLogo from './NMClogo.png';
+import nmcLoginLogo from './NMClogo-standard.png';
 import { getActiveSupabaseClient } from '../supabaseSync';
 import { isDemoLoginAllowed, INITIAL_USERS } from '../demoData';
 import { verifyUserPassword } from '../utils/passwordUtils';
@@ -17,17 +17,38 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [noticeTone, setNoticeTone] = useState<'error' | 'warning'>('error');
+  const [showForgotNotice, setShowForgotNotice] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   // Technical Requirement: Paths for background and logo image as requested
   // "Replace the background image path with: YOUR_BACKGROUND_IMAGE.png"
   // "Replace the logo image path with: YOUR_LOGO_IMAGE.png"
   const BACKGROUND_IMAGE_PATH = "/login-illustration.png.png"; // fallback to actual provided image
-  const LOGO_IMAGE_PATH = nmcLogo; // fallback to loaded NMC Logo image asset
+  const LOGO_IMAGE_PATH = nmcLoginLogo; // standard NMC seal used on the login page
 
   // Javascript / React handler to toggle password visibility
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);
+  };
+
+  const limitedConnectionNotice = 'ប្រព័ន្ធកំពុងដំណើរការក្នុងរបៀបមានកំណត់។ សូមពិនិត្យការតភ្ជាប់ ឬទាក់ទងអ្នកគ្រប់គ្រងប្រព័ន្ធ។ / Limited connection mode. Please check your connection or contact the system administrator.';
+  const setupNotice = 'ប្រព័ន្ធមិនទាន់មានគណនីអ្នកប្រើប្រាស់សម្រាប់ចូលប្រើ។ សូមទាក់ទងអ្នកគ្រប់គ្រងប្រព័ន្ធ។ / User access is not ready. Please contact the system administrator.';
+
+  const showLoginNotice = (message: string, tone: 'error' | 'warning' = 'error') => {
+    setNoticeTone(tone);
+    setErrorMessage(message);
+  };
+
+  const clearLoginNotice = () => {
+    setErrorMessage('');
+    setNoticeTone('error');
+  };
+
+  const logTechnicalIssue = (label: string, detail: unknown) => {
+    if ((import.meta as any).env?.DEV) {
+      console.warn(label, detail);
+    }
   };
 
   // Warning effect to handle Database Connection failed or empty fallbacks
@@ -40,13 +61,13 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
 
       if (hasSupabase && dbIsEmpty) {
         if (isDemoAllowed) {
-          setErrorMessage('មិនមានគណនីអ្នកប្រើប្រាស់នៅក្នុងមូលដ្ឋានទិន្នន័យទេ។ កំពុងប្រើគណនីសាកល្បងភូមិភាគ។ / No user accounts found in database. Fallback demo accounts are active.');
+          showLoginNotice(limitedConnectionNotice, 'warning');
         } else {
-          setErrorMessage('មិនមានគណនីអ្នកប្រើប្រាស់នៅក្នុងមូលដ្ឋានទិន្នន័យទេ។ សូមបង្កើត Superadmin ជាមុនសិន។ / No user accounts found in database. Please create a superadmin account first.');
+          showLoginNotice(setupNotice, 'warning');
         }
       } else if (!hasSupabase) {
         if (isDemoAllowed) {
-          setErrorMessage('មិនអាចភ្ជាប់ទៅមូលដ្ឋានទិន្នន័យបានទេ។ កំពុងប្រើគណនីសាកល្បង។ / Database connection failed. Demo login is being used.');
+          showLoginNotice(limitedConnectionNotice, 'warning');
         }
       }
     }
@@ -57,18 +78,18 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
     e.preventDefault();
     
     if (!username.trim() || !password.trim()) {
-      setErrorMessage('សូមបំពេញឈ្មោះគណនី និងលេខសំងាត់របស់អ្នក!');
+      showLoginNotice('សូមបំពេញឈ្មោះគណនី និងលេខសំងាត់របស់អ្នក!');
       return;
     }
 
     // Ensure users are loaded before login validation
     if (isUsersLoading) {
-      setErrorMessage('កំពុងផ្ទុកគណនីអ្នកប្រើប្រាស់... សូមរង់ចាំមួយភ្លែត! / Loading user accounts... Please wait a moment!');
+      showLoginNotice('កំពុងផ្ទុកគណនីអ្នកប្រើប្រាស់... សូមរង់ចាំមួយភ្លែត! / Loading user accounts... Please wait a moment!', 'warning');
       return;
     }
 
     setIsAuthenticating(true);
-    setErrorMessage('');
+    clearLoginNotice();
 
     const inputUser = username.trim().toLowerCase();
     const inputPass = password;
@@ -94,7 +115,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
 
       if (isDemoAllowed && localMatched) {
         // If it's an allowed demo user, log them in directly in testing mode
-        console.log('Logging in with authorized demo credentials in development/testing mode:', localMatched.username);
+        logTechnicalIssue('Development login path used:', localMatched.username);
         onLoginSuccess(localMatched);
         setIsAuthenticating(false);
         return;
@@ -102,19 +123,19 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
 
       // If we are in production and db is empty or supabase not there, show clear error
       if (!isDemoAllowed && (!hasSupabase || dbIsEmpty)) {
-        setErrorMessage('មិនមានគណនីអ្នកប្រើប្រាស់នៅក្នុងមូលដ្ឋានទិន្នន័យទេ។ សូមបង្កើត Superadmin ជាមុនសិន។ / No user accounts found in database. Please create a superadmin account first.');
+        showLoginNotice(setupNotice, 'warning');
         setIsAuthenticating(false);
         return;
       }
 
       if (localMatched) {
         if (localMatched.is_active === false) {
-          setErrorMessage('គណនីរបស់លោកអ្នកត្រូវផ្អាកបណ្តោះអាសន្ន! / This account has been deactivated!');
+          showLoginNotice('គណនីរបស់លោកអ្នកត្រូវផ្អាកបណ្តោះអាសន្ន! / This account has been deactivated!');
           setIsAuthenticating(false);
           return;
         }
 
-        setErrorMessage('');
+        clearLoginNotice();
         onLoginSuccess(localMatched);
         setIsAuthenticating(false);
         return;
@@ -141,7 +162,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           authResult.error.message.includes('Email not confirmed')
         )) {
           if (localMatched) {
-            console.log('User exists locally or is in INITIAL_USERS. Attempting auto-registration in custom Supabase Auth...');
+            logTechnicalIssue('Attempting automatic auth profile registration for configured user:', localMatched.username);
             const { data: signUpData, error: signUpError } = await client.auth.signUp({
               email: finalEmail,
               password: password,
@@ -191,20 +212,20 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
         }
 
         if (authResult.error) {
-          console.warn('Supabase Auth error:', authResult.error);
+          logTechnicalIssue('Authentication provider error:', authResult.error);
           
           // Fallback to local demo login if we are in testing mode and get a Supabase Auth error
           if (isDemoAllowed && localMatched) {
-            console.log('Supabase Auth failed, but falling back to local demo login credentials in testing/dev mode.');
+            logTechnicalIssue('Development fallback login path used after auth provider rejection:', localMatched.username);
             onLoginSuccess(localMatched);
             setIsAuthenticating(false);
             return;
           }
 
           if (authResult.error.message.includes('Invalid login credentials') || authResult.error.message.includes('invalid_credentials')) {
-            setErrorMessage('ឈ្មោះគណនី/អុីម៉ែល ឬ លេខសំងាត់មិនត្រឹមត្រូវឡើយ។ សូមព្យាយាមម្តងទៀត!');
+            showLoginNotice('ឈ្មោះគណនី/អុីម៉ែល ឬ លេខសំងាត់មិនត្រឹមត្រូវឡើយ។ សូមព្យាយាមម្តងទៀត!');
           } else {
-            setErrorMessage(`បរាជ័យក្នុងការចូលប្រព័ន្ធ៖ ${authResult.error.message}`);
+            showLoginNotice(limitedConnectionNotice, 'warning');
           }
           setIsAuthenticating(false);
           return;
@@ -219,7 +240,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
             .single();
 
           if (pErr || !profile) {
-            console.warn('Profile loading error:', pErr);
+            logTechnicalIssue('Profile loading error:', pErr);
             
             // If demo mode is allowed and it's a demo account, we can still fall back
             if (isDemoAllowed && localMatched) {
@@ -250,7 +271,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
             onLoginSuccess(defaultUser);
           } else {
             if (profile.is_active === false) {
-              setErrorMessage('គណនីរបស់លោកអ្នកត្រូវផ្អាកបណ្តោះអាសន្ន! / This account has been deactivated!');
+              showLoginNotice('គណនីរបស់លោកអ្នកត្រូវផ្អាកបណ្តោះអាសន្ន! / This account has been deactivated!');
               setIsAuthenticating(false);
               return;
             }
@@ -291,25 +312,25 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
         // Fallback Database offline simulations if not configured
         if (localMatched) {
           if (localMatched.is_active === false) {
-            setErrorMessage('គណនីរបស់លោកអ្នកត្រូវផ្អាកបណ្តោះអាសន្ន! / This account has been deactivated!');
+            showLoginNotice('គណនីរបស់លោកអ្នកត្រូវផ្អាកបណ្តោះអាសន្ន! / This account has been deactivated!');
             setIsAuthenticating(false);
             return;
           }
-          setErrorMessage('');
+          clearLoginNotice();
           onLoginSuccess(localMatched);
         } else {
-          setErrorMessage('ឈ្មោះគណនី ឬ លេខសំងាត់មិនត្រឹមត្រូវឡើយ។ សូមព្យាយាមម្តងទៀត!');
+          showLoginNotice('ឈ្មោះគណនី ឬ លេខសំងាត់មិនត្រឹមត្រូវឡើយ។ សូមព្យាយាមម្តងទៀត!');
         }
       }
     } catch (err: any) {
-      console.error(err);
+      logTechnicalIssue('Login verification exception:', err);
       if (isDemoAllowed && localMatched) {
-        console.log('Caught auth exception, falling back to offline demo credentials in dev/testing mode.');
+        logTechnicalIssue('Development fallback login path used after auth exception:', localMatched.username);
         onLoginSuccess(localMatched);
         setIsAuthenticating(false);
         return;
       }
-      setErrorMessage(`កំហុសបច្ចេកទេសក្នុងកំឡុងពេលផ្ទៀងផ្ទាត់៖ ${err.message || err}`);
+      showLoginNotice(limitedConnectionNotice, 'warning');
     } finally {
       setIsAuthenticating(false);
     }
@@ -396,59 +417,52 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
 
+        .nmc-welcome-copy {
+          max-width: 760px;
+          padding: 24px 28px 26px 26px;
+          margin: 0 0 24px 0;
+          border-left: 4px solid rgba(212, 175, 55, 0.78);
+          border-bottom: 1px solid rgba(212, 175, 55, 0.22);
+          border-radius: 0 20px 20px 0;
+          background: linear-gradient(110deg, rgba(5, 15, 35, 0.62) 0%, rgba(8, 24, 52, 0.46) 62%, rgba(8, 24, 52, 0.16) 100%);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+        }
+
         /* Official MISTI / NMC branding header */
         .nmc-official-header {
-          margin-bottom: 18px;
-          padding-bottom: 14px;
-          border-bottom: 1px solid rgba(201, 162, 39, 0.3);
+          display: inline-flex;
+          align-items: center;
+          max-width: 100%;
+          margin-bottom: 22px;
+          padding: 12px 18px 13px 18px;
+          border-bottom: 3px solid #D4AF37;
+          border-radius: 2px;
+          background: linear-gradient(90deg, rgba(11, 26, 53, 0.96), rgba(6, 43, 95, 0.82));
+          box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
         }
 
         .nmc-official-ministry {
-          font-family: 'Moul', 'Khmer OS Siemreap', 'Khmer OS Battambang', 'Noto Sans Khmer', cursive;
-          font-size: 1.05rem;
-          line-height: 1.9;
+          font-family: 'Battambang', 'Khmer OS Siemreap', 'Khmer OS Battambang', 'Noto Sans Khmer', Arial, sans-serif;
+          font-size: 1rem;
+          line-height: 1.65;
+          font-weight: 800;
           color: #f3d98b;
-          text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+          text-shadow: none;
           margin: 0;
-        }
-
-        .nmc-official-center-kh {
-          font-family: 'Moul', 'Khmer OS Siemreap', 'Khmer OS Battambang', 'Noto Sans Khmer', cursive;
-          font-size: 0.95rem;
-          line-height: 1.9;
-          color: #ffffff;
-          text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-          margin: 2px 0 0 0;
-        }
-
-        .nmc-official-center-en {
-          font-family: 'Inter', Arial, sans-serif;
-          font-size: 0.85rem;
-          font-weight: 600;
-          letter-spacing: 1.5px;
-          text-transform: uppercase;
-          color: rgba(226, 232, 240, 0.85);
-          margin: 6px 0 0 0;
         }
 
         @media (max-width: 991px) {
           .nmc-official-header {
-            margin-bottom: 12px;
-            padding-bottom: 10px;
+            margin-bottom: 14px;
+            padding: 10px 14px;
           }
 
           .nmc-official-ministry {
-            font-size: 0.85rem;
+            font-size: 0.88rem;
           }
 
-          .nmc-official-center-kh {
-            font-size: 0.8rem;
-          }
-
-          .nmc-official-center-en {
-            font-size: 0.72rem;
-            letter-spacing: 1px;
-          }
         }
 
         /* Metrology animation panel wrapper */
@@ -469,29 +483,30 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           text-align: center;
         }
 
-        .nmc-system-tagline-en {
-          font-family: 'Inter', Arial, sans-serif;
-          font-size: 0.92rem;
-          font-weight: 600;
-          letter-spacing: 1.2px;
-          color: rgba(243, 217, 139, 0.9);
-          margin: 0;
-        }
-
         .nmc-system-tagline-kh {
-          font-size: 0.88rem;
-          color: rgba(226, 232, 240, 0.75);
-          margin: 4px 0 0 0;
+          font-size: 1rem;
+          font-weight: 800;
+          color: rgba(243, 217, 139, 0.94);
+          margin: 0;
           line-height: 1.7;
         }
 
+        .nmc-system-tagline-en {
+          font-family: 'Inter', Arial, sans-serif;
+          font-size: 0.78rem;
+          font-weight: 600;
+          letter-spacing: 0.9px;
+          color: rgba(226, 232, 240, 0.62);
+          margin: 4px 0 0 0;
+        }
+
         @media (max-width: 991px) {
-          .nmc-system-tagline-en {
-            font-size: 0.8rem;
+          .nmc-system-tagline-kh {
+            font-size: 0.9rem;
           }
 
-          .nmc-system-tagline-kh {
-            font-size: 0.78rem;
+          .nmc-system-tagline-en {
+            font-size: 0.72rem;
           }
         }
 
@@ -502,6 +517,14 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
             text-align: center;
             margin-bottom: 0;
             max-width: 580px;
+          }
+
+          .nmc-welcome-copy {
+            padding: 18px 18px 20px 18px;
+            margin-bottom: 16px;
+            border-left-width: 0;
+            border-bottom: 2px solid rgba(212, 175, 55, 0.48);
+            border-radius: 18px;
           }
         }
 
@@ -584,42 +607,43 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           box-shadow: 0 26px 55px rgba(0, 0, 0, 0.5);
         }
 
-        /* Cambodia Flag Top Banner Accent */
+        /* Official navy/gold top rule */
         .nmc-flag-line {
           position: absolute;
           top: 0;
           left: 0;
           right: 0;
-          height: 4px;
+          height: 5px;
           display: flex;
           border-top-left-radius: 24px;
           border-top-right-radius: 24px;
           overflow: hidden;
+          background: linear-gradient(90deg, #0B1A35 0%, #D4AF37 42%, #F2C94C 50%, #D4AF37 58%, #0B2E5E 100%);
         }
 
         .nmc-flag-red {
-          flex: 1;
-          background-color: #D21820;
+          width: 32%;
+          background: transparent;
         }
 
         .nmc-flag-blue {
           flex: 1;
-          background-color: #032F83;
+          background: transparent;
         }
 
         /* Header logo boxes */
         .nmc-card-logo-box {
-          width: 78px;
-          height: 78px;
-          background-color: #ffffff;
+          width: 86px;
+          height: 86px;
+          background: transparent;
           border-radius: 50%;
           display: flex;
           align-items: center;
           justify-content: center;
-          margin: 2px auto 14px auto;
-          padding: 8px;
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
-          border: 1.5px solid rgba(255, 255, 255, 0.9);
+          margin: 2px auto 12px auto;
+          padding: 0;
+          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+          border: 1px solid rgba(212, 175, 55, 0.38);
           transition: transform 0.3s ease;
         }
 
@@ -628,18 +652,36 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
         }
 
         .nmc-card-logo-img {
-          max-width: 100%;
-          max-height: 100%;
+          width: 82px;
+          height: 82px;
           object-fit: contain;
+          border-radius: 50%;
+          display: block;
         }
 
-        .nmc-card-title {
-          font-family: 'Moul', cursive;
-          font-size: 1.25rem;
+        .nmc-card-seal-caption {
+          margin: -4px 0 18px 0;
+          text-align: center;
+        }
+
+        .nmc-card-seal-caption-kh {
+          margin: 0;
+          font-family: 'Battambang', 'Khmer OS Siemreap', 'Khmer OS Battambang', 'Noto Sans Khmer', Arial, sans-serif;
+          font-size: 1rem;
+          font-weight: 800;
+          line-height: 1.8;
           color: #ffffff;
-          line-height: 1.5;
-          margin: 0 0 16px 0;
-          letter-spacing: 0.5px;
+          text-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+        }
+
+        .nmc-card-seal-caption-en {
+          margin: 3px 0 0 0;
+          font-family: 'Inter', Arial, sans-serif;
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.9px;
+          text-transform: uppercase;
+          color: rgba(243, 217, 139, 0.88);
         }
 
         /* Form validation Alert box */
@@ -654,6 +696,13 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           margin-bottom: 16px;
           text-align: left;
           animation: slideInDown 0.3s ease-out;
+        }
+
+        .nmc-error-box.warning {
+          background-color: rgba(212, 175, 55, 0.16);
+          border-left-color: #D4AF37;
+          color: #FDE68A;
+          box-shadow: inset 0 0 0 1px rgba(212, 175, 55, 0.2);
         }
 
         /* Form groups */
@@ -731,6 +780,8 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
         .nmc-check-row {
           display: flex;
           align-items: center;
+          justify-content: space-between;
+          gap: 14px;
           margin-bottom: 18px;
           text-align: left;
         }
@@ -772,11 +823,33 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           font-weight: bold;
         }
 
+        .nmc-forgot-link {
+          border: 0;
+          background: transparent;
+          padding: 0;
+          color: #f3d98b;
+          font-family: 'Battambang', 'Noto Sans Khmer', Arial, sans-serif;
+          font-size: 0.92rem;
+          font-weight: 700;
+          cursor: pointer;
+          text-decoration: none;
+          transition: color 0.2s ease, text-shadow 0.2s ease;
+          white-space: nowrap;
+        }
+
+        .nmc-forgot-link:hover,
+        .nmc-forgot-link:focus-visible {
+          color: #ffffff;
+          text-shadow: 0 0 14px rgba(212, 175, 55, 0.55);
+          outline: none;
+        }
+
         /* Action Primary button style */
         .nmc-action-btn {
           width: 100%;
-          background: linear-gradient(135deg, #39789A 0%, #2F6682 100%);
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: linear-gradient(135deg, #0B1A35 0%, #062B5F 58%, #0B2E5E 100%);
+          border: 1px solid rgba(212, 175, 55, 0.45);
+          border-top: 3px solid #D4AF37;
           border-radius: 14px;
           color: #ffffff;
           font-size: 1.12rem;
@@ -784,17 +857,24 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           min-height: 54px;
           padding: 12px 15px;
           cursor: pointer;
-          box-shadow: 0 4px 15px rgba(57, 120, 154, 0.35);
+          box-shadow: 0 6px 18px rgba(6, 43, 95, 0.42);
           display: flex;
           align-items: center;
           justify-content: center;
           gap: 10px;
           transition: all 0.25s ease;
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
         }
 
         .nmc-action-btn:hover {
-          background: linear-gradient(135deg, #39789A 0%, #1F2A44 100%);
-          box-shadow: 0 6px 20px rgba(31, 42, 68, 0.45);
+          background: linear-gradient(135deg, #0E2347 0%, #0B2E5E 55%, #123C73 100%);
+          border-color: rgba(242, 201, 76, 0.72);
+          box-shadow: 0 8px 24px rgba(6, 43, 95, 0.52), 0 0 0 1px rgba(212, 175, 55, 0.18);
+        }
+
+        .nmc-action-btn:focus-visible {
+          outline: 3px solid rgba(242, 201, 76, 0.45);
+          outline-offset: 3px;
         }
 
         .nmc-action-btn:active {
@@ -812,10 +892,97 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
         /* Footer */
         .nmc-footer-sec {
           text-align: center;
-          font-size: 0.9rem;
+          font-size: 0.86rem;
           color: rgba(255, 255, 255, 0.45);
           margin-top: 18px;
-          line-height: 1.5;
+          line-height: 1.65;
+        }
+
+        .nmc-footer-copyright {
+          margin: 0;
+          color: rgba(255, 255, 255, 0.72);
+          font-weight: 700;
+        }
+
+        .nmc-footer-english,
+        .nmc-footer-hierarchy,
+        .nmc-footer-version {
+          margin: 4px 0 0 0;
+        }
+
+        .nmc-footer-english {
+          font-family: 'Inter', Arial, sans-serif;
+          font-size: 0.72rem;
+          color: rgba(226, 232, 240, 0.6);
+        }
+
+        .nmc-footer-hierarchy {
+          color: rgba(243, 217, 139, 0.68);
+          font-size: 0.76rem;
+        }
+
+        .nmc-footer-version {
+          font-family: 'Inter', Arial, sans-serif;
+          font-size: 0.7rem;
+          color: rgba(226, 232, 240, 0.48);
+        }
+
+        .nmc-forgot-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 20;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+          background: rgba(3, 7, 18, 0.64);
+          backdrop-filter: blur(6px);
+          -webkit-backdrop-filter: blur(6px);
+        }
+
+        .nmc-forgot-modal {
+          width: min(430px, 100%);
+          border-radius: 18px;
+          border: 1px solid rgba(212, 175, 55, 0.28);
+          background: linear-gradient(145deg, rgba(11, 26, 53, 0.98), rgba(6, 43, 95, 0.96));
+          box-shadow: 0 28px 70px rgba(0, 0, 0, 0.46);
+          padding: 24px;
+          color: #ffffff;
+          text-align: left;
+        }
+
+        .nmc-forgot-modal h3 {
+          margin: 0 0 10px 0;
+          font-family: 'Battambang', 'Noto Sans Khmer', Arial, sans-serif;
+          font-size: 1.05rem;
+          font-weight: 800;
+          line-height: 1.7;
+          color: #f3d98b;
+        }
+
+        .nmc-forgot-modal p {
+          margin: 0;
+          color: rgba(226, 232, 240, 0.86);
+          line-height: 1.8;
+          font-size: 0.98rem;
+        }
+
+        .nmc-forgot-close {
+          margin-top: 18px;
+          width: 100%;
+          min-height: 44px;
+          border-radius: 12px;
+          border: 1px solid rgba(212, 175, 55, 0.5);
+          background: rgba(255, 255, 255, 0.08);
+          color: #ffffff;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .nmc-forgot-close:hover,
+        .nmc-forgot-close:focus-visible {
+          background: rgba(212, 175, 55, 0.18);
+          outline: none;
         }
 
         @media (max-width: 640px) {
@@ -842,14 +1009,14 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           }
 
           .nmc-card-logo-box {
-            width: 68px;
-            height: 68px;
+            width: 74px;
+            height: 74px;
             margin-bottom: 10px;
           }
 
-          .nmc-card-title {
-            font-size: 1.08rem;
-            margin-bottom: 12px;
+          .nmc-card-logo-img {
+            width: 70px;
+            height: 70px;
           }
 
           .nmc-error-box {
@@ -861,6 +1028,17 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           .nmc-label-txt,
           .nmc-check-lbl {
             font-size: 0.96rem;
+          }
+
+          .nmc-check-row {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 8px;
+          }
+
+          .nmc-forgot-link {
+            white-space: normal;
+            text-align: left;
           }
 
           .nmc-input-box {
@@ -915,21 +1093,21 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           {/* Official MISTI / NMC header */}
           <div className="nmc-official-header">
             <p className="nmc-official-ministry">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍</p>
-            <p className="nmc-official-center-kh">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
-            <p className="nmc-official-center-en">National Metrology Center of Cambodia</p>
           </div>
 
-          <h1 className="nmc-welcome-title">ប្រព័ន្ធរបាយការណ៍មាត្រាសាស្ត្រ</h1>
-          <p className="nmc-welcome-text">
-            ប្រព័ន្ធគ្រប់គ្រងសម្រាប់ការបំពេញ និងដាក់របាយការណ៍ស្តីពីការផលិត ការដំឡើង និងការជួសជុលឧបករណ៍មាត្រាសាស្ត្រ របស់ក្រុមហ៊ុនដែលមានអាជ្ញាបណ្ណ និងទទួលស្គាល់ផ្លូវការពីរដ្ឋ។
-          </p>
+          <div className="nmc-welcome-copy">
+            <h1 className="nmc-welcome-title">ប្រព័ន្ធរបាយការណ៍មាត្រាសាស្ត្រ</h1>
+            <p className="nmc-welcome-text">
+              ប្រព័ន្ធគ្រប់គ្រងសម្រាប់ការបំពេញ និងដាក់របាយការណ៍ស្តីពីការផលិត ការដំឡើង និងការជួសជុលឧបករណ៍មាត្រាសាស្ត្រ របស់ក្រុមហ៊ុនដែលមានអាជ្ញាបណ្ណ និងទទួលស្គាល់ផ្លូវការពីរដ្ឋ។
+            </p>
+          </div>
 
           {/* Animated metrology visual panel (decorative, CSS/SVG only) */}
           <div className="nmc-metrology-visual">
             <LoginMetrologyAnimation />
             <div className="nmc-system-tagline">
-              <p className="nmc-system-tagline-en">Digital Metrology License Report System</p>
               <p className="nmc-system-tagline-kh">ប្រព័ន្ធរបាយការណ៍អាជ្ញាបណ្ណមាត្រាសាស្ត្រឌីជីថល</p>
+              <p className="nmc-system-tagline-en">Digital Metrology License Report System</p>
             </div>
           </div>
         </div>
@@ -953,7 +1131,10 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
               />
             </div>
 
-            <h2 className="nmc-card-title">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</h2>
+            <div className="nmc-card-seal-caption">
+              <p className="nmc-card-seal-caption-kh">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+              <p className="nmc-card-seal-caption-en">National Metrology Center of Cambodia</p>
+            </div>
 
             {/* Form submit response errors display box */}
             {isUsersLoading && (
@@ -964,7 +1145,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
             )}
 
             {errorMessage && (
-              <div className="nmc-error-box">
+              <div className={`nmc-error-box ${noticeTone === 'warning' ? 'warning' : ''}`}>
                 {errorMessage}
               </div>
             )}
@@ -986,7 +1167,6 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
                     id="nmc-user-field"
                     type="text"
                     required
-                    placeholder="ឈ្មោះអ្នកប្រើប្រាស់"
                     className="nmc-input-box"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
@@ -1008,7 +1188,6 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
                     id="nmc-pass-field"
                     type={showPassword ? 'text' : 'password'}
                     required
-                    placeholder="ពាក្យសម្ងាត់"
                     className="nmc-input-box"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -1040,6 +1219,13 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
                   <input type="checkbox" className="nmc-chk-input" defaultChecked />
                   <span>ចងចាំខ្ញុំ</span>
                 </label>
+                <button
+                  type="button"
+                  className="nmc-forgot-link"
+                  onClick={() => setShowForgotNotice(true)}
+                >
+                  ភ្លេចពាក្យសម្ងាត់? / Forgot password?
+                </button>
               </div>
 
               {/* Primary action call button */}
@@ -1048,7 +1234,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
                   <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                   <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                 </svg>
-                <span>ចូលប្រើប្រាស់ / Sign In</span>
+                <span>ចូលប្រើប្រាស់ / Login</span>
               </button>
 
             </form>
@@ -1058,13 +1244,42 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
 
             {/* Footnote information branding */}
             <div className="nmc-footer-sec">
-              ឆ្នាំ២០២៦ © រក្សាសិទ្ធិគ្រប់យ៉ាងដោយ៖ ​នាយកដ្ឋានមាត្រាសាស្ត្រឧស្សាហកម្ម | មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ
+              <p className="nmc-footer-copyright">រក្សាសិទ្ធិ © ២០២៦ មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+              <p className="nmc-footer-english">All rights reserved © 2026 National Metrology Center of Cambodia</p>
+              <p className="nmc-footer-hierarchy">ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍ → មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ → នាយកដ្ឋានមាត្រាសាស្ត្រឧស្សាហកម្ម</p>
+              <p className="nmc-footer-version">MISTI → NMC → Department of Industrial Metrology · Version 1.0</p>
             </div>
 
           </div>
         </div>
 
       </div>
+
+      {showForgotNotice && (
+        <div
+          className="nmc-forgot-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="nmc-forgot-title"
+          onClick={() => setShowForgotNotice(false)}
+        >
+          <div className="nmc-forgot-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 id="nmc-forgot-title">ភ្លេចពាក្យសម្ងាត់?</h3>
+            <p>
+              សូមទាក់ទងអ្នកគ្រប់គ្រងប្រព័ន្ធ ដើម្បីស្នើសុំកំណត់ពាក្យសម្ងាត់ឡើងវិញ។
+              <br />
+              Please contact the system administrator to reset your password.
+            </p>
+            <button
+              type="button"
+              className="nmc-forgot-close"
+              onClick={() => setShowForgotNotice(false)}
+            >
+              យល់ព្រម / OK
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

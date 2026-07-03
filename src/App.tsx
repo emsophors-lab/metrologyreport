@@ -228,7 +228,7 @@ function LanguageSwitch({
                 : 'bg-[#353C96] text-white'
               : dark
                 ? 'text-slate-300 hover:bg-white/10'
-                : 'text-slate-500 hover:bg-slate-100'
+                : 'text-slate-400/70 hover:bg-slate-50 hover:text-slate-600'
           }`}
         >
           {code === 'km' ? 'ខ្មែរ' : 'EN'}
