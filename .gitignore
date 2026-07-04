@@ -7,3 +7,13 @@ coverage/
 .codex-*.log
 .env*
 !.env.example
+*.local
+backups/
+backup/
+exports/
+generated-reports/
+reports/private/
+*.bak
+*.tmp
+*.zip
+*.7z

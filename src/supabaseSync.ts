@@ -36,8 +36,14 @@ async function getApiJsonHeaders(): Promise<Record<string, string>> {
 
   const { data } = await client.auth.getSession();
   const token = data.session?.access_token;
+  const viteEnv = (import.meta as any).env || {};
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (!token && typeof sessionStorage !== 'undefined') {
+  if (
+    !token &&
+    viteEnv.DEV &&
+    viteEnv.VITE_ALLOW_LEGACY_API_HEADER_AUTH === 'true' &&
+    typeof sessionStorage !== 'undefined'
+  ) {
     try {
       const rawSession = sessionStorage.getItem('nmc_active_user_session');
       const sessionUser = rawSession ? JSON.parse(rawSession) : null;

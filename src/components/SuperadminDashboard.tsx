@@ -27,6 +27,78 @@ interface SuperadminDashboardProps {
   licenseRecords?: EnterpriseLicense[];
   isLoading?: boolean;
   errorMessage?: string | null;
+  language?: 'km' | 'en';
+}
+
+type DashboardLanguage = 'km' | 'en';
+
+const DASH_TEXT = {
+  title: { km: 'ផ្ទាំងគ្រប់គ្រងចម្បង', en: 'Superadmin Dashboard' },
+  subtitle: { km: 'មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ', en: 'Metrology License Report System' },
+  critical: { km: 'ហានិភ័យធ្ងន់ធ្ងរ', en: 'Critical' },
+  expiring: { km: 'ជិតផុតកំណត់', en: 'Expiring' },
+  botActive: { km: 'Bot ដំណើរការ', en: 'Bot Active' },
+  dataAnalytics: { km: 'វិភាគទិន្នន័យ', en: 'Data Analytics' },
+  totalLicenses: { km: 'អាជ្ញាប័ណ្ណសរុប', en: 'Total Licenses' },
+  totalLicensesSub: { km: 'កំណត់ត្រាទាំងអស់ក្នុង enterprise_licenses', en: 'All records in enterprise_licenses' },
+  activeLicenses: { km: 'អាជ្ញាប័ណ្ណសកម្ម', en: 'Active Licenses' },
+  activeOrUnexpired: { km: 'សកម្ម ឬមិនទាន់ផុតកំណត់', en: 'active or unexpired' },
+  expiring90: { km: 'ផុតកំណត់ក្នុង <=90 ថ្ងៃ', en: 'Expiring <=90 Days' },
+  critical30: { km: 'ធ្ងន់ធ្ងរក្នុង 30 ថ្ងៃ', en: 'critical within 30 days' },
+  expiredLicenses: { km: 'អាជ្ញាប័ណ្ណផុតកំណត់', en: 'Expired Licenses' },
+  expiredSub: { km: 'កាលបរិច្ឆេទផុតកំណត់មុនថ្ងៃនេះ', en: 'Expiry date before today' },
+  reportRate: { km: 'អត្រារបាយការណ៍', en: 'Report Rate' },
+  missingReports: { km: 'របាយការណ៍ខ្វះ', en: 'missing reports' },
+  monthNotDue: { km: 'មិនទាន់ដល់កំណត់ខែបច្ចុប្បន្ន', en: 'Current month not yet due' },
+  gpsTracked: { km: 'បានកំណត់ GPS', en: 'GPS Tracked' },
+  activeEnterprises: { km: 'សហគ្រាសសកម្ម', en: 'active enterprises' },
+  telegramLinked: { km: 'បានភ្ជាប់ Telegram', en: 'Telegram Linked' },
+  activeConnected: { km: 'សកម្មបានភ្ជាប់', en: 'active connected' },
+  provincesCovered: { km: 'ខេត្តបានគ្របដណ្តប់', en: 'Provinces Covered' },
+  provincesNoProvider: { km: 'ខេត្តមិនទាន់មានអ្នកផ្តល់សេវា', en: 'provinces have no provider' },
+  highCriticalRisk: { km: 'ហានិភ័យខ្ពស់ + ធ្ងន់ធ្ងរ', en: 'High + Critical Risk' },
+  priorityInspection: { km: 'បញ្ជីអាទិភាពត្រួតពិនិត្យខាងក្រោម', en: 'Priority inspection list below' },
+  licenseStatus: { km: 'ស្ថានភាពអាជ្ញាប័ណ្ណ', en: 'License Status' },
+  totalEnterprises: { km: 'សហគ្រាសសរុប', en: 'total enterprises' },
+  active: { km: 'សកម្ម', en: 'Active' },
+  expiringSoon: { km: 'ជិតផុតកំណត់', en: 'Expiring Soon' },
+  expired: { km: 'ផុតកំណត់', en: 'Expired' },
+  licensedByProvince: { km: 'សហគ្រាសមានអាជ្ញាប័ណ្ណតាមខេត្ត', en: 'Licensed Enterprises by Province' },
+  activeProviders: { km: 'អ្នកផ្តល់សេវាសកម្ម', en: 'Active providers' },
+  provincesCoveredSub: { km: 'ខេត្តបានគ្របដណ្តប់', en: 'provinces covered' },
+  noProvinceData: { km: 'មិនមានទិន្នន័យខេត្ត។', en: 'No province data available.' },
+  riskDistribution: { km: 'ការបែងចែកហានិភ័យ', en: 'Risk Distribution' },
+  priorityRiskLevels: { km: 'កម្រិតហានិភ័យអាទិភាព', en: 'Priority risk levels' },
+  low: { km: 'ទាប', en: 'Low' },
+  medium: { km: 'មធ្យម', en: 'Medium' },
+  high: { km: 'ខ្ពស់', en: 'High' },
+  licenseMap: { km: 'ផែនទីអាជ្ញាប័ណ្ណ', en: 'License Map' },
+  thisMonth: { km: 'ខែនេះ', en: 'this month' },
+  licenseExpiryForecast: { km: 'ការព្យាករផុតកំណត់អាជ្ញាប័ណ្ណ', en: 'License Expiry Forecast' },
+  renewalActions: { km: 'ត្រូវការសកម្មភាពបន្តសុពលភាព', en: 'Renewal actions required' },
+  monthlyReportTrend: { km: 'និន្នាការដាក់របាយការណ៍ប្រចាំខែ', en: 'Monthly Report Submission Trend' },
+  submissionRateTarget: { km: 'អត្រាដាក់របាយការណ៍ (%) · មករា-ធ្នូ', en: 'Submission rate (%) · Jan-Dec' },
+  target90: { km: 'គោលដៅ >= 90%', en: 'Target >= 90%' },
+  complianceHeatmap: { km: 'ផែនទីកំដៅការអនុវត្តរបាយការណ៍ប្រចាំខែ', en: 'Monthly Report Compliance Heatmap' },
+  showing: { km: 'បង្ហាញ', en: 'Showing' },
+  enterprises: { km: 'សហគ្រាស', en: 'enterprises' },
+  instrumentCoverage: { km: 'ការគ្របដណ្តប់ឧបករណ៍ដោយក្រុមហ៊ុនមានអាជ្ញាប័ណ្ណ', en: 'Instrument Coverage by Licensed Service Firms' },
+  instrumentCoverageSub: { km: 'ចំនួនក្រុមហ៊ុនដែលគ្របដណ្តប់ប្រភេទឧបករណ៍នីមួយៗ', en: 'Number of firms covering each instrument type' },
+  serviceScopeMix: { km: 'សមាសភាពវិសាលភាពសេវា', en: 'Service Scope Mix' },
+  submittedReportsByService: { km: 'របាយការណ៍បានដាក់តាមប្រភេទសេវា', en: 'Submitted reports by service type' },
+  priorityRiskRegister: { km: 'បញ្ជីហានិភ័យអាទិភាព', en: 'Priority Risk Register' },
+  priorityRiskRegisterSub: { km: 'សហគ្រាសអាទិភាពត្រូវការត្រួតពិនិត្យ · រៀបតាមពិន្ទុហានិភ័យ', en: 'Top enterprises requiring inspection · sorted by risk score' },
+} as const;
+
+function dt(key: keyof typeof DASH_TEXT, language: DashboardLanguage) {
+  return DASH_TEXT[key][language];
+}
+
+function riskLabel(level: keyof typeof RISK_COLORS, language: DashboardLanguage) {
+  if (level === 'Low') return dt('low', language);
+  if (level === 'Medium') return dt('medium', language);
+  if (level === 'High') return dt('high', language);
+  return dt('critical', language);
 }
 
 const MONTHS = [
@@ -362,7 +434,7 @@ function ProgressRow({
   );
 }
 
-export default function SuperadminDashboard({ currentUser, reports, users, activeCompanyList, licenseRecords = [], isLoading = false, errorMessage = null }: SuperadminDashboardProps) {
+export default function SuperadminDashboard({ currentUser, reports, users, activeCompanyList, licenseRecords = [], isLoading = false, errorMessage = null, language = 'km' }: SuperadminDashboardProps) {
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showAlert, setShowAlert] = useState(true);
   const canOpenAnalytics = currentUser.role === 'superadmin' ||
@@ -611,17 +683,17 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
     <div className="superdash superdash-design">
       <div className="superdash-design-topbar">
         <div>
-          <h2>ផ្ទាំងគ្រប់គ្រងចម្បង · Superadmin Dashboard</h2>
-          <p>មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ (NMC) · Metrology License Report System</p>
+          <h2>{dt('title', language)}</h2>
+          <p>{dt('subtitle', language)}</p>
         </div>
         <div className="superdash-design-topbar__actions">
-          <DashboardBadge tone="red"><ShieldAlert /> {isLoading ? '...' : (riskCounts.find(r => r.level === 'Critical')?.count || 0)} Critical</DashboardBadge>
-          <DashboardBadge tone="gold"><Clock3 /> {isLoading ? '...' : expiring30} Expiring</DashboardBadge>
-          <DashboardBadge tone="green"><Send /> Bot Active</DashboardBadge>
+          <DashboardBadge tone="red"><ShieldAlert /> {isLoading ? '...' : (riskCounts.find(r => r.level === 'Critical')?.count || 0)} {dt('critical', language)}</DashboardBadge>
+          <DashboardBadge tone="gold"><Clock3 /> {isLoading ? '...' : expiring30} {dt('expiring', language)}</DashboardBadge>
+          <DashboardBadge tone="green"><Send /> {dt('botActive', language)}</DashboardBadge>
           {canOpenAnalytics && (
             <button type="button" onClick={() => setShowAnalytics(true)}>
               <BarChart3 />
-              Data Analytics
+              {dt('dataAnalytics', language)}
             </button>
           )}
         </div>
@@ -654,36 +726,36 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
       )}
 
       <section className="superdash-kpi-row superdash-kpi-row--five">
-        <KpiCard label="Total Licenses" value={isLoading && totalLicenses === 0 ? 'Loading' : totalLicenses} sub="All records in enterprise_licenses" icon={<FileCheck2 />} tone="navy" />
-        <KpiCard label="Active Licenses" value={isLoading && totalLicenses === 0 ? 'Loading' : activeLicenses} sub={`${formatRate(totalLicenses > 0 ? percent(activeLicenses, totalLicenses) : null)} active or unexpired`} icon={<CheckCircle2 />} tone="green" />
-        <KpiCard label="Expiring <=90 Days" value={isLoading && totalLicenses === 0 ? 'Loading' : expiringSoon} sub={`${expiring30} critical within 30 days`} icon={<Clock3 />} tone="gold" />
-        <KpiCard label="Expired Licenses" value={isLoading && totalLicenses === 0 ? 'Loading' : expired} sub="Expiry date before today" icon={<ShieldAlert />} tone="red" />
-        <KpiCard label={`Report Rate (${MONTHS[Number(currentMonth) - 1]?.short || 'Now'})`} value={isLoading && totalLicenses === 0 ? 'Loading' : reportRateLabel} sub={currentMonthDue ? `${missingReports} missing reports` : 'Current month not yet due'} icon={<BarChart3 />} tone="purple" />
+        <KpiCard label={dt('totalLicenses', language)} value={isLoading && totalLicenses === 0 ? 'Loading' : totalLicenses} sub={dt('totalLicensesSub', language)} icon={<FileCheck2 />} tone="navy" />
+        <KpiCard label={dt('activeLicenses', language)} value={isLoading && totalLicenses === 0 ? 'Loading' : activeLicenses} sub={`${formatRate(totalLicenses > 0 ? percent(activeLicenses, totalLicenses) : null)} ${dt('activeOrUnexpired', language)}`} icon={<CheckCircle2 />} tone="green" />
+        <KpiCard label={dt('expiring90', language)} value={isLoading && totalLicenses === 0 ? 'Loading' : expiringSoon} sub={`${expiring30} ${dt('critical30', language)}`} icon={<Clock3 />} tone="gold" />
+        <KpiCard label={dt('expiredLicenses', language)} value={isLoading && totalLicenses === 0 ? 'Loading' : expired} sub={dt('expiredSub', language)} icon={<ShieldAlert />} tone="red" />
+        <KpiCard label={`${dt('reportRate', language)} (${language === 'km' ? MONTHS[Number(currentMonth) - 1]?.kh : MONTHS[Number(currentMonth) - 1]?.short || 'Now'})`} value={isLoading && totalLicenses === 0 ? 'Loading' : reportRateLabel} sub={currentMonthDue ? `${missingReports} ${dt('missingReports', language)}` : dt('monthNotDue', language)} icon={<BarChart3 />} tone="purple" />
       </section>
 
       <section className="superdash-mini-kpi-row">
-        <MiniKpi label="GPS Tracked" value={gpsRateLabel} sub={`${gpsTracked} of ${activeLicenses} active enterprises`} icon={<MapPin />} tone="cyan" />
-        <MiniKpi label="Telegram Linked" value={telegramRateLabel} sub={`${telegramLinked} of ${activeLicenses} active connected`} icon={<MessageCircle />} tone="indigo" />
-        <MiniKpi label="Provinces Covered" value={`${provincesCovered} / ${CAMBODIA_PROVINCE_COUNT}`} sub={`${Math.max(0, CAMBODIA_PROVINCE_COUNT - provincesCovered)} provinces have no provider`} icon={<MapPin />} tone="orange" />
-        <MiniKpi label="High + Critical Risk" value={highCritical} sub="Priority inspection list below" icon={<Gauge />} tone="red" />
+        <MiniKpi label={dt('gpsTracked', language)} value={gpsRateLabel} sub={`${gpsTracked} / ${activeLicenses} ${dt('activeEnterprises', language)}`} icon={<MapPin />} tone="cyan" />
+        <MiniKpi label={dt('telegramLinked', language)} value={telegramRateLabel} sub={`${telegramLinked} / ${activeLicenses} ${dt('activeConnected', language)}`} icon={<MessageCircle />} tone="indigo" />
+        <MiniKpi label={dt('provincesCovered', language)} value={`${provincesCovered} / ${CAMBODIA_PROVINCE_COUNT}`} sub={`${Math.max(0, CAMBODIA_PROVINCE_COUNT - provincesCovered)} ${dt('provincesNoProvider', language)}`} icon={<MapPin />} tone="orange" />
+        <MiniKpi label={dt('highCriticalRisk', language)} value={highCritical} sub={dt('priorityInspection', language)} icon={<Gauge />} tone="red" />
       </section>
 
       <section className="superdash-design-grid superdash-design-grid--status">
-        <SectionCard title="License Status" subtitle={`${totalLicenses} total enterprises`}>
+        <SectionCard title={dt('licenseStatus', language)} subtitle={`${totalLicenses} ${dt('totalEnterprises', language)}`}>
           <div className="superdash-donut-wrap">
             <div className="superdash-donut" style={donutStyle}><span>{totalLicenses}</span></div>
             <div className="superdash-status-list">
-              <ProgressRow label="Active" value={activeStrict} pct={activePct} color={STATUS_COLORS.active} tooltip={<>សកម្ម / Active<br />{activeStrict} licenses · {activePct}% of total</>} />
-              <ProgressRow label="Expiring Soon" value={expiringSoon} pct={expiringPct} color={STATUS_COLORS.expiring} tooltip={<>ជិតផុតកំណត់ / Expiring Soon<br />{expiringSoon} licenses · {expiringPct}% of total</>} />
-              <ProgressRow label="Expired" value={expired} pct={expiredPct} color={STATUS_COLORS.expired} tooltip={<>ផុតកំណត់ / Expired<br />{expired} licenses · {expiredPct}% of total</>} />
+              <ProgressRow label={dt('active', language)} value={activeStrict} pct={activePct} color={STATUS_COLORS.active} tooltip={<>{dt('active', language)}<br />{activeStrict} licenses · {activePct}% of total</>} />
+              <ProgressRow label={dt('expiringSoon', language)} value={expiringSoon} pct={expiringPct} color={STATUS_COLORS.expiring} tooltip={<>{dt('expiringSoon', language)}<br />{expiringSoon} licenses · {expiringPct}% of total</>} />
+              <ProgressRow label={dt('expired', language)} value={expired} pct={expiredPct} color={STATUS_COLORS.expired} tooltip={<>{dt('expired', language)}<br />{expired} licenses · {expiredPct}% of total</>} />
             </div>
           </div>
         </SectionCard>
 
-        <SectionCard title="Licensed Enterprises by Province" subtitle={`Active providers · ${provincesCovered} of ${CAMBODIA_PROVINCE_COUNT} provinces covered`}>
+        <SectionCard title={dt('licensedByProvince', language)} subtitle={`${dt('activeProviders', language)} · ${provincesCovered} / ${CAMBODIA_PROVINCE_COUNT} ${dt('provincesCoveredSub', language)}`}>
           <div className="superdash-horizontal-bars">
             {provinceRows.length === 0 ? (
-              <p className="superdash-design-empty">No province data available.</p>
+              <p className="superdash-design-empty">{dt('noProvinceData', language)}</p>
             ) : provinceRows.map(row => (
               <div key={row.label}>
                 <ProgressRow label={row.label} value={row.count} pct={(row.count / maxProvince) * 100} color="#C9A227" tooltip={<>{row.label}<br />Enterprises: {row.count} · {percent(row.count, Math.max(1, provinceSource.length))}%</>} />
@@ -695,11 +767,11 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
           </div>
         </SectionCard>
 
-        <SectionCard title="Risk Distribution" subtitle="Priority risk levels">
+        <SectionCard title={dt('riskDistribution', language)} subtitle={dt('priorityRiskLevels', language)}>
           <div className="superdash-risk-bars">
             {riskCounts.map(row => (
               <div key={row.level}>
-                <ProgressRow label={row.level} value={row.count} pct={percent(row.count, Math.max(1, allRiskRows.length))} color={RISK_COLORS[row.level]} tooltip={<>{row.level} risk<br />{row.count} enterprises · {percent(row.count, Math.max(1, allRiskRows.length))}% of active enterprises</>} />
+                <ProgressRow label={riskLabel(row.level, language)} value={row.count} pct={percent(row.count, Math.max(1, allRiskRows.length))} color={RISK_COLORS[row.level]} tooltip={<>{riskLabel(row.level, language)} risk<br />{row.count} enterprises · {percent(row.count, Math.max(1, allRiskRows.length))}% of active enterprises</>} />
               </div>
             ))}
           </div>
@@ -707,7 +779,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
       </section>
 
       <section className="superdash-design-grid superdash-design-grid--forecast">
-        <SectionCard title="License Expiry Forecast" subtitle="Renewal actions required">
+        <SectionCard title={dt('licenseExpiryForecast', language)} subtitle={dt('renewalActions', language)}>
           <ProgressRow label="Expired (overdue)" value={expired} pct={(expired / forecastMax) * 100} color="#6B7280" tooltip={<>ផុតកំណត់ / Expired<br />{expired} licenses</>} />
           <ProgressRow label="Expires <= 30 days" value={expiring30} pct={(expiring30 / forecastMax) * 100} color="#DC2626" tooltip={<>ត្រូវបន្តឆាប់ៗ / Within 30 days<br />{expiring30} licenses</>} />
           <ProgressRow label="Expires 31-60 days" value={expiring31To60} pct={(expiring31To60 / forecastMax) * 100} color="#EA580C" tooltip={<>31-60 days<br />{expiring31To60} licenses</>} />
@@ -718,9 +790,9 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
         </SectionCard>
 
         <SectionCard
-          title="Monthly Report Submission Trend"
-          subtitle={`Submission rate (%) · Jan-Dec ${currentYear} · Target >= 90%`}
-          action={<DashboardBadge tone={(currentMonthRate ?? 0) >= 90 ? 'green' : 'red'}>{reportRateLabel} this month</DashboardBadge>}
+          title={dt('monthlyReportTrend', language)}
+          subtitle={`${dt('submissionRateTarget', language)} ${currentYear} · ${dt('target90', language)}`}
+          action={<DashboardBadge tone={(currentMonthRate ?? 0) >= 90 ? 'green' : 'red'}>{reportRateLabel} {dt('thisMonth', language)}</DashboardBadge>}
         >
           <div className="superdash-line-chart" role="img" aria-label="Monthly report submission trend line chart">
             {reports.length === 0 && !isLoading ? (
@@ -777,8 +849,8 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
       </section>
 
       <SectionCard
-        title="Monthly Report Compliance Heatmap"
-        subtitle={`Showing ${heatmapRows.length} enterprises · Jan-Dec ${currentYear}`}
+        title={dt('complianceHeatmap', language)}
+        subtitle={`${dt('showing', language)} ${heatmapRows.length} ${dt('enterprises', language)} · Jan-Dec ${currentYear}`}
       >
         <div className="superdash-heatmap-wrap">
           <table className="superdash-heatmap">
@@ -807,7 +879,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
       </SectionCard>
 
       <section className="superdash-design-grid superdash-design-grid--instruments">
-        <SectionCard title="Instrument Coverage by Licensed Service Firms" subtitle="Number of firms covering each instrument type">
+        <SectionCard title={dt('instrumentCoverage', language)} subtitle={dt('instrumentCoverageSub', language)}>
           <div className="superdash-horizontal-bars">
             {instrumentRows.length === 0 ? (
               <p className="superdash-design-empty">No instrument data available.</p>
@@ -819,7 +891,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
           </div>
         </SectionCard>
 
-        <SectionCard title="Service Scope Mix" subtitle="Submitted reports by service type">
+        <SectionCard title={dt('serviceScopeMix', language)} subtitle={dt('submittedReportsByService', language)}>
           {submittedServiceReports.length === 0 && !isLoading ? (
             <p className="superdash-design-empty">No service report data available.</p>
           ) : (
@@ -834,7 +906,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
         </SectionCard>
       </section>
 
-      <SectionCard title="Priority Risk Register" subtitle="Top enterprises requiring inspection · sorted by risk score">
+      <SectionCard title={dt('priorityRiskRegister', language)} subtitle={dt('priorityRiskRegisterSub', language)}>
         <div className="superdash-risk-table-wrap">
           <table className="superdash-risk-table">
             <thead>
@@ -880,13 +952,13 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
 
       <section className="superdash-panel superdash-map-panel">
         <div className="superdash-panel__header">
-          <h3>ផែនទីអាជ្ញាប័ណ្ណ / License Map</h3>
+          <h3>{dt('licenseMap', language)}</h3>
         </div>
         <EnterpriseLicenseMapView licenses={mapRecords} nmcLogoUrl={nmcLogo} className="superdash-map" />
         <div className="superdash-map-legend">
-          <span><i className="is-active" /> សកម្ម / Active</span>
-          <span><i className="is-expiring" /> ជិតផុតកំណត់ / Expiring</span>
-          <span><i className="is-expired" /> ផុតកំណត់ / Expired</span>
+          <span><i className="is-active" /> {dt('active', language)}</span>
+          <span><i className="is-expiring" /> {dt('expiringSoon', language)}</span>
+          <span><i className="is-expired" /> {dt('expired', language)}</span>
         </div>
       </section>
 

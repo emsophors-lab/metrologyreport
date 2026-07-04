@@ -1,20 +1,40 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Metrology License Report System
 
-# Run and deploy your AI Studio app
+Digital license, report, dashboard, analytics, export, and Telegram notification system for National Metrology Center workflows.
 
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/db459b59-bbd8-4904-b736-f0ab623c8a98
-
-## Run Locally
-
-**Prerequisites:**  Node.js
-
+## Local Development
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+
+   ```bash
+   npm install
+   ```
+
+2. Copy `.env.example` to `.env.local` and fill only the values needed for local development.
+
 3. Run the app:
-   `npm run dev`
+
+   ```bash
+   npm run dev
+   ```
+
+4. Validate before deployment:
+
+   ```bash
+   npm run lint
+   npm run build
+   npm audit
+   ```
+
+## Deployment Security Checklist
+
+- Keep `.env`, `.env.local`, `.env.production`, backups, generated reports, log files, screenshots with secrets, and private company data out of Git.
+- Store `SUPABASE_SERVICE_ROLE_KEY`, Telegram bot tokens, AI API keys, cron secrets, and webhook secrets only in Vercel Environment Variables.
+- Use `VITE_` variables only for frontend-safe configuration such as the Supabase URL and public anon key.
+- Do not enable `ALLOW_LEGACY_API_HEADER_AUTH` or `VITE_ALLOW_LEGACY_API_HEADER_AUTH` in production.
+- Rotate any Supabase service role key, Telegram bot token, AI API key, or password that appears in code, logs, screenshots, browser responses, or Git history.
+- Confirm Supabase Row Level Security policies enforce role and company ownership on sensitive tables.
+- Confirm backup/export features redact passwords, tokens, API keys, service role keys, and private debug data.
+- Confirm Telegram bot settings and tokens are managed server-side and are not visible in browser network responses.
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting and secret-handling guidance.

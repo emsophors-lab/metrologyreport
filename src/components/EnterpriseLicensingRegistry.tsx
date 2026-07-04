@@ -3888,7 +3888,9 @@ export default function EnterpriseLicensingRegistry({
                           )}
                         </div>
 
-                        <p className="text-[11.5px] p-2 bg-black/40 rounded border border-slate-800 font-sans text-slate-300 leading-relaxed max-w-5xl" dangerouslySetInnerHTML={{ __html: log.message_text }} />
+                        <p className="text-[11.5px] p-2 bg-black/40 rounded border border-slate-800 font-sans text-slate-300 leading-relaxed max-w-5xl whitespace-pre-wrap">
+                          {log.message_text}
+                        </p>
                       </div>
 
                       <div className="text-right shrink-0 space-y-1 font-mono text-[10px] text-slate-400 border-t md:border-t-0 pt-2 md:pt-0 border-slate-800 w-full md:w-auto">

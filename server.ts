@@ -29,6 +29,9 @@ const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 const hasSupabaseUrl = supabaseUrl && supabaseUrl !== 'YOUR_SUPABASE_URL';
 const hasServiceKey = supabaseServiceRoleKey && supabaseServiceRoleKey !== '';
+const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+const allowLegacyHeaderAuth =
+  !isProduction && process.env.ALLOW_LEGACY_API_HEADER_AUTH === 'true';
 
 const supabaseAdmin = (hasSupabaseUrl && hasServiceKey)
   ? createClient(supabaseUrl, supabaseServiceRoleKey, {
@@ -48,27 +51,29 @@ async function requireApiRole(req: any, res: any, allowedRoles: string[]): Promi
   const authHeader = req.headers.authorization || '';
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
   if (!token) {
-    const headerUserId = String(req.headers['x-nmc-user-id'] || '').trim();
-    const headerUsername = String(req.headers['x-nmc-username'] || '').trim().toLowerCase();
-    const headerRole = String(req.headers['x-nmc-user-role'] || '').trim();
+    if (allowLegacyHeaderAuth) {
+      const headerUserId = String(req.headers['x-nmc-user-id'] || '').trim();
+      const headerUsername = String(req.headers['x-nmc-username'] || '').trim().toLowerCase();
+      const headerRole = String(req.headers['x-nmc-user-role'] || '').trim();
 
-    if (headerUserId && headerUsername && headerRole) {
-      const { data: publicUser, error: publicUserError } = await supabaseAdmin
-        .from('users')
-        .select('id,username,role,is_active')
-        .eq('id', headerUserId)
-        .maybeSingle();
+      if (headerUserId && headerUsername && headerRole) {
+        const { data: publicUser, error: publicUserError } = await supabaseAdmin
+          .from('users')
+          .select('id,username,role,is_active')
+          .eq('id', headerUserId)
+          .maybeSingle();
 
-      const publicUserValid =
-        !publicUserError &&
-        publicUser &&
-        String(publicUser.username || '').toLowerCase() === headerUsername &&
-        String(publicUser.role || '') === headerRole &&
-        publicUser.is_active !== false &&
-        allowedRoles.includes(String(publicUser.role || ''));
+        const publicUserValid =
+          !publicUserError &&
+          publicUser &&
+          String(publicUser.username || '').toLowerCase() === headerUsername &&
+          String(publicUser.role || '') === headerRole &&
+          publicUser.is_active !== false &&
+          allowedRoles.includes(String(publicUser.role || ''));
 
-      if (publicUserValid) {
-        return true;
+        if (publicUserValid) {
+          return true;
+        }
       }
     }
 
@@ -354,6 +359,22 @@ function getDefaultWebhookUrl(req: any) {
   return `${protocol}://${host}/api/telegram-webhook`;
 }
 
+function isSafeTelegramWebhookUrl(value: string, req: any) {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:') return false;
+    if (/^(localhost|127\.0\.0\.1|\[::1\])$/i.test(parsed.hostname)) return false;
+    const expected = new URL(getDefaultWebhookUrl(req));
+    return parsed.hostname === expected.hostname && parsed.pathname === '/api/telegram-webhook';
+  } catch {
+    return false;
+  }
+}
+
+function isValidTelegramChatId(value: unknown) {
+  return /^-?\d{5,20}$/.test(String(value || '').trim());
+}
+
 async function configureTelegramWebhook(bot: any, webhookUrl: string) {
   const botToken = bot?.bot_token_encrypted;
   if (!botToken || isProtectedSecretValue(botToken) || botToken === 'env-fallback') {
@@ -518,9 +539,9 @@ app.post('/api/ensure-telegram-webhook', async (req, res) => {
       purpose === 'report_group' || purpose === 'report_notification'
         ? 'report_group'
         : 'license_reminder';
-    const webhookUrl = String(req.body?.webhook_url || req.body?.webhookUrl || getDefaultWebhookUrl(req)).trim();
-    if (!/^https:\/\//i.test(webhookUrl) || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/i.test(webhookUrl)) {
-      return apiError(res, 400, 'Webhook requires public HTTPS deployment. Localhost cannot be used for Telegram webhook.');
+    const webhookUrl = getDefaultWebhookUrl(req);
+    if (!isSafeTelegramWebhookUrl(webhookUrl, req)) {
+      return apiError(res, 400, 'Webhook requires the configured public HTTPS NMC deployment URL.');
     }
 
     const activeBot = await getActiveBot(requestedPurpose);
@@ -541,7 +562,7 @@ app.post('/api/ensure-telegram-webhook', async (req, res) => {
     });
   } catch (err: any) {
     console.error('ensureWebhook error:', sanitizeTelegramError(err?.message || 'Failed to ensure Telegram Webhook'));
-    return apiError(res, 500, sanitizeTelegramError(err?.message || 'Failed to ensure Telegram Webhook'));
+    return apiError(res, 500, 'Unable to configure Telegram webhook at this time.');
   }
 });
 
@@ -651,7 +672,7 @@ app.delete('/api/telegram-bot-settings/:id', async (req, res) => {
     return apiSuccess(res, { status: 'success' });
   } catch (err: any) {
     console.error('Failed to delete Telegram Bot setting:', err);
-    return apiError(res, 500, err?.message || 'Failed to delete Telegram Bot setting.');
+    return apiError(res, 500, 'Failed to delete Telegram Bot setting.');
   }
 });
 
@@ -662,7 +683,7 @@ app.delete('/api/telegram-bot-settings/:id', async (req, res) => {
 app.post('/api/telegram-webhook', async (req, res) => {
   try {
     const update = req.body;
-    console.log('Received Telegram update:', JSON.stringify(update));
+    console.log('Received Telegram webhook update.');
 
     const message = update.message;
     if (!message || !message.text || !message.chat) {
@@ -1187,7 +1208,7 @@ app.post('/api/set-telegram-webhook', async (req, res) => {
   } catch (err: any) {
     if (isTelegramBotSchemaError(err)) return telegramBotSchemaError(res);
     console.error('setWebhook error:', sanitizeTelegramError(err?.message || 'Failed to configure Telegram Webhook'));
-    return apiError(res, 500, sanitizeTelegramError(err?.message || 'Failed to configure Telegram Webhook'));
+    return apiError(res, 500, 'Unable to configure Telegram webhook at this time.');
   }
 });
 
@@ -1260,7 +1281,7 @@ app.get('/api/get-telegram-webhook-status', async (req, res) => {
   } catch (err: any) {
     if (isTelegramBotSchemaError(err)) return telegramBotSchemaError(res);
     console.error('getWebhookInfo error:', err);
-    return apiError(res, 500, err?.message || 'Failed to query Telegram webhook info');
+    return apiError(res, 500, 'Failed to query Telegram webhook info');
   }
 });
 
@@ -1273,7 +1294,7 @@ app.post('/api/test-telegram-reminder', async (req, res) => {
     const { licenseId, chatId, customMessage, botToken: bodyBotToken, botUsername: bodyBotUsername, botId, botPurpose } = req.body;
     const requestedPurpose: TelegramBotPurpose = (botPurpose === 'report_group' || botPurpose === 'report_notification') ? 'report_group' : 'license_reminder';
 
-    if (requestedPurpose !== 'report_group' && !(await requireApiRole(req, res, ['superadmin', 'admin']))) return;
+    if (!(await requireApiRole(req, res, ['superadmin', 'admin']))) return;
     
     let botToken = bodyBotToken;
     let botUsername = bodyBotUsername || 'Custom Bot';
@@ -1324,6 +1345,9 @@ app.post('/api/test-telegram-reminder', async (req, res) => {
           ? 'Default Group Chat ID is required for Report Group notifications.'
           : 'Missing required target Telegram Chat ID'
       );
+    }
+    if (!isValidTelegramChatId(targetChatId)) {
+      return apiError(res, 400, 'Invalid Telegram Chat ID.');
     }
 
     if (!botToken || isProtectedSecretValue(botToken)) {

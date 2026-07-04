@@ -806,7 +806,8 @@ textarea.nmc-input:focus {
 }
 
 /* ===== Superadmin dashboard theme inspired by the official portal reference ===== */
-.nmc-superadmin-theme {
+.nmc-superadmin-theme,
+.nmc-unified-chrome {
   --nmc-super-blue: #003b78;
   --nmc-super-blue-deep: #002e63;
   --nmc-super-sidebar: #00386f;
@@ -815,7 +816,8 @@ textarea.nmc-input:focus {
   background: #eef4f8;
 }
 
-.nmc-superadmin-theme .nmc-superadmin-header {
+.nmc-superadmin-theme .nmc-superadmin-header,
+.nmc-unified-chrome .nmc-superadmin-header {
   min-height: 132px;
   padding: 18px 28px !important;
   background:
@@ -825,7 +827,8 @@ textarea.nmc-input:focus {
   overflow: hidden;
 }
 
-.nmc-superadmin-theme .nmc-superadmin-header::before {
+.nmc-superadmin-theme .nmc-superadmin-header::before,
+.nmc-unified-chrome .nmc-superadmin-header::before {
   content: "";
   position: absolute;
   left: 52%;
@@ -840,7 +843,8 @@ textarea.nmc-input:focus {
   clip-path: polygon(0 100%, 6% 84%, 12% 100%, 18% 46%, 23% 100%, 30% 68%, 35% 100%, 42% 20%, 47% 100%, 52% 0, 58% 100%, 64% 28%, 70% 100%, 76% 58%, 82% 100%, 88% 34%, 94% 100%, 100% 82%, 100% 100%);
 }
 
-.nmc-superadmin-theme .nmc-superadmin-header::after {
+.nmc-superadmin-theme .nmc-superadmin-header::after,
+.nmc-unified-chrome .nmc-superadmin-header::after {
   content: "";
   position: absolute;
   right: -18px;
@@ -854,7 +858,8 @@ textarea.nmc-input:focus {
   opacity: 0.9;
 }
 
-.nmc-superadmin-theme .nmc-official-header__logo {
+.nmc-superadmin-theme .nmc-official-header__logo,
+.nmc-unified-chrome .nmc-official-header__logo {
   width: 92px !important;
   height: 92px !important;
   border: 0 !important;
@@ -864,13 +869,15 @@ textarea.nmc-input:focus {
   box-shadow: none !important;
 }
 
-.nmc-superadmin-theme .nmc-official-header__title-kh {
+.nmc-superadmin-theme .nmc-official-header__title-kh,
+.nmc-unified-chrome .nmc-official-header__title-kh {
   font-size: clamp(12px, 1.08vw, 14px) !important;
   line-height: 1.35;
   text-shadow: 0 2px 6px rgba(0,0,0,0.22);
 }
 
-.nmc-superadmin-theme .nmc-official-header__title-en {
+.nmc-superadmin-theme .nmc-official-header__title-en,
+.nmc-unified-chrome .nmc-official-header__title-en {
   font-size: clamp(14px, 1.45vw, 18px) !important;
   color: rgba(255,255,255,0.94) !important;
 }
@@ -927,7 +934,8 @@ textarea.nmc-input:focus {
   font-family: var(--font-mono, monospace);
 }
 
-.nmc-superadmin-theme .nmc-sidebar {
+.nmc-superadmin-theme .nmc-sidebar,
+.nmc-unified-chrome .nmc-sidebar {
   width: 248px !important;
   background:
     linear-gradient(180deg, var(--nmc-super-blue) 0%, var(--nmc-super-sidebar) 48%, var(--nmc-super-sidebar-dark) 100%) !important;
@@ -935,17 +943,20 @@ textarea.nmc-input:focus {
   box-shadow: 6px 0 18px rgba(0,47,103,0.18);
 }
 
-.nmc-superadmin-theme .nmc-sidebar > div:first-child > div:first-child {
+.nmc-superadmin-theme .nmc-sidebar > div:first-child > div:first-child,
+.nmc-unified-chrome .nmc-sidebar > div:first-child > div:first-child {
   min-height: 74px;
   background: rgba(0,0,0,0.08) !important;
   border-bottom: 1px solid rgba(255,255,255,0.16) !important;
 }
 
-.nmc-superadmin-theme .nmc-sidebar nav {
+.nmc-superadmin-theme .nmc-sidebar nav,
+.nmc-unified-chrome .nmc-sidebar nav {
   padding-top: 0.65rem;
 }
 
-.nmc-superadmin-theme .nmc-sidebar nav button {
+.nmc-superadmin-theme .nmc-sidebar nav button,
+.nmc-unified-chrome .nmc-sidebar nav button {
   min-height: 58px;
   padding-left: 24px !important;
   color: rgba(255,255,255,0.92);
@@ -953,19 +964,23 @@ textarea.nmc-input:focus {
   font-size: 14px !important;
 }
 
-.nmc-superadmin-theme .nmc-sidebar nav button svg {
+.nmc-superadmin-theme .nmc-sidebar nav button svg,
+.nmc-unified-chrome .nmc-sidebar nav button svg {
   width: 22px;
   height: 22px;
   color: #ffffff !important;
 }
 
 .nmc-superadmin-theme .nmc-sidebar nav button[class*="text-white"],
-.nmc-superadmin-theme .nmc-sidebar nav button[class*="border-gold"] {
+.nmc-superadmin-theme .nmc-sidebar nav button[class*="border-gold"],
+.nmc-unified-chrome .nmc-sidebar nav button[class*="text-white"],
+.nmc-unified-chrome .nmc-sidebar nav button[class*="border-gold"] {
   background: linear-gradient(90deg, rgba(240,183,47,0.22), rgba(255,255,255,0.05)) !important;
   border-left-color: var(--nmc-super-gold) !important;
 }
 
-.nmc-superadmin-theme .nmc-content {
+.nmc-superadmin-theme .nmc-content,
+.nmc-unified-chrome .nmc-content {
   max-width: none !important;
   padding: 14px 18px !important;
   background:
@@ -1797,7 +1812,7 @@ textarea.nmc-input:focus {
 .analytics-overlay {
   position: fixed;
   inset: 0;
-  z-index: 90;
+  z-index: 200;
   background: rgba(0, 25, 55, 0.58);
   backdrop-filter: blur(3px);
   display: flex;
@@ -1924,6 +1939,11 @@ textarea.nmc-input:focus {
   background: #003b73;
   color: #ffffff;
   border-color: #003b73;
+}
+
+.analytics-actions button:disabled {
+  opacity: 0.62;
+  cursor: wait;
 }
 
 .analytics-actions svg {
@@ -2262,17 +2282,20 @@ textarea.nmc-input:focus {
 }
 
 @media (max-width: 768px) {
-  .nmc-superadmin-theme .nmc-superadmin-header {
+  .nmc-superadmin-theme .nmc-superadmin-header,
+  .nmc-unified-chrome .nmc-superadmin-header {
     min-height: auto;
     padding: 14px 16px !important;
   }
 
-  .nmc-superadmin-theme .nmc-official-header__logo {
+  .nmc-superadmin-theme .nmc-official-header__logo,
+  .nmc-unified-chrome .nmc-official-header__logo {
     width: 64px !important;
     height: 64px !important;
   }
 
-  .nmc-superadmin-theme .nmc-official-header__title-kh {
+  .nmc-superadmin-theme .nmc-official-header__title-kh,
+  .nmc-unified-chrome .nmc-official-header__title-kh {
     font-size: 12px !important;
   }
 
@@ -2391,7 +2414,8 @@ textarea.nmc-input:focus {
     min-width: 0;
   }
 
-  .nmc-superadmin-theme .nmc-mobile-topbar {
+  .nmc-superadmin-theme .nmc-mobile-topbar,
+  .nmc-unified-chrome .nmc-mobile-topbar {
     position: sticky;
     top: 0;
     z-index: 80;
@@ -2434,7 +2458,8 @@ textarea.nmc-input:focus {
   }
 
   .nmc-official-system .nmc-official-header,
-  .nmc-superadmin-theme .nmc-superadmin-header {
+  .nmc-superadmin-theme .nmc-superadmin-header,
+  .nmc-unified-chrome .nmc-superadmin-header {
     min-height: auto !important;
     padding: 12px 14px 14px !important;
     align-items: center !important;
@@ -2443,33 +2468,38 @@ textarea.nmc-input:focus {
     gap: 8px !important;
   }
 
-  .nmc-superadmin-theme .nmc-superadmin-header::before {
+  .nmc-superadmin-theme .nmc-superadmin-header::before,
+  .nmc-unified-chrome .nmc-superadmin-header::before {
     width: 220px;
     height: 48px;
     left: 50%;
     opacity: 0.24;
   }
 
-  .nmc-superadmin-theme .nmc-superadmin-header::after {
+  .nmc-superadmin-theme .nmc-superadmin-header::after,
+  .nmc-unified-chrome .nmc-superadmin-header::after {
     width: 56px;
     height: 26px;
     opacity: 0.46;
   }
 
   .nmc-official-system .nmc-official-header > div:first-child,
-  .nmc-superadmin-theme .nmc-superadmin-header > div:first-child {
+  .nmc-superadmin-theme .nmc-superadmin-header > div:first-child,
+  .nmc-unified-chrome .nmc-superadmin-header > div:first-child {
     width: 100%;
     flex-direction: column !important;
     gap: 8px !important;
     text-align: center !important;
   }
 
-  .nmc-superadmin-theme .nmc-official-header__logo {
+  .nmc-superadmin-theme .nmc-official-header__logo,
+  .nmc-unified-chrome .nmc-official-header__logo {
     width: 60px !important;
     height: 60px !important;
   }
 
   .nmc-superadmin-theme .nmc-official-header__title-kh,
+  .nmc-unified-chrome .nmc-official-header__title-kh,
   .nmc-official-header__title-kh {
     font-size: 18px !important;
     line-height: 1.35 !important;
@@ -2477,6 +2507,7 @@ textarea.nmc-input:focus {
   }
 
   .nmc-superadmin-theme .nmc-official-header__title-en,
+  .nmc-unified-chrome .nmc-official-header__title-en,
   .nmc-official-header__title-en {
     font-size: 15px !important;
     line-height: 1.4 !important;
@@ -2500,7 +2531,8 @@ textarea.nmc-input:focus {
     padding: 5px 10px;
   }
 
-  .nmc-superadmin-theme .nmc-content {
+  .nmc-superadmin-theme .nmc-content,
+  .nmc-unified-chrome .nmc-content {
     width: 100%;
     padding: 12px !important;
     overflow-x: hidden;
@@ -2670,17 +2702,20 @@ textarea.nmc-input:focus {
     width: min(84vw, 320px);
   }
 
-  .nmc-superadmin-theme .nmc-official-header__logo {
+  .nmc-superadmin-theme .nmc-official-header__logo,
+  .nmc-unified-chrome .nmc-official-header__logo {
     width: 56px !important;
     height: 56px !important;
   }
 
   .nmc-superadmin-theme .nmc-official-header__title-kh,
+  .nmc-unified-chrome .nmc-official-header__title-kh,
   .nmc-official-header__title-kh {
     font-size: 16px !important;
   }
 
   .nmc-superadmin-theme .nmc-official-header__title-en,
+  .nmc-unified-chrome .nmc-official-header__title-en,
   .nmc-official-header__title-en {
     font-size: 13px !important;
   }

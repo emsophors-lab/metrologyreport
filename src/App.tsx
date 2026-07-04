@@ -108,26 +108,90 @@ function resolveLanguageText(value: string, language: AppLanguage): string {
     return language === 'km' ? inverseParentheticalMatch[2].trim() : inverseParentheticalMatch[1].trim();
   }
 
-  const dashMatch = value.match(/^\s*(.+?)\s+[-–—]\s+([A-Za-z][\s\S]*)$/);
+  const dashMatch = value.match(/^\s*(.+?)\s+[-\u2013\u2014]\s+([A-Za-z][\s\S]*)$/);
   if (dashMatch && KHMER_PATTERN.test(dashMatch[1])) {
     return language === 'km' ? dashMatch[1].trim() : dashMatch[2].trim();
+  }
+
+  const separatorMatch = value.match(/^\s*(.+?)\s*[·•|]\s*([A-Za-z][\s\S]*)$/);
+  if (separatorMatch && KHMER_PATTERN.test(separatorMatch[1])) {
+    return language === 'km' ? separatorMatch[1].trim() : separatorMatch[2].trim();
   }
 
   return value;
 }
 
+const UI_TEXT = {
+  ministry: {
+    km: 'ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍',
+    en: 'ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍',
+  },
+  center: {
+    km: 'មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ',
+    en: 'មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ',
+  },
+  centerShort: {
+    km: 'National Metrology Center',
+    en: 'National Metrology Center',
+  },
+  dashboard: { km: 'ផ្ទាំងគ្រប់គ្រង', en: 'Dashboard' },
+  reports: { km: 'របាយការណ៍ប្រចាំខែ', en: 'Reports' },
+  licenses: { km: 'បញ្ជីអាជ្ញាប័ណ្ណសហគ្រាស', en: 'Licenses' },
+  users: { km: 'គ្រប់គ្រងគណនីក្រុមហ៊ុន', en: 'Users' },
+  loginHistory: { km: 'ប្រវត្តិចូលប្រើប្រាស់', en: 'Login History' },
+  backupData: { km: 'បម្រុងទុកទិន្នន័យ', en: 'Backup Data' },
+  developer: { km: 'សមកាលកម្ម Supabase', en: 'Supabase Sync' },
+  role: { km: 'សិទ្ធិ', en: 'Role' },
+  company: { km: 'ក្រុមហ៊ុន', en: 'Company' },
+  license: { km: 'អាជ្ញាប័ណ្ណ', en: 'License' },
+  changePassword: { km: 'ប្ដូរពាក្យសម្ងាត់', en: 'Change Password' },
+  logout: { km: 'ចាកចេញពីប្រព័ន្ធ', en: 'Logout' },
+} as const;
+
+function t(key: keyof typeof UI_TEXT, language: AppLanguage) {
+  return UI_TEXT[key][language];
+}
+
+function formatRoleLabel(role: string, language: AppLanguage) {
+  if (language === 'en') {
+    if (role === 'superadmin') return 'Superadmin';
+    if (role === 'admin') return 'Admin';
+    if (role === 'company') return 'Company';
+    return role.replace(/[_-]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  if (role === 'superadmin') return 'SUPERADMIN';
+  if (role === 'admin') return 'ADMIN';
+  if (role === 'company') return 'COMPANY';
+  return role.toUpperCase();
+}
+
 function useSingleLanguageDisplay(language: AppLanguage) {
   useEffect(() => {
     const translatableAttributes = ['placeholder', 'title', 'aria-label'];
+    const hasBothLanguages = (value: string) => KHMER_PATTERN.test(value) && LATIN_PATTERN.test(value);
 
     const processTextNode = (node: Text) => {
       const current = node.nodeValue ?? '';
       let original = TEXT_ORIGINALS.get(node);
-      if (!original || (KHMER_PATTERN.test(current) && LATIN_PATTERN.test(current) && current !== resolveLanguageText(original, language))) {
+
+      if (hasBothLanguages(current)) {
         original = current;
         TEXT_ORIGINALS.set(node, original);
+      } else if (original && hasBothLanguages(original)) {
+        const knownValues = new Set<string>([
+          resolveLanguageText(original, 'km'),
+          resolveLanguageText(original, 'en'),
+        ]);
+        if (!knownValues.has(current.trim())) {
+          TEXT_ORIGINALS.delete(node);
+          return;
+        }
+      } else {
+        TEXT_ORIGINALS.delete(node);
+        return;
       }
-      TEXT_ORIGINALS.set(node, original);
+
       const next = resolveLanguageText(original, language);
       if (node.nodeValue !== next) node.nodeValue = next;
     };
@@ -143,11 +207,24 @@ function useSingleLanguageDisplay(language: AppLanguage) {
         const current = element.getAttribute(attr);
         if (!current) return;
         let original = originals![attr];
-        if (!original || (KHMER_PATTERN.test(current) && LATIN_PATTERN.test(current) && current !== resolveLanguageText(original, language))) {
+
+        if (hasBothLanguages(current)) {
           original = current;
           originals![attr] = original;
+        } else if (original && hasBothLanguages(original)) {
+          const knownValues = new Set([
+            resolveLanguageText(original, 'km'),
+            resolveLanguageText(original, 'en'),
+          ]);
+          if (!knownValues.has(current.trim())) {
+            delete originals![attr];
+            return;
+          }
+        } else {
+          delete originals![attr];
+          return;
         }
-        originals![attr] = original;
+
         const next = resolveLanguageText(original, language);
         if (current !== next) element.setAttribute(attr, next);
       });
@@ -1401,7 +1478,7 @@ export default function App() {
   const superadminOfficialDate = formatKhmerOfficialDateBlock(new Date(), { location: 'រាជធានីភ្នំពេញ' });
 
   return (
-    <div id="application-container" className={`nmc-official-system nmc-page ${sessionUser.role === 'superadmin' ? 'nmc-superadmin-theme' : ''} min-h-screen bg-slate-100 flex flex-col justify-between selection:bg-slate-100 selection:text-[#2D327F] font-sans`}>
+    <div id="application-container" className={`nmc-official-system nmc-unified-chrome nmc-page ${sessionUser.role === 'superadmin' ? 'nmc-superadmin-theme' : ''} min-h-screen bg-slate-100 flex flex-col justify-between selection:bg-slate-100 selection:text-[#2D327F] font-sans`}>
       
       {/* Toast alert notifications system */}
       {toast && (
@@ -1434,7 +1511,7 @@ export default function App() {
               <img src={nmcLogo} alt="NMC Logo" className="h-10 w-10 shrink-0 object-contain" referrerPolicy="no-referrer" />
               <div>
                 <h4 className="font-bold text-[11px] text-gold tracking-wide font-muol leading-tight">NMC</h4>
-                <p className="text-[9px] text-slate-400 font-medium tracking-wide truncate">National Metrology Center</p>
+                <p className="text-[9px] text-slate-400 font-medium tracking-wide truncate">{t('centerShort', language)}</p>
               </div>
             </div>
             
@@ -1473,13 +1550,13 @@ export default function App() {
                 
                 <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <p>សិទ្ធិ៖ <strong className="text-gold">{sessionUser.role.toUpperCase()}</strong></p>
+                  <p>{t('role', language)}: <strong className="text-gold">{formatRoleLabel(sessionUser.role, language)}</strong></p>
                 </div>
                 
                 {sessionUser.role === 'company' && (
                   <div className="text-[10px] bg-black/20 p-2 rounded border border-slate-800/80 leading-relaxed font-sans text-slate-300">
-                    <p className="font-bold">ក្រុមហ៊ុន៖ {sessionUser.company_name_kh}</p>
-                    <p className="font-mono text-[9px] text-gold/90 mt-0.5">អាជ្ញាប័ណ្ណ៖ {sessionUser.license_number}</p>
+                    <p className="font-bold">{t('company', language)}: {language === 'en' ? (sessionUser.company_name_en || sessionUser.company_name_kh) : sessionUser.company_name_kh}</p>
+                    <p className="font-mono text-[9px] text-gold/90 mt-0.5">{t('license', language)}: {sessionUser.license_number}</p>
                   </div>
                 )}
               </div>
@@ -1499,7 +1576,7 @@ export default function App() {
                   }`}
                 >
                   <Activity className="h-4 w-4 shrink-0 text-gold" />
-                  <span>ផ្ទាំងគ្រប់គ្រង (Dashboard)</span>
+                  <span>{t('dashboard', language)}</span>
                 </button>
 
                 <button
@@ -1515,7 +1592,7 @@ export default function App() {
                   }`}
                 >
                   <NotebookTabs className="h-4 w-4 shrink-0 text-gold" />
-                  <span>របាយការណ៍ប្រចាំខែ (Reports)</span>
+                  <span>{t('reports', language)}</span>
                 </button>
 
                 <button
@@ -1531,7 +1608,7 @@ export default function App() {
                   }`}
                 >
                   <Award className="h-4 w-4 shrink-0 text-gold" />
-                  <span>បញ្ជីអាជ្ញាប័ណ្ណសហគ្រាស (Licenses)</span>
+                  <span>{t('licenses', language)}</span>
                 </button>
 
                 {(sessionUser.role === 'superadmin' || sessionUser.role === 'admin') && (
@@ -1548,7 +1625,7 @@ export default function App() {
                     }`}
                   >
                     <Users className="h-4 w-4 shrink-0 text-gold" />
-                    <span>គ្រប់គ្រងគណនីក្រុមហ៊ុន (Users)</span>
+                    <span>{t('users', language)}</span>
                   </button>
                 )}
 
@@ -1566,7 +1643,7 @@ export default function App() {
                     }`}
                   >
                     <Clock className="h-4 w-4 shrink-0 text-gold" />
-                    <span>ប្រវត្តិចូលប្រើប្រាស់ (Login History)</span>
+                    <span>{t('loginHistory', language)}</span>
                   </button>
                 )}
 
@@ -1584,7 +1661,7 @@ export default function App() {
                     }`}
                   >
                     <Database className="h-4 w-4 shrink-0 text-gold" />
-                    <span>បម្រុងទុកទិន្នន័យ (Backup Data)</span>
+                    <span>{t('backupData', language)}</span>
                   </button>
                 )}
 
@@ -1602,7 +1679,7 @@ export default function App() {
                     }`}
                   >
                     <Settings2 className="h-4 w-4 shrink-0 text-gold" />
-                    <span>សមកាលកម្ម Supabase (Sync)</span>
+                    <span>{t('developer', language)}</span>
                   </button>
                 )}
               </nav>
@@ -1623,7 +1700,7 @@ export default function App() {
                   className="w-full py-2 px-3 bg-white/5 hover:bg-white/10 text-slate-200 border border-slate-800 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
                 >
                   <KeyRound className="h-3.5 w-3.5" />
-                  <span>ប្តូរពាក្យសម្ងាត់ / Change Password</span>
+                  <span>{t('changePassword', language)}</span>
                 </button>
                 
                 <button
@@ -1635,7 +1712,7 @@ export default function App() {
                   className="w-full py-2 px-3 bg-red-500/10 hover:bg-red-500/25 text-red-400 hover:text-red-300 border border-red-500/15 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 animate-pulse"
                 >
                   <LogOut className="h-3.5 w-3.5" />
-                  <span>ចាកចេញពីប្រព័ន្ធ / Logout</span>
+                  <span>{t('logout', language)}</span>
                 </button>
               </div>
               </div>
@@ -1649,8 +1726,8 @@ export default function App() {
             {/* National Metrology Center sidebar brand */}
             <div className="p-5 border-b border-slate-850 bg-black/10">
               <div>
-                <h4 className="font-bold text-[12px] text-gold tracking-wide font-muol leading-loose">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</h4>
-                <p className="text-[9px] text-slate-400 font-medium tracking-wide">National Metrology Center of Cambodia</p>
+                <h4 className="font-bold text-[12px] text-gold tracking-wide font-muol leading-loose">{t('center', language)}</h4>
+                <p className="text-[9px] text-slate-400 font-medium tracking-wide">{t('centerShort', language)}</p>
               </div>
             </div>
 
@@ -1665,13 +1742,13 @@ export default function App() {
               
               <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <p className="line-clamp-1">សិទ្ធិ៖ <strong className="text-gold">{sessionUser.role.toUpperCase()}</strong></p>
+                <p className="line-clamp-1">{t('role', language)}: <strong className="text-gold">{formatRoleLabel(sessionUser.role, language)}</strong></p>
               </div>
               
               {sessionUser.role === 'company' && (
                 <div className="text-[10px] bg-black/20 p-2 rounded border border-slate-800/80 leading-relaxed font-sans text-slate-300">
-                  <p className="font-bold line-clamp-1">ក្រុមហ៊ុន៖ {sessionUser.company_name_kh}</p>
-                  <p className="font-mono text-[9px] text-gold/90 mt-0.5">អាជ្ញាប័ណ្ណ៖ {sessionUser.license_number}</p>
+                  <p className="font-bold line-clamp-1">{t('company', language)}: {language === 'en' ? (sessionUser.company_name_en || sessionUser.company_name_kh) : sessionUser.company_name_kh}</p>
+                  <p className="font-mono text-[9px] text-gold/90 mt-0.5">{t('license', language)}: {sessionUser.license_number}</p>
                 </div>
               )}
             </div>
@@ -1689,7 +1766,7 @@ export default function App() {
                 }`}
               >
                 <Activity className="h-4 w-4 shrink-0 text-gold" />
-                <span>ផ្ទាំងគ្រប់គ្រង (Dashboard)</span>
+                <span>{t('dashboard', language)}</span>
               </button>
 
               {/* Reports input entry tab anchor */}
@@ -1703,7 +1780,7 @@ export default function App() {
                 }`}
               >
                 <NotebookTabs className="h-4 w-4 shrink-0 text-gold" />
-                <span>របាយការណ៍ប្រចាំខែ (Reports)</span>
+                <span>{t('reports', language)}</span>
               </button>
 
               {/* Licenses Registry Tab Anchor */}
@@ -1717,7 +1794,7 @@ export default function App() {
                 }`}
               >
                 <Award className="h-4 w-4 shrink-0 text-gold" />
-                <span>បញ្ជីអាជ្ញាប័ណ្ណសហគ្រាស (Licenses)</span>
+                <span>{t('licenses', language)}</span>
               </button>
 
               {/* User management tab anchor (Restricted to Admins!) */}
@@ -1732,7 +1809,7 @@ export default function App() {
                   }`}
                 >
                   <Users className="h-4 w-4 shrink-0 text-gold" />
-                  <span>គ្រប់គ្រងគណនីក្រុមហ៊ុន (Users)</span>
+                  <span>{t('users', language)}</span>
                 </button>
               )}
 
@@ -1747,7 +1824,7 @@ export default function App() {
                   }`}
                 >
                   <Clock className="h-4 w-4 shrink-0 text-gold" />
-                  <span>ប្រវត្តិចូលប្រើប្រាស់ (Login History)</span>
+                  <span>{t('loginHistory', language)}</span>
                 </button>
               )}
 
@@ -1762,7 +1839,7 @@ export default function App() {
                   }`}
                 >
                   <Database className="h-4 w-4 shrink-0 text-gold" />
-                  <span>បម្រុងទុកទិន្នន័យ (Backup Data)</span>
+                  <span>{t('backupData', language)}</span>
                 </button>
               )}
 
@@ -1778,7 +1855,7 @@ export default function App() {
                   }`}
                 >
                   <Settings2 className="h-4 w-4 shrink-0 text-gold" />
-                  <span>សមកាលកម្ម Supabase (Sync)</span>
+                  <span>{t('developer', language)}</span>
                 </button>
               )}
             </nav>
@@ -1799,7 +1876,7 @@ export default function App() {
               className="w-full py-2 px-3 hover:bg-white/5 text-slate-300 hover:text-white border border-slate-800 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
             >
               <KeyRound className="h-3.5 w-3.5" />
-              <span>ប្តូរពាក្យសម្ងាត់ / Change Password</span>
+              <span>{t('changePassword', language)}</span>
             </button>
             
             <button
@@ -1809,7 +1886,7 @@ export default function App() {
               className="w-full py-2 px-3 hover:bg-red-500/10 text-red-400 hover:text-red-300 border border-slate-800 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
             >
               <LogOut className="h-3.5 w-3.5" />
-              <span>ចាកចេញពីប្រព័ន្ធ / Logout</span>
+              <span>{t('logout', language)}</span>
             </button>
           </div>
         </aside>
@@ -1828,10 +1905,10 @@ export default function App() {
               />
               <div className="space-y-1">
                 <h1 className="nmc-official-header__title-kh font-bold tracking-wide text-white drop-shadow-xs" style={{ fontFamily: '"Khmer OS Muol Light", "Khmer OS Moul Light", "Khmer OS Muol", "Noto Serif Khmer", serif' }}>
-                  ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍
+                  {t('ministry', language)}
                 </h1>
                 <h2 className="nmc-official-header__title-en font-semibold text-slate-100/90 font-muol tracking-wide leading-relaxed">
-                  មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ - National Metrology Center of Cambodia
+                  {t('center', language)}
                 </h2>
               </div>
             </div>
@@ -1843,22 +1920,20 @@ export default function App() {
                 <BriefcaseBusiness className="h-4 w-4 text-[#F2B632]" />
                 <span className="leading-tight">
                   <strong className="block text-sm font-black">{sessionUser?.legal_representative || sessionUser?.username}</strong>
-                  <small className="block text-[10px] text-white/75">{sessionUser.role === 'superadmin' ? 'Superadmin' : sessionUser.role}</small>
+                  <small className="block text-[10px] text-white/75">{formatRoleLabel(sessionUser.role, language)}</small>
                 </span>
               </span>
             </div>
           </header>
 
-          {sessionUser.role === 'superadmin' && (
-            <div className="nmc-superadmin-strip">
-              <div className="nmc-superadmin-breadcrumb">ទំព័រដើម / Dashboard</div>
-              <div className="nmc-superadmin-date">
-                <span>{superadminOfficialDate.lunarLine}</span>
-                <span>{superadminOfficialDate.gregorianLine} (GMT+7)</span>
-                <strong>{systemTime.split(' ')[1] || systemTime}</strong>
-              </div>
+          <div className="nmc-superadmin-strip">
+            <div className="nmc-superadmin-breadcrumb">{t('dashboard', language)}</div>
+            <div className="nmc-superadmin-date">
+              <span>{superadminOfficialDate.lunarLine}</span>
+              <span>{superadminOfficialDate.gregorianLine} (GMT+7)</span>
+              <strong>{systemTime.split(' ')[1] || systemTime}</strong>
             </div>
-          )}
+          </div>
 
           {/* Interactive tabs details viewer */}
           <main className="nmc-content flex-1 p-6 space-y-6 overflow-y-auto max-w-7xl w-full mx-auto">
@@ -1875,6 +1950,7 @@ export default function App() {
                     licenseRecords={dashboardLicenses}
                     isLoading={isDashboardLoading}
                     errorMessage={dashboardDataError}
+                    language={language}
                   />
                 ) : (
                   <>

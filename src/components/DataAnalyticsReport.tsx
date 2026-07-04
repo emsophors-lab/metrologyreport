@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   BarChart3,
@@ -211,6 +211,7 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
   const [bots, setBots] = useState<TelegramBotSetting[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadNote, setLoadNote] = useState('');
+  const [lastGeneratedAt, setLastGeneratedAt] = useState('');
   const [filters, setFilters] = useState({
     startDate: '',
     endDate: '',
@@ -231,47 +232,55 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
     }
   }, [initialLicenses]);
 
+  const loadAnalyticsData = useCallback(async (showSuccessNote = false) => {
+    if (!canAccess) return;
+    setLoading(true);
+    setLoadNote('');
+    const notes: string[] = [];
+    try {
+      const [licenseData, renewalData, reminderData, botData] = await Promise.all([
+        fetchLicensesFromSupabase(currentUser).catch(err => {
+          notes.push(`enterprise_licenses: ${err?.message || 'Data not available'}`);
+          return [] as EnterpriseLicense[];
+        }),
+        fetchRenewalHistoryFromSupabase(undefined, currentUser).catch(err => {
+          notes.push(`license_renewal_history: ${err?.message || 'Data not available'}`);
+          return [] as LicenseRenewalHistory[];
+        }),
+        fetchReminderLogsFromSupabase(undefined, currentUser).catch(err => {
+          notes.push(`license_reminder_logs: ${err?.message || 'Data not available'}`);
+          return [] as LicenseReminderLog[];
+        }),
+        fetchBotSettingsFromSupabase().catch(err => {
+          notes.push(`telegram_bot_settings: ${err?.message || 'Data not available'}`);
+          return [] as TelegramBotSetting[];
+        })
+      ]);
+      setLicenses(licenseData.length > 0 ? licenseData : initialLicenses);
+      setRenewals(renewalData);
+      setReminders(reminderData);
+      setBots(botData);
+      const refreshedAt = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Phnom_Penh' });
+      setLastGeneratedAt(refreshedAt);
+      setLoadNote(notes.length > 0 ? notes.join(' | ') : (showSuccessNote ? `Analytics generated successfully at ${refreshedAt} (GMT+7).` : ''));
+    } finally {
+      setLoading(false);
+    }
+  }, [canAccess, currentUser, initialLicenses]);
+
   useEffect(() => {
     let active = true;
-    async function loadAnalyticsData() {
-      if (!canAccess) return;
-      setLoading(true);
-      setLoadNote('');
-      const notes: string[] = [];
-      try {
-        const [licenseData, renewalData, reminderData, botData] = await Promise.all([
-          fetchLicensesFromSupabase(currentUser).catch(err => {
-            notes.push(`enterprise_licenses: ${err?.message || 'Data not available'}`);
-            return [] as EnterpriseLicense[];
-          }),
-          fetchRenewalHistoryFromSupabase(undefined, currentUser).catch(err => {
-            notes.push(`license_renewal_history: ${err?.message || 'Data not available'}`);
-            return [] as LicenseRenewalHistory[];
-          }),
-          fetchReminderLogsFromSupabase(undefined, currentUser).catch(err => {
-            notes.push(`license_reminder_logs: ${err?.message || 'Data not available'}`);
-            return [] as LicenseReminderLog[];
-          }),
-          fetchBotSettingsFromSupabase().catch(err => {
-            notes.push(`telegram_bot_settings: ${err?.message || 'Data not available'}`);
-            return [] as TelegramBotSetting[];
-          })
-        ]);
-        if (!active) return;
-        setLicenses(licenseData.length > 0 ? licenseData : initialLicenses);
-        setRenewals(renewalData);
-        setReminders(reminderData);
-        setBots(botData);
-        setLoadNote(notes.join(' | '));
-      } finally {
-        if (active) setLoading(false);
-      }
+    if (active) {
+      loadAnalyticsData();
     }
-    loadAnalyticsData();
     return () => {
       active = false;
     };
-  }, [canAccess, currentUser, initialLicenses]);
+  }, [loadAnalyticsData]);
+
+  const handleGenerateAnalytics = () => {
+    void loadAnalyticsData(true);
+  };
 
   const analytics = useMemo(() => {
     const start = parseDate(filters.startDate);
@@ -496,7 +505,7 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
         </div>
 
         <div className="analytics-actions">
-          <button type="button" onClick={() => setFilters({ ...filters })}><RefreshCw />Generate Analytics</button>
+          <button type="button" onClick={handleGenerateAnalytics} disabled={loading}><RefreshCw />{loading ? 'Generating...' : 'Generate Analytics'}</button>
           <button type="button" onClick={exportPdf}><Download />Export PDF</button>
           <button type="button" onClick={exportWord}><FileText />Export Word</button>
           <button type="button" onClick={exportExcel}><FileSpreadsheet />Export Excel</button>
@@ -505,6 +514,7 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
 
         {loading && <div className="analytics-note">Loading analytics data...</div>}
         {loadNote && <div className="analytics-note"><AlertTriangle /> {loadNote}</div>}
+        {lastGeneratedAt && !loadNote && !loading && <div className="analytics-note">Analytics generated at {lastGeneratedAt} (GMT+7).</div>}
 
         <section className="analytics-summary-grid">
           <div><strong>{analytics.total}</strong><span>Total licenses</span></div>
