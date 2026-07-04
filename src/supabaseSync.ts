@@ -1110,18 +1110,22 @@ export async function saveRenewalHistoryToSupabase(history: LicenseRenewalHistor
 export async function fetchBotSettingsFromSupabase(): Promise<TelegramBotSetting[]> {
   const client = getActiveSupabaseClient();
   if (!client) {
-    const local = localStorage.getItem('nmc_bot_settings');
-    const records: TelegramBotSetting[] = local ? JSON.parse(local) : INITIAL_BOT_SETTINGS;
-    const migrated = records.map(migrateLegacyDemoBotUsername);
-    localStorage.setItem('nmc_bot_settings', JSON.stringify(migrated));
-    return migrated;
+    return getLocalBotSettingsFallback();
+  }
+
+  const headers = await getApiJsonHeaders();
+  if (!headers.Authorization) {
+    return getLocalBotSettingsFallback();
   }
 
   const response = await fetch('/api/telegram-bot-settings', {
-    headers: await getApiJsonHeaders(),
+    headers,
   });
   const data = await readJsonResponseSafely(response);
   if (!response.ok || !data) {
+    if (response.status === 401 || response.status === 403) {
+      return getLocalBotSettingsFallback();
+    }
     const message = data?.message || data?.error || `Failed to fetch Telegram bot settings: ${response.status}`;
     throw new Error(`Unable to load Telegram bot settings from Supabase. ${message}`);
   }
@@ -1222,6 +1226,14 @@ function sanitizeBotSettingForBrowserStorage(setting: TelegramBotSetting, preser
     bot_token_encrypted: preserveSecrets ? migrated.bot_token_encrypted : (migrated.bot_token_encrypted ? 'PROTECTED_SERVER_SIDE' : ''),
     webhook_secret_encrypted: preserveSecrets ? (migrated.webhook_secret_encrypted || null) : (migrated.webhook_secret_encrypted ? 'PROTECTED_SERVER_SIDE' : null),
   };
+}
+
+function getLocalBotSettingsFallback(): TelegramBotSetting[] {
+  const local = localStorage.getItem('nmc_bot_settings');
+  const records: TelegramBotSetting[] = local ? JSON.parse(local) : INITIAL_BOT_SETTINGS;
+  const migrated = records.map(migrateLegacyDemoBotUsername);
+  localStorage.setItem('nmc_bot_settings', JSON.stringify(migrated));
+  return migrated;
 }
 
 /**

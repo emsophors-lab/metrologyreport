@@ -697,9 +697,18 @@ export default function EnterpriseLicensingRegistry({
 
       const [lics, logs, history, bots] = await Promise.all([
         fetchLicensesFromSupabase(currentUser),
-        isCompanyUser ? Promise.resolve([]) : fetchReminderLogsFromSupabase(undefined, currentUser),
-        isCompanyUser ? Promise.resolve([]) : fetchRenewalHistoryFromSupabase(undefined, currentUser),
-        isCompanyUser ? fetchActiveReminderBotPublic().then(bot => bot ? [bot] : []) : fetchBotSettingsFromSupabase()
+        isCompanyUser ? Promise.resolve([]) : fetchReminderLogsFromSupabase(undefined, currentUser).catch(err => {
+          console.warn('Reminder logs unavailable; continuing license registry load:', err);
+          return [] as LicenseReminderLog[];
+        }),
+        isCompanyUser ? Promise.resolve([]) : fetchRenewalHistoryFromSupabase(undefined, currentUser).catch(err => {
+          console.warn('Renewal history unavailable; continuing license registry load:', err);
+          return [] as LicenseRenewalHistory[];
+        }),
+        (isCompanyUser ? fetchActiveReminderBotPublic().then(bot => bot ? [bot] : []) : fetchBotSettingsFromSupabase()).catch(err => {
+          console.warn('Telegram bot settings unavailable; continuing license registry load:', err);
+          return [] as TelegramBotSetting[];
+        })
       ]);
       
       // Dynamic date status auto-repair check
