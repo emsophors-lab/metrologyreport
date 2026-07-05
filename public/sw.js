@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nmc-report-pwa-v7';
+const CACHE_NAME = 'nmc-report-pwa-v8';
 const ASSETS = [
   '/',
   '/index.html',
@@ -67,10 +67,26 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  if (event.request.mode === 'navigate' || url.pathname === '/' || url.pathname === '/index.html') {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+              cache.put('/index.html', responseToCache.clone());
+            });
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached || caches.match('/index.html')))
+    );
+    return;
+  }
+
   // Only cache common static local resources
   const isStaticResource = 
-    url.pathname === '/' ||
-    url.pathname === '/index.html' ||
     url.pathname === '/manifest.webmanifest' ||
     /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|json|webmanifest)$/i.test(url.pathname);
 

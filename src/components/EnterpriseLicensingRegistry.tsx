@@ -4216,9 +4216,17 @@ export default function EnterpriseLicensingRegistry({
       {showAddModal && (() => {
         // Compute date status for live preview & summary card
         const getLicenseDateStatus = (expiryDateStr: string) => {
-          if (!expiryDateStr) return { days: 0, labelKh: 'មិនទាន់កំណត់', labelEn: 'Not Set', colorClass: 'bg-slate-100 text-slate-500 border-slate-200 font-sans' };
-          const today = new Date(new Date().toISOString().split('T')[0]);
-          const expiry = new Date(expiryDateStr);
+          if (!expiryDateStr) return { days: null as number | null, labelKh: 'មិនទាន់កំណត់', labelEn: 'Not Set', colorClass: 'bg-slate-100 text-slate-500 border-slate-200 font-sans' };
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const [year, month, day] = expiryDateStr.split('-').map(Number);
+          const expiry = Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)
+            ? new Date(year, month - 1, day)
+            : new Date(expiryDateStr);
+          if (Number.isNaN(expiry.getTime())) {
+            return { days: null as number | null, labelKh: 'មិនទាន់កំណត់', labelEn: 'Not Set', colorClass: 'bg-slate-100 text-slate-500 border-slate-200 font-sans' };
+          }
+          expiry.setHours(0, 0, 0, 0);
           const diffMs = expiry.getTime() - today.getTime();
           const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
           

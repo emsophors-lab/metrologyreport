@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useState, useEffect } from 'react';
 import { 
   LogOut, 
   Award,
@@ -60,19 +60,19 @@ import {
 
 // Import Modular Components
 import LoginScreen from './components/LoginScreen';
-import UserManagement from './components/UserManagement';
-import ReportForm from './components/ReportForm';
-import ExcelReportUpload from './components/ExcelReportUpload';
-import DashboardStats from './components/DashboardStats';
-import SuperadminDashboard from './components/SuperadminDashboard';
-import DeveloperConsole from './components/DeveloperConsole';
-import ReportPrintLayout from './components/ReportPrintLayout';
-import TopServiceCompanies from './components/TopServiceCompanies';
+const UserManagement = lazy(() => import('./components/UserManagement'));
+const ReportForm = lazy(() => import('./components/ReportForm'));
+const ExcelReportUpload = lazy(() => import('./components/ExcelReportUpload'));
+const DashboardStats = lazy(() => import('./components/DashboardStats'));
+const SuperadminDashboard = lazy(() => import('./components/SuperadminDashboard'));
+const DeveloperConsole = lazy(() => import('./components/DeveloperConsole'));
+const ReportPrintLayout = lazy(() => import('./components/ReportPrintLayout'));
+const TopServiceCompanies = lazy(() => import('./components/TopServiceCompanies'));
 import { logLoginHistory, fetchLoginHistory, logAuditEvent } from './services/loginHistoryService';
-import LoginHistoryView from './components/LoginHistoryView';
-import BackupData from './components/BackupData';
-import EnterpriseLicensingRegistry from './components/EnterpriseLicensingRegistry';
-import ChangePasswordModal from './components/ChangePasswordModal';
+const LoginHistoryView = lazy(() => import('./components/LoginHistoryView'));
+const BackupData = lazy(() => import('./components/BackupData'));
+const EnterpriseLicensingRegistry = lazy(() => import('./components/EnterpriseLicensingRegistry'));
+const ChangePasswordModal = lazy(() => import('./components/ChangePasswordModal'));
 import { formatKhmerOfficialDateBlock } from './utils/khmerOfficialDate';
 
 // Import Logo Asset
@@ -82,6 +82,10 @@ import nmcLogo from './NMClogo.png';
 import { sendTelegramNotification } from './telegramUtils';
 
 type AppLanguage = 'km' | 'en';
+
+const OFFICIAL_MINISTRY_KH = 'ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍';
+const OFFICIAL_CENTER_KH = 'មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ';
+const OFFICIAL_CENTER_EN = 'National Metrology Center';
 
 const KHMER_PATTERN = /[\u1780-\u17FF]/;
 const LATIN_PATTERN = /[A-Za-z]/;
@@ -578,88 +582,99 @@ export default function App() {
       }
     }
 
-    // Load live Supabase Cloud database asynchronously in the background
-    const loadSupabaseCloudData = async () => {
+    // Load only the user registry before login. Dashboard/report/license data is
+    // synced after a session exists so the login page stays lightweight.
+    const loadInitialUserRegistry = async () => {
       const activeCfg = getActiveSupabaseConfig();
       setDbConfig(activeCfg);
 
       if (!activeCfg.url || !activeCfg.anonKey || activeCfg.url.includes('YOUR_SUPABASE_URL')) {
-        try {
-          const licenseRecords = await fetchLicensesFromSupabase();
-          setDashboardLicenses(licenseRecords);
-        } catch (licenseError) {
-          console.warn('Could not load local dashboard license data:', licenseError);
-        }
         console.log('Supabase database has not been linked yet. System is operating on local storage schemas.');
         return;
       }
 
       try {
         setIsUsersLoading(true);
-        setIsDashboardLoading(true);
-        setDashboardDataError(null);
         // Sync users registry from Supabase
         const cloudUsers = await fetchUsersFromSupabase();
         if (cloudUsers && cloudUsers.length > 0) {
           setUsers(cloudUsers);
           localStorage.setItem('nmc_users', JSON.stringify(cloudUsers));
         }
-
-        // Sync metrology reports from Supabase
-        const cloudReports = await fetchReportsFromSupabase(undefined, { allowFallback: false });
-        if (cloudReports) {
-          setReports(cloudReports);
-          localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
-        }
-
-        const cloudLicenses = await fetchLicensesFromSupabase(undefined, { allowFallback: false });
-        setDashboardLicenses(cloudLicenses);
         
         setDbConfig({
           ...activeCfg,
           isConnected: true
         });
-        console.log('Supabase Cloud database synchronized successfully.');
+        console.log('Supabase user registry synchronized successfully.');
       } catch (error) {
-        console.warn('Unable to sync live Supabase dashboard data:', error);
-        setDashboardDataError('Unable to load dashboard data from Supabase. Local cached values are not being used for Superadmin analytics.');
+        console.warn('Unable to sync live Supabase user registry:', error);
         setDbConfig({
           ...activeCfg,
           isConnected: false
         });
       } finally {
         setIsUsersLoading(false);
-        setIsDashboardLoading(false);
       }
     };
     
-    loadSupabaseCloudData();
+    loadInitialUserRegistry();
   }, []);
 
   // Enforce secure query-level data filtering upon user login or session state changes
   useEffect(() => {
     const syncDatabaseOnLogin = async () => {
       const activeCfg = getActiveSupabaseConfig();
-      if (activeCfg.url && activeCfg.anonKey && !activeCfg.url.includes('YOUR_SUPABASE_URL')) {
-        try {
-          setIsDashboardLoading(sessionUser?.role === 'superadmin');
-          setDashboardDataError(null);
-          const cloudReports = await fetchReportsFromSupabase(sessionUser || undefined, { allowFallback: sessionUser?.role !== 'superadmin' });
-          if (cloudReports) {
-            setReports(cloudReports);
-            localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
-          }
+      if (!sessionUser) return;
 
-          const cloudLicenses = await fetchLicensesFromSupabase(sessionUser || undefined, { allowFallback: sessionUser?.role !== 'superadmin' });
-          setDashboardLicenses(cloudLicenses);
+      if (!activeCfg.url || !activeCfg.anonKey || activeCfg.url.includes('YOUR_SUPABASE_URL')) {
+        try {
+          setIsDashboardLoading(sessionUser.role === 'superadmin');
+          setDashboardDataError(null);
+          const [localReports, localLicenses] = await Promise.all([
+            fetchReportsFromSupabase(sessionUser),
+            fetchLicensesFromSupabase(sessionUser)
+          ]);
+          setReports(localReports);
+          setDashboardLicenses(localLicenses);
         } catch (e) {
-          console.warn('Could not refresh session reports list:', e);
-          if (sessionUser?.role === 'superadmin') {
-            setDashboardDataError('Unable to refresh Superadmin dashboard analytics from Supabase.');
+          console.warn('Could not load local session dashboard data:', e);
+          if (sessionUser.role === 'superadmin') {
+            setDashboardDataError('Unable to load local dashboard analytics.');
           }
         } finally {
           setIsDashboardLoading(false);
         }
+        return;
+      }
+
+      try {
+        setIsDashboardLoading(sessionUser.role === 'superadmin');
+        setDashboardDataError(null);
+        const [cloudReports, cloudLicenses] = await Promise.all([
+          fetchReportsFromSupabase(sessionUser, { allowFallback: sessionUser.role !== 'superadmin' }),
+          fetchLicensesFromSupabase(sessionUser, { allowFallback: sessionUser.role !== 'superadmin' })
+        ]);
+        if (cloudReports) {
+          setReports(cloudReports);
+          localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
+        }
+        setDashboardLicenses(cloudLicenses);
+      } catch (e) {
+        console.warn('Could not refresh session reports list:', e);
+        const cachedReports = localStorage.getItem('nmc_reports');
+        const cachedLicenses = localStorage.getItem('nmc_licenses');
+        if (cachedReports) {
+          try { setReports(JSON.parse(cachedReports)); } catch { /* ignore malformed cache */ }
+        }
+        if (cachedLicenses) {
+          try { setDashboardLicenses(JSON.parse(cachedLicenses)); } catch { /* ignore malformed cache */ }
+        }
+        if (sessionUser.role === 'superadmin') {
+          setDashboardDataError('Unable to refresh Superadmin dashboard analytics from Supabase. Showing cached data if available.');
+        }
+      } finally {
+        setIsDashboardLoading(false);
       }
     };
     syncDatabaseOnLogin();
@@ -1187,11 +1202,11 @@ export default function App() {
   const activeCompanyList = users.filter(u => u.role === 'company');
 
   // Multi-format export actions
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     const title = sessionUser?.role === 'company' 
       ? `របាយការណ៍_${sessionUser.company_name_kh}` 
       : 'របាយការណ៍មាត្រាសាស្ត្ររួម_ជាតិ';
-    exportReportsToExcel(filteredReportsList, title);
+    await exportReportsToExcel(filteredReportsList, title);
     showToast('សំណុំទិន្នន័យ Excel ត្រូវបានបង្កើត និងទាញយក!', 'success');
   };
 
@@ -1510,8 +1525,8 @@ export default function App() {
             <div className="flex items-center gap-3 min-w-0">
               <img src={nmcLogo} alt="NMC Logo" className="h-10 w-10 shrink-0 object-contain" referrerPolicy="no-referrer" />
               <div>
-                <h4 className="font-bold text-[11px] text-gold tracking-wide font-muol leading-tight">NMC</h4>
-                <p className="text-[9px] text-slate-400 font-medium tracking-wide truncate">{t('centerShort', language)}</p>
+                <h4 className="font-bold text-[11px] text-gold tracking-wide font-muol leading-tight">{OFFICIAL_CENTER_KH}</h4>
+                <p className="text-[9px] text-slate-400 font-medium tracking-wide truncate">{OFFICIAL_CENTER_EN}</p>
               </div>
             </div>
             
@@ -1726,8 +1741,8 @@ export default function App() {
             {/* National Metrology Center sidebar brand */}
             <div className="p-5 border-b border-slate-850 bg-black/10">
               <div>
-                <h4 className="font-bold text-[12px] text-gold tracking-wide font-muol leading-loose">{t('center', language)}</h4>
-                <p className="text-[9px] text-slate-400 font-medium tracking-wide">{t('centerShort', language)}</p>
+                <h4 className="font-bold text-[12px] text-gold tracking-wide font-muol leading-loose">{OFFICIAL_CENTER_KH}</h4>
+                <p className="text-[9px] text-slate-400 font-medium tracking-wide">{OFFICIAL_CENTER_EN}</p>
               </div>
             </div>
 
@@ -1905,10 +1920,10 @@ export default function App() {
               />
               <div className="space-y-1">
                 <h1 className="nmc-official-header__title-kh font-bold tracking-wide text-white drop-shadow-xs" style={{ fontFamily: '"Khmer OS Muol Light", "Khmer OS Moul Light", "Khmer OS Muol", "Noto Serif Khmer", serif' }}>
-                  {t('ministry', language)}
+                  {OFFICIAL_MINISTRY_KH}
                 </h1>
                 <h2 className="nmc-official-header__title-en font-semibold text-slate-100/90 font-muol tracking-wide leading-relaxed">
-                  {t('center', language)}
+                  {OFFICIAL_CENTER_KH}
                 </h2>
               </div>
             </div>

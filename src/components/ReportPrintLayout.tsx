@@ -93,7 +93,7 @@ export default function ReportPrintLayout({
       );
 
       const qr = await generateLocalQRCode(verificationUrl);
-      const bar = generateLocalBarcode(reportNumber);
+      const bar = await generateLocalBarcode(reportNumber);
       setQrCodeDataUrl(qr);
       setBarcodeDataUrl(bar);
     };

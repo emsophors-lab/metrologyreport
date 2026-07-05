@@ -13,7 +13,6 @@ import {
   ShieldAlert,
   X
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import {
   EnterpriseLicense,
   LicenseReminderLog,
@@ -28,11 +27,6 @@ import {
   fetchReminderLogsFromSupabase,
   fetchRenewalHistoryFromSupabase
 } from '../supabaseSync';
-import {
-  generateAnalyticsDocxReport,
-  generateAnalyticsPdfReport,
-  generateAnalyticsPptxBriefing
-} from '../utils/analyticsReportExports';
 import { formatKhmerOfficialDateBlock } from '../utils/khmerOfficialDate';
 
 interface DataAnalyticsReportProps {
@@ -429,11 +423,13 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
     exp90: analytics.exp90.length
   });
 
-  const exportPdf = () => {
+  const exportPdf = async () => {
+    const { generateAnalyticsPdfReport } = await import('../utils/analyticsReportExports');
     generateAnalyticsPdfReport(exportPayload());
   };
 
-  const exportExcel = () => {
+  const exportExcel = async () => {
+    const XLSX = await import('xlsx');
     const workbook = XLSX.utils.book_new();
     const officialDate = formatKhmerOfficialDateBlock(new Date(), { location: 'រាជធានីភ្នំពេញ' });
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
@@ -461,10 +457,12 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
   };
 
   const exportWord = async () => {
+    const { generateAnalyticsDocxReport } = await import('../utils/analyticsReportExports');
     await generateAnalyticsDocxReport(exportPayload());
   };
 
   const exportPowerPoint = async () => {
+    const { generateAnalyticsPptxBriefing } = await import('../utils/analyticsReportExports');
     await generateAnalyticsPptxBriefing(exportPayload());
   };
 

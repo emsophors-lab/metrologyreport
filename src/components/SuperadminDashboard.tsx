@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   BarChart3,
@@ -14,10 +14,39 @@ import {
   X
 } from 'lucide-react';
 import { EnterpriseLicense, MetrologyReport, MetrologyUser } from '../types';
-import DataAnalyticsReport from './DataAnalyticsReport';
-import EnterpriseLicenseMapView from './EnterpriseLicenseMapView';
 import TopServiceCompanies from './TopServiceCompanies';
 import nmcLogo from '../NMClogo.png';
+
+const DataAnalyticsReport = lazy(() => import('./DataAnalyticsReport'));
+const EnterpriseLicenseMapView = lazy(() => import('./EnterpriseLicenseMapView'));
+
+function RenderWhenNearViewport({ children, fallback }: { children: React.ReactNode; fallback: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || isVisible) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setIsVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '240px' }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isVisible]);
+
+  return <div ref={ref}>{isVisible ? children : fallback}</div>;
+}
 
 interface SuperadminDashboardProps {
   currentUser: MetrologyUser;
@@ -445,6 +474,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
   const todayPhnomPenh = getPhnomPenhToday();
   const operationalLicenses = licenseStatsRecords.filter(isOperationalLicense);
   const activeLicenseRecords = operationalLicenses.filter(c => isActiveOnDate(c, todayPhnomPenh));
+  const dashboardLicenseRecords = operationalLicenses.length > 0 ? operationalLicenses : companyRecords;
   const totalLicenses = operationalLicenses.length;
   const activeLicenses = activeLicenseRecords.length;
   const activeStrict = operationalLicenses.filter(c => daysUntilFrom(getLicenseExpiryDate(c), todayPhnomPenh) > 90).length;
@@ -525,7 +555,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
   ).slice(0, 9);
   const maxInstrument = Math.max(1, ...instrumentRows.map(row => row.count));
 
-  const allRiskRows = activeLicenseRecords
+  const allRiskRows = dashboardLicenseRecords
     .map(license => {
       const reportCount = reportsByLicense.get(licenseKey(license)) || reportsByLicense.get(String(license.license_number || '').trim()) || 0;
       const risk = riskForLicense(license, reportCount);
@@ -594,7 +624,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
   });
   const trendPath = trendPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
   const lastYearTrendPath = lastYearTrendPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
-  const heatmapRows = activeLicenseRecords.slice(0, 12).map(license => {
+  const heatmapRows = dashboardLicenseRecords.slice(0, 12).map(license => {
     const submittedMonths = reportYearMonths.map(month => {
       const submitted = reports.some(report =>
         isSubmittedReport(report) &&
@@ -665,7 +695,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
     background: `conic-gradient(${STATUS_COLORS.active} 0 ${activePct}%, ${STATUS_COLORS.expiring} ${activePct}% ${activePct + expiringPct}%, ${STATUS_COLORS.expired} ${activePct + expiringPct}% ${activePct + expiringPct + expiredPct}%, #E5E7EB ${activePct + expiringPct + expiredPct}% 100%)`
   };
 
-  const licenseMapSource = activeLicenseRecords.length > 0 ? activeLicenseRecords : companyRecords;
+  const licenseMapSource = dashboardLicenseRecords.length > 0 ? dashboardLicenseRecords : companyRecords;
   const mapRecords = licenseMapSource.map(company => ({
     ...company,
     company_name: company.company_name_en || company.company_name_kh || company.company_name,
@@ -954,7 +984,11 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
         <div className="superdash-panel__header">
           <h3>{dt('licenseMap', language)}</h3>
         </div>
-        <EnterpriseLicenseMapView licenses={mapRecords} nmcLogoUrl={nmcLogo} className="superdash-map" />
+        <RenderWhenNearViewport fallback={<div className="superdash-map" />}>
+          <Suspense fallback={<div className="superdash-map" />}>
+            <EnterpriseLicenseMapView licenses={mapRecords} nmcLogoUrl={nmcLogo} className="superdash-map" />
+          </Suspense>
+        </RenderWhenNearViewport>
         <div className="superdash-map-legend">
           <span><i className="is-active" /> {dt('active', language)}</span>
           <span><i className="is-expiring" /> {dt('expiringSoon', language)}</span>
@@ -969,13 +1003,15 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
       </footer>
 
       {showAnalytics && (
-        <DataAnalyticsReport
-          currentUser={currentUser}
-          reports={reports}
-          users={users}
-          initialLicenses={licenseRecords}
-          onClose={() => setShowAnalytics(false)}
-        />
+        <Suspense fallback={<div className="analytics-overlay" />}>
+          <DataAnalyticsReport
+            currentUser={currentUser}
+            reports={reports}
+            users={users}
+            initialLicenses={licenseRecords}
+            onClose={() => setShowAnalytics(false)}
+          />
+        </Suspense>
       )}
     </div>
   );

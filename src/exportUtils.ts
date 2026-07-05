@@ -1,7 +1,4 @@
-import * as XLSX from 'xlsx';
 import { MetrologyReport, MetrologyUser } from './types';
-import QRCode from 'qrcode';
-import JsBarcode from 'jsbarcode';
 import { formatKhmerOfficialDateBlock } from './utils/khmerOfficialDate';
 
 // Converts service types to Khmer headings
@@ -26,6 +23,7 @@ export function getMonthNameKH(numStr: string): string {
 // Local offline generation helpers
 export async function generateLocalQRCode(text: string): Promise<string> {
   try {
+    const QRCode = await import('qrcode');
     return await QRCode.toDataURL(text, {
       width: 154,
       margin: 1,
@@ -37,8 +35,9 @@ export async function generateLocalQRCode(text: string): Promise<string> {
   }
 }
 
-export function generateLocalBarcode(text: string): string {
+export async function generateLocalBarcode(text: string): Promise<string> {
   try {
+    const JsBarcode = (await import('jsbarcode')).default;
     const canvas = document.createElement('canvas');
     JsBarcode(canvas, text, {
       format: 'CODE128',
@@ -121,7 +120,8 @@ export function getReportQRCodeUrl(
 }
 
 // Export data directly to Excel (using SheetJS)
-export function exportReportsToExcel(reports: MetrologyReport[], title: string = 'របាយការណ៍មាត្រាសាស្ត្រ') {
+export async function exportReportsToExcel(reports: MetrologyReport[], title: string = 'របាយការណ៍មាត្រាសាស្ត្រ') {
+  const XLSX = await import('xlsx');
   const officialDate = formatKhmerOfficialDateBlock(new Date(), { location: 'រាជធានីភ្នំពេញ' });
   const formattedData = reports.map((r, i) => ({
     'ល.រ (No.)': i + 1,
@@ -215,7 +215,7 @@ export async function exportToWordDoc(
 
   // Generate local images (offline-friendly)
   const qrCodeBase64 = await generateLocalQRCode(verificationUrl);
-  const barcodeBase64 = generateLocalBarcode(reportNumber);
+  const barcodeBase64 = await generateLocalBarcode(reportNumber);
 
   // Get active company name
   const displayCompanyName = selectedUser?.company_name_kh || (currentUser?.role === 'company' ? currentUser?.company_name_kh : '');
