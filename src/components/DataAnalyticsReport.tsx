@@ -28,6 +28,7 @@ import {
   fetchRenewalHistoryFromSupabase
 } from '../supabaseSync';
 import { formatKhmerOfficialDateBlock } from '../utils/khmerOfficialDate';
+import { generatePredictions } from '../services/mlPredictionService';
 
 interface DataAnalyticsReportProps {
   currentUser: MetrologyUser;
@@ -390,38 +391,62 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
 
   const generatedDate = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Phnom_Penh' });
 
-  const exportPayload = () => ({
-    generatedDate,
-    reportDate: new Date(),
-    total: analytics.total,
-    active: analytics.active,
-    activePct: analytics.activePct,
-    expiring: analytics.expiring,
-    expired: analytics.expired,
-    gps: analytics.gps,
-    noGps: analytics.noGps,
-    telegram: analytics.telegram,
-    noTelegram: analytics.noTelegram,
-    reportCount: analytics.filteredReports.length,
-    noReportCount: analytics.noReportCompanies.length,
-    criticalRiskCount: analytics.risks.filter(r => r.level === 'Critical').length,
-    highRiskCount: analytics.risks.filter(r => r.level === 'High').length,
-    statusRows: analytics.statusRows,
-    provinceRows: analytics.provinceRows,
-    serviceRows: analytics.serviceRows,
-    instrumentRows: analytics.instrumentRows,
-    monthlyRows: analytics.monthlyRows,
-    riskRows: analytics.riskRows,
-    topRisks: analytics.risks.slice(0, 8).map(r => ({
-      company: r.company,
-      license: r.license,
-      level: r.level,
-      score: r.score
-    })),
-    exp30: analytics.exp30.length,
-    exp60: analytics.exp60.length,
-    exp90: analytics.exp90.length
-  });
+  const exportPayload = () => {
+    const mlBundle = generatePredictions({
+      licenses: analytics.filteredLicenses,
+      reports: analytics.filteredReports,
+      renewals,
+      reminders
+    });
+
+    return {
+      generatedDate,
+      reportDate: new Date(),
+      total: analytics.total,
+      active: analytics.active,
+      activePct: analytics.activePct,
+      expiring: analytics.expiring,
+      expired: analytics.expired,
+      gps: analytics.gps,
+      noGps: analytics.noGps,
+      telegram: analytics.telegram,
+      noTelegram: analytics.noTelegram,
+      reportCount: analytics.filteredReports.length,
+      noReportCount: analytics.noReportCompanies.length,
+      criticalRiskCount: analytics.risks.filter(r => r.level === 'Critical').length,
+      highRiskCount: analytics.risks.filter(r => r.level === 'High').length,
+      statusRows: analytics.statusRows,
+      provinceRows: analytics.provinceRows,
+      serviceRows: analytics.serviceRows,
+      instrumentRows: analytics.instrumentRows,
+      monthlyRows: analytics.monthlyRows,
+      riskRows: analytics.riskRows,
+      topRisks: analytics.risks.slice(0, 8).map(r => ({
+        company: r.company,
+        license: r.license,
+        level: r.level,
+        score: r.score
+      })),
+      exp30: analytics.exp30.length,
+      exp60: analytics.exp60.length,
+      exp90: analytics.exp90.length,
+      mlSummary: {
+        modelStatus: mlBundle.modelMetadata.status,
+        dataQualityScore: mlBundle.dataQuality.score,
+        highRiskCompanies: mlBundle.predictions.filter(item => item.riskLevel === 'High' || item.riskLevel === 'Critical').length,
+        criticalRiskCompanies: mlBundle.predictions.filter(item => item.riskLevel === 'Critical').length,
+        topFactors: mlBundle.topRiskFactors.map(item => ({ label: item.label, count: item.count })),
+        provinceForecast: mlBundle.provinceRiskForecast.map(item => ({
+          province: item.province,
+          riskScore: item.riskScore,
+          riskLevel: item.riskLevel
+        })),
+        reportForecast: mlBundle.reportVolumeForecast.map(item => ({ label: item.label, value: item.value })),
+        expiryForecast: mlBundle.expiryWorkloadForecast.map(item => ({ label: item.label, value: item.value })),
+        disclaimer: 'Machine learning predictions are advisory decision-support indicators based on available license and monthly report records. They do not replace official inspection judgment.'
+      }
+    };
+  };
 
   const exportPdf = async () => {
     const { generateAnalyticsPdfReport } = await import('../utils/analyticsReportExports');
@@ -431,6 +456,7 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
   const exportExcel = async () => {
     const XLSX = await import('xlsx');
     const workbook = XLSX.utils.book_new();
+    const payload = exportPayload();
     const officialDate = formatKhmerOfficialDateBlock(new Date(), { location: 'រាជធានីភ្នំពេញ' });
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
       ['Report', 'Metrology License Data Analytics Report'],
@@ -451,6 +477,17 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
       { Metric: 'No Telegram', Value: analytics.noTelegram }
     ]), 'Executive Summary');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(analytics.risks), 'Risk Scores');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
+      { Indicator: 'Model status', Value: payload.mlSummary.modelStatus },
+      { Indicator: 'Data quality score', Value: `${payload.mlSummary.dataQualityScore}%` },
+      { Indicator: 'High-risk predictions', Value: payload.mlSummary.highRiskCompanies },
+      { Indicator: 'Critical-risk predictions', Value: payload.mlSummary.criticalRiskCompanies },
+      { Indicator: 'Advisory note', Value: payload.mlSummary.disclaimer }
+    ]), 'ML Summary');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.mlSummary.topFactors), 'ML Risk Factors');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.mlSummary.provinceForecast), 'ML Province Forecast');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.mlSummary.reportForecast), 'ML Report Forecast');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.mlSummary.expiryForecast), 'ML Expiry Forecast');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(analytics.filteredReports), 'Reports');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(analytics.filteredLicenses), 'Licenses');
     XLSX.writeFile(workbook, `nmc-data-analytics-${new Date().toISOString().slice(0, 10)}.xlsx`);

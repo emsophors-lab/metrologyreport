@@ -26,6 +26,7 @@ import {
   KeyRound,
   Menu,
   X,
+  BrainCircuit,
   Languages
 } from 'lucide-react';
 
@@ -73,6 +74,7 @@ const LoginHistoryView = lazy(() => import('./components/LoginHistoryView'));
 const BackupData = lazy(() => import('./components/BackupData'));
 const EnterpriseLicensingRegistry = lazy(() => import('./components/EnterpriseLicensingRegistry'));
 const ChangePasswordModal = lazy(() => import('./components/ChangePasswordModal'));
+const MachineLearningPredictionDashboard = lazy(() => import('./components/MachineLearningPredictionDashboard'));
 import { formatKhmerOfficialDateBlock } from './utils/khmerOfficialDate';
 
 // Import Logo Asset
@@ -144,6 +146,7 @@ const UI_TEXT = {
   users: { km: 'គ្រប់គ្រងគណនីក្រុមហ៊ុន', en: 'Users' },
   loginHistory: { km: 'ប្រវត្តិចូលប្រើប្រាស់', en: 'Login History' },
   backupData: { km: 'បម្រុងទុកទិន្នន័យ', en: 'Backup Data' },
+  mlPredictions: { km: 'ការព្យាករណ៍ ML', en: 'ML Predictions' },
   developer: { km: 'សមកាលកម្ម Supabase', en: 'Supabase Sync' },
   role: { km: 'សិទ្ធិ', en: 'Role' },
   company: { km: 'ក្រុមហ៊ុន', en: 'Company' },
@@ -342,8 +345,8 @@ export default function App() {
   const [isDashboardLoading, setIsDashboardLoading] = useState(false);
   const [dashboardDataError, setDashboardDataError] = useState<string | null>(null);
   
-  // App navigation state: 'dashboard' | 'reports' | 'users' | 'developer' | 'history' | 'backup' | 'licenses'
-  const [activeTab, setActiveTab ] = useState<'dashboard' | 'reports' | 'users' | 'developer' | 'history' | 'backup' | 'licenses'>('dashboard');
+  // App navigation state: 'dashboard' | 'reports' | 'users' | 'developer' | 'history' | 'backup' | 'licenses' | 'ml'
+  const [activeTab, setActiveTab ] = useState<'dashboard' | 'reports' | 'users' | 'developer' | 'history' | 'backup' | 'licenses' | 'ml'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [language, setLanguage] = useState<AppLanguage>(() => {
@@ -531,6 +534,9 @@ export default function App() {
       } else if (activeTab === 'backup' && sessionUser.role !== 'superadmin') {
         setActiveTab('dashboard');
         showToast('សិទ្ធិមិនគ្រប់គ្រាន់ដើម្បីចូលប្រើប្រាស់ទំព័រនេះទេ (Unauthorized access to Backup Data)', 'error');
+      } else if (activeTab === 'ml' && sessionUser.role !== 'superadmin' && sessionUser.role !== 'admin') {
+        setActiveTab('dashboard');
+        showToast('សិទ្ធិមិនគ្រប់គ្រាន់សម្រាប់ការព្យាករណ៍ ML (Unauthorized access to ML Predictions)', 'error');
       } else if (activeTab === 'developer' && sessionUser.role !== 'admin' && sessionUser.role !== 'superadmin') {
         setActiveTab('dashboard');
       }
@@ -1630,6 +1636,24 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
+                      setActiveTab('ml');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
+                      activeTab === 'ml'
+                        ? 'bg-gold/10 text-gold border-r-4 border-gold'
+                        : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
+                    }`}
+                  >
+                    <BrainCircuit className="h-4 w-4 shrink-0 text-gold" />
+                    <span>{t('mlPredictions', language)}</span>
+                  </button>
+                )}
+
+                {(sessionUser.role === 'superadmin' || sessionUser.role === 'admin') && (
+                  <button
+                    type="button"
+                    onClick={() => {
                       setActiveTab('users');
                       setIsMobileMenuOpen(false);
                     }}
@@ -1811,6 +1835,21 @@ export default function App() {
                 <Award className="h-4 w-4 shrink-0 text-gold" />
                 <span>{t('licenses', language)}</span>
               </button>
+
+              {(sessionUser.role === 'superadmin' || sessionUser.role === 'admin') && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('ml')}
+                  className={`w-full flex items-center gap-3 px-5 py-3 text-[13px] font-bold transition-all cursor-pointer justify-start rounded-none ${
+                    activeTab === 'ml'
+                      ? 'bg-white/5 text-white border-r-4 border-gold shadow-xs'
+                      : 'text-slate-400 hover:bg-white/[0.02] hover:text-white border-r-4 border-transparent'
+                  }`}
+                >
+                  <BrainCircuit className="h-4 w-4 shrink-0 text-gold" />
+                  <span>{t('mlPredictions', language)}</span>
+                </button>
+              )}
 
               {/* User management tab anchor (Restricted to Admins!) */}
               {(sessionUser.role === 'superadmin' || sessionUser.role === 'admin') && (
@@ -2693,6 +2732,15 @@ export default function App() {
             {/* F. SYSTEM DATA BACKUP SERVICES */}
             {activeTab === 'backup' && sessionUser.role === 'superadmin' && (
               <BackupData currentUser={sessionUser} />
+            )}
+
+            {/* G. MACHINE LEARNING PREDICTION MODULE */}
+            {activeTab === 'ml' && (sessionUser.role === 'superadmin' || sessionUser.role === 'admin') && (
+              <MachineLearningPredictionDashboard
+                currentUser={sessionUser}
+                reports={reports}
+                licenses={dashboardLicenses}
+              />
             )}
 
             {/* G. ENTERPRISE LICENSING REGISTRY MODULE */}

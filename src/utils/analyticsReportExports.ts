@@ -47,6 +47,17 @@ export interface AnalyticsExportData {
   exp30: number;
   exp60: number;
   exp90: number;
+  mlSummary?: {
+    modelStatus: string;
+    dataQualityScore: number;
+    highRiskCompanies: number;
+    criticalRiskCompanies: number;
+    topFactors: Array<{ label: string; count: number }>;
+    provinceForecast: Array<{ province: string; riskScore: number; riskLevel: string }>;
+    reportForecast: Array<{ label: string; value: number }>;
+    expiryForecast: Array<{ label: string; value: number }>;
+    disclaimer: string;
+  };
 }
 
 const REPORT_TITLE_KH = 'របាយការណ៍វិភាគទិន្នន័យអាជ្ញាប័ណ្ណមាត្រាសាស្ត្រ';
@@ -169,6 +180,24 @@ function metricRows(data: AnalyticsExportData) {
   ];
 }
 
+function mlSummaryRows(data: AnalyticsExportData) {
+  if (!data.mlSummary) {
+    return [['Machine learning summary', 'Data not available']];
+  }
+  return [
+    ['Model status', data.mlSummary.modelStatus],
+    ['Data quality score', `${data.mlSummary.dataQualityScore}%`],
+    ['High-risk predictions', String(data.mlSummary.highRiskCompanies)],
+    ['Critical-risk predictions', String(data.mlSummary.criticalRiskCompanies)],
+    ['Top predictive factors', data.mlSummary.topFactors.length
+      ? data.mlSummary.topFactors.slice(0, 5).map(item => `${item.label} (${item.count})`).join('; ')
+      : 'Data not available'],
+    ['Highest province risk', data.mlSummary.provinceForecast.length
+      ? `${data.mlSummary.provinceForecast[0].province} (${data.mlSummary.provinceForecast[0].riskScore}, ${data.mlSummary.provinceForecast[0].riskLevel})`
+      : 'Data not available']
+  ];
+}
+
 function getOfficialDateBlock(data: AnalyticsExportData) {
   return formatKhmerOfficialDateBlock(data.reportDate || new Date(), {
     khmerLunarDateOverride: data.khmerLunarDateOverride,
@@ -251,12 +280,24 @@ export async function generateAnalyticsDocxReport(data: AnalyticsExportData) {
               .map(item => [item.company, item.license, item.level, String(item.score)])
           ),
 
-          docSectionTitle('6. Geography, Service Scope, and Instrument Types'),
+          docSectionTitle('6. Machine Learning Predictive Monitoring'),
+          docParagraph(data.mlSummary?.disclaimer || 'Machine learning predictions are advisory decision-support indicators based on available license and monthly report records. They do not replace official inspection judgment.'),
+          docTable(['Indicator', 'Value'], mlSummaryRows(data)),
+          docTable(
+            ['Forecast month', 'Report volume', 'Expiry workload'],
+            Array.from({ length: Math.max(data.mlSummary?.reportForecast.length || 0, data.mlSummary?.expiryForecast.length || 0, 1) }, (_, index) => [
+              data.mlSummary?.reportForecast[index]?.label || data.mlSummary?.expiryForecast[index]?.label || 'Data not available',
+              String(data.mlSummary?.reportForecast[index]?.value ?? 0),
+              String(data.mlSummary?.expiryForecast[index]?.value ?? 0)
+            ])
+          ),
+
+          docSectionTitle('7. Geography, Service Scope, and Instrument Types'),
           docTable(['Province / Area', 'Count'], safeRows(data.provinceRows).slice(0, 8).map(([label, count]) => [label, String(count)])),
           docTable(['Service type', 'Count'], safeRows(data.serviceRows).map(([label, count]) => [label, String(count)])),
           docTable(['Instrument type', 'Count'], safeRows(data.instrumentRows).slice(0, 8).map(([label, count]) => [label, String(count)])),
 
-          docSectionTitle('7. Monthly Compliance and Expiry Forecast'),
+          docSectionTitle('8. Monthly Compliance and Expiry Forecast'),
           docParagraph(`${data.noReportCount} licensed enterprises have no matching monthly report in the filtered period.`),
           docTable(['Expiry window', 'License count'], [
             ['Within 30 days', String(data.exp30)],
@@ -264,13 +305,13 @@ export async function generateAnalyticsDocxReport(data: AnalyticsExportData) {
             ['61-90 days', String(data.exp90)]
           ]),
 
-          docSectionTitle('8. International Benchmark Note'),
+          docSectionTitle('9. International Benchmark Note'),
           docParagraph(BENCHMARK_NOTE),
 
-          docSectionTitle('9. Recommendations for MISTI and NMC'),
+          docSectionTitle('10. Recommendations for MISTI and NMC'),
           ...RECOMMENDATIONS.map((item, index) => docParagraph(`${index + 1}. ${item}`)),
 
-          docSectionTitle('10. Conclusion'),
+          docSectionTitle('11. Conclusion'),
           docParagraph('The National Metrology Center of Cambodia should continue strengthening digital supervision, risk-based inspection, GPS completeness, Telegram connectivity, and structured reporting records to support fair trade, consumer protection, and trusted national measurement services.'),
           new Paragraph({
             alignment: AlignmentType.RIGHT,
@@ -408,13 +449,17 @@ export function generateAnalyticsPdfReport(data: AnalyticsExportData) {
   paragraph(`Top provinces/areas: ${safeRows(data.provinceRows).slice(0, 5).map(([label, count]) => `${label} (${count})`).join(', ')}.`);
   paragraph(`Top instrument types: ${safeRows(data.instrumentRows).slice(0, 5).map(([label, count]) => `${label} (${count})`).join(', ')}.`);
 
-  heading('6. International Benchmark Note');
+  heading('6. Machine Learning Predictive Monitoring');
+  paragraph(data.mlSummary?.disclaimer || 'Machine learning predictions are advisory decision-support indicators based on available license and monthly report records. They do not replace official inspection judgment.');
+  table(['Indicator', 'Value'], mlSummaryRows(data));
+
+  heading('7. International Benchmark Note');
   paragraph(BENCHMARK_NOTE);
 
-  heading('7. Recommendations');
+  heading('8. Recommendations');
   RECOMMENDATIONS.forEach((item, index) => paragraph(`${index + 1}. ${item}`));
 
-  heading('8. Conclusion');
+  heading('9. Conclusion');
   paragraph('NMC should continue strengthening digital evidence records, monthly compliance monitoring, GPS completeness, Telegram connectivity, and risk-based inspection for trusted measurement services.');
   ensure(58);
   pdf.setFont('helvetica', 'normal');
@@ -530,6 +575,19 @@ export async function generateAnalyticsPptxBriefing(data: AnalyticsExportData) {
     ['Telegram not linked', data.noTelegram]
   ]);
   addRowsSlide(pptx, 'Compliance Risk Analysis', data.riskRows, `No matching monthly report: ${data.noReportCount}. Expiring within 30/60/90 days: ${data.exp30}/${data.exp60}/${data.exp90}.`);
+
+  slide = pptx.addSlide();
+  addPptHeader(slide, 'Machine Learning Predictive Monitoring');
+  slide.addText('Machine Learning Predictive Monitoring', { x: 0.62, y: 0.95, w: 10.5, h: 0.4, fontSize: 23, bold: true, color: BLUE, fit: 'shrink' });
+  pptCard(slide, 'Model status', data.mlSummary?.modelStatus || 'Unavailable', 0.75, 1.65);
+  pptCard(slide, 'Data quality', `${data.mlSummary?.dataQualityScore ?? 0}%`, 3.15, 1.65, '16803A');
+  pptCard(slide, 'High risk', String(data.mlSummary?.highRiskCompanies ?? 0), 5.55, 1.65, 'EA580C');
+  pptCard(slide, 'Critical risk', String(data.mlSummary?.criticalRiskCompanies ?? 0), 7.95, 1.65, 'B91C1C');
+  pptBullets(slide, [
+    `Top factors: ${data.mlSummary?.topFactors.length ? data.mlSummary.topFactors.slice(0, 4).map(item => `${item.label} (${item.count})`).join('; ') : 'Data not available'}.`,
+    `Highest province risk: ${data.mlSummary?.provinceForecast.length ? `${data.mlSummary.provinceForecast[0].province} (${data.mlSummary.provinceForecast[0].riskScore})` : 'Data not available'}.`,
+    data.mlSummary?.disclaimer || 'Predictions are advisory decision-support indicators and do not replace official inspection judgment.'
+  ], 0.75, 3.05, 11.4, 2.65);
 
   slide = pptx.addSlide();
   addPptHeader(slide, 'Recommendations for MISTI and NMC');
