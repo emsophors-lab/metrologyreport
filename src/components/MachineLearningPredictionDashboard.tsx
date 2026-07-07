@@ -316,7 +316,7 @@ function ModelConfidenceCard({
   const hasLearnedWeights = !!bundle.modelMetadata.learnedWeights;
 
   return (
-    <div className="grid gap-4 md:grid-cols-[220px_1fr]">
+    <div className="space-y-4">
       <div className="rounded-xl bg-gradient-to-br from-amber-50 to-white p-4 text-center">
         <svg viewBox="0 0 120 72" className="mx-auto h-32 w-full" role="img" aria-label={`Model confidence ${confidence}%`}>
           <path d="M18 60 A42 42 0 0 1 102 60" fill="none" stroke="#E5E7EB" strokeWidth="13" strokeLinecap="round" />
@@ -327,11 +327,11 @@ function ModelConfidenceCard({
         <div className="mt-2 flex justify-between text-[10px] font-black text-slate-400"><span>0%</span><span>100%</span></div>
       </div>
       <div className="space-y-3 text-xs font-semibold text-slate-600">
-        <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-slate-400">Training Data</span><strong className="text-lg text-[#0B2A66]">{bundle.modelMetadata.recordCount}</strong></div>
-          <div className="rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-slate-400">Model Type</span><strong className="text-sm text-[#0B2A66]">{hasLearnedWeights ? 'Learned baseline' : 'Rule fallback'}</strong></div>
-          <div className="rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-slate-400">Model Version</span><strong className="text-sm text-[#0B2A66]">{bundle.modelMetadata.modelVersion}</strong></div>
-          <div className="rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-slate-400">Last Trained</span><strong className="text-sm text-[#0B2A66]">{formatUpdatedAt(new Date(trainedAt || bundle.modelMetadata.trainedAt))}</strong></div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Training Data</span><strong className="mt-1 block break-words text-lg text-[#0B2A66]">{bundle.modelMetadata.recordCount}</strong></div>
+          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Model Type</span><strong className="mt-1 block break-words text-sm leading-snug text-[#0B2A66]">{hasLearnedWeights ? 'Learned baseline' : 'Rule fallback'}</strong></div>
+          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Model Version</span><strong className="mt-1 block break-words text-sm leading-snug text-[#0B2A66]">{bundle.modelMetadata.modelVersion}</strong></div>
+          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Last Trained</span><strong className="mt-1 block break-words text-sm leading-snug text-[#0B2A66]">{formatUpdatedAt(new Date(trainedAt || bundle.modelMetadata.trainedAt))}</strong></div>
         </div>
         <div className="rounded-lg bg-amber-50 p-3 text-amber-900">
           {hasLearnedWeights
