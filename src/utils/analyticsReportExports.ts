@@ -53,6 +53,9 @@ export interface AnalyticsExportData {
     highRiskCompanies: number;
     criticalRiskCompanies: number;
     topFactors: Array<{ label: string; count: number }>;
+    clusters?: Array<{ name: string; count: number; action: string }>;
+    anomalies?: Array<{ entity: string; severity: string; score: number; reason: string }>;
+    patternInsights?: Array<{ label: string; score: number; description: string }>;
     provinceForecast: Array<{ province: string; riskScore: number; riskLevel: string }>;
     reportForecast: Array<{ label: string; value: number }>;
     expiryForecast: Array<{ label: string; value: number }>;
@@ -194,7 +197,9 @@ function mlSummaryRows(data: AnalyticsExportData) {
       : 'Data not available'],
     ['Highest province risk', data.mlSummary.provinceForecast.length
       ? `${data.mlSummary.provinceForecast[0].province} (${data.mlSummary.provinceForecast[0].riskScore}, ${data.mlSummary.provinceForecast[0].riskLevel})`
-      : 'Data not available']
+      : 'Data not available'],
+    ['Behavior clusters', String(data.mlSummary.clusters?.length || 0)],
+    ['Anomaly findings', String(data.mlSummary.anomalies?.length || 0)]
   ];
 }
 
@@ -290,6 +295,22 @@ export async function generateAnalyticsDocxReport(data: AnalyticsExportData) {
               String(data.mlSummary?.reportForecast[index]?.value ?? 0),
               String(data.mlSummary?.expiryForecast[index]?.value ?? 0)
             ])
+          ),
+          docTable(
+            ['Cluster', 'Companies', 'Recommended action'],
+            (data.mlSummary?.clusters?.length ? data.mlSummary.clusters : [{ name: 'Data not available', count: 0, action: 'Data not available' }])
+              .slice(0, 8)
+              .map(item => [item.name, String(item.count), item.action])
+          ),
+          docTable(
+            ['Anomaly / Pattern', 'Score', 'Reason'],
+            (data.mlSummary?.anomalies?.length
+              ? data.mlSummary.anomalies.map(item => ({ label: item.entity, score: item.score, description: `${item.severity}: ${item.reason}` }))
+              : data.mlSummary?.patternInsights?.length
+                ? data.mlSummary.patternInsights
+                : [{ label: 'Data not available', score: 0, description: 'Data not available' }])
+              .slice(0, 8)
+              .map(item => [item.label, String(item.score), item.description])
           ),
 
           docSectionTitle('7. Geography, Service Scope, and Instrument Types'),
@@ -452,6 +473,16 @@ export function generateAnalyticsPdfReport(data: AnalyticsExportData) {
   heading('6. Machine Learning Predictive Monitoring');
   paragraph(data.mlSummary?.disclaimer || 'Machine learning predictions are advisory decision-support indicators based on available license and monthly report records. They do not replace official inspection judgment.');
   table(['Indicator', 'Value'], mlSummaryRows(data));
+  table(
+    ['Unsupervised finding', 'Score / Count'],
+    [
+      ...(data.mlSummary?.clusters || []).slice(0, 4).map(item => [`Cluster: ${item.name}`, String(item.count)]),
+      ...(data.mlSummary?.anomalies || []).slice(0, 4).map(item => [`Anomaly: ${item.entity}`, `${item.score} (${item.severity})`])
+    ].length ? [
+      ...(data.mlSummary?.clusters || []).slice(0, 4).map(item => [`Cluster: ${item.name}`, String(item.count)]),
+      ...(data.mlSummary?.anomalies || []).slice(0, 4).map(item => [`Anomaly: ${item.entity}`, `${item.score} (${item.severity})`])
+    ] : [['Data not available', '0']]
+  );
 
   heading('7. International Benchmark Note');
   paragraph(BENCHMARK_NOTE);
@@ -586,6 +617,7 @@ export async function generateAnalyticsPptxBriefing(data: AnalyticsExportData) {
   pptBullets(slide, [
     `Top factors: ${data.mlSummary?.topFactors.length ? data.mlSummary.topFactors.slice(0, 4).map(item => `${item.label} (${item.count})`).join('; ') : 'Data not available'}.`,
     `Highest province risk: ${data.mlSummary?.provinceForecast.length ? `${data.mlSummary.provinceForecast[0].province} (${data.mlSummary.provinceForecast[0].riskScore})` : 'Data not available'}.`,
+    `Unsupervised clusters: ${data.mlSummary?.clusters?.length || 0}; anomaly findings: ${data.mlSummary?.anomalies?.length || 0}.`,
     data.mlSummary?.disclaimer || 'Predictions are advisory decision-support indicators and do not replace official inspection judgment.'
   ], 0.75, 3.05, 11.4, 2.65);
 

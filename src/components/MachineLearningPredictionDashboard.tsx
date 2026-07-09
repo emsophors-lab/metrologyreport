@@ -87,6 +87,17 @@ function confidencePct(bundle: MlPredictionBundle) {
   return Math.min(45, Math.max(25, bundle.dataQuality.score));
 }
 
+function countByLabel<T>(items: T[], getLabel: (item: T) => string) {
+  const counts = new Map<string, number>();
+  items.forEach(item => {
+    const label = getLabel(item) || 'Unknown';
+    counts.set(label, (counts.get(label) || 0) + 1);
+  });
+  return Array.from(counts.entries())
+    .map(([label, value]) => ({ label, value, tooltip: `${label}: ${value}` }))
+    .sort((a, b) => b.value - a.value);
+}
+
 function Sparkline({ values, color }: { values: number[]; color: string }) {
   const max = Math.max(1, ...values);
   const points = values.map((value, index) => {
@@ -414,13 +425,29 @@ function buildExportPayload(bundle: MlPredictionBundle, licenses: EnterpriseLice
       const days = daysUntil(license.license_expiry_date);
       return days !== null && days > 60 && days <= 90;
     }).length,
-    mlSummary: {
-      modelStatus: bundle.modelMetadata.status,
-      dataQualityScore: bundle.dataQuality.score,
-      highRiskCompanies: bundle.predictions.filter(item => item.riskLevel === 'High' || item.riskLevel === 'Critical').length,
-      criticalRiskCompanies: bundle.riskDistribution.Critical,
-      topFactors: bundle.topRiskFactors.map(item => ({ label: item.label, count: item.count })),
-      provinceForecast: bundle.provinceRiskForecast.map(item => ({ province: item.province, riskScore: item.riskScore, riskLevel: item.riskLevel })),
+      mlSummary: {
+        modelStatus: bundle.modelMetadata.status,
+        dataQualityScore: bundle.dataQuality.score,
+        highRiskCompanies: bundle.predictions.filter(item => item.riskLevel === 'High' || item.riskLevel === 'Critical').length,
+        criticalRiskCompanies: bundle.riskDistribution.Critical,
+        topFactors: bundle.topRiskFactors.map(item => ({ label: item.label, count: item.count })),
+        clusters: bundle.clusters.map(item => ({
+          name: item.clusterNameEn,
+          count: item.companyCount,
+          action: item.recommendedAction
+        })),
+        anomalies: bundle.anomalies.slice(0, 10).map(item => ({
+          entity: item.entityName,
+          severity: item.severity,
+          score: item.anomalyScore,
+          reason: item.reason
+        })),
+        patternInsights: bundle.patternInsights.slice(0, 10).map(item => ({
+          label: item.label,
+          score: item.score,
+          description: item.description
+        })),
+        provinceForecast: bundle.provinceRiskForecast.map(item => ({ province: item.province, riskScore: item.riskScore, riskLevel: item.riskLevel })),
       reportForecast: bundle.reportVolumeForecast.map(item => ({ label: item.label, value: item.value })),
       expiryForecast: bundle.expiryWorkloadForecast.map(item => ({ label: item.label, value: item.value })),
       disclaimer: 'Machine Learning predictions are advisory and require official review and verification by NMC.'
@@ -597,7 +624,9 @@ export default function MachineLearningPredictionDashboard({
 
   const handleAiSummary = () => {
     const topFactor = bundle.topRiskFactors[0]?.label || 'limited historical data';
-    setAiSummary(`The model predicts ${analytics.likelyMiss.length} companies may miss the next monthly report and ${analytics.highRisk.length} companies are recommended for review. Main driver: ${topFactor}. Focus on report reminders, renewal verification, GPS cleanup, and high-risk inspection planning.`);
+    const topCluster = bundle.clusters[0]?.clusterNameEn || 'no dominant behavior cluster';
+    const anomalyCount = bundle.anomalies.length;
+    setAiSummary(`The supervised model predicts ${analytics.likelyMiss.length} companies may miss the next monthly report and ${analytics.highRisk.length} companies are recommended for review. Main driver: ${topFactor}. Unsupervised analysis found ${bundle.clusters.length} behavior cluster(s), led by ${topCluster}, and ${anomalyCount} anomaly finding(s). Focus on report reminders, renewal verification, GPS cleanup, anomaly review, and high-risk inspection planning.`);
   };
 
   if (!canAccess) {
@@ -621,6 +650,9 @@ export default function MachineLearningPredictionDashboard({
               <p className="text-base font-black text-[#0B2A66]">Machine Learning Predictions Dashboard</p>
               <p className="mt-1 max-w-4xl text-sm font-semibold leading-relaxed text-slate-500">
                 ផ្ទាំងនេះផ្តល់ការតាមដានព្យាករណ៍ជាជំនួយ សម្រាប់អាជ្ញាបណ្ណ របាយការណ៍ប្រចាំខែ ហានិភ័យតាមខេត្ត និងបន្ទុកការងារ។ Predictions are advisory and require official NMC verification.
+              </p>
+              <p className="mt-2 max-w-4xl rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold leading-relaxed text-[#0B2A66]">
+                AI-assisted predictive analytics using supervised learning for risk prediction and unsupervised learning for pattern discovery and anomaly detection. All predictions are advisory and subject to official review by NMC.
               </p>
               <p className="mt-1 text-xs font-semibold text-slate-400">{officialDate.fullText}</p>
             </div>
@@ -716,6 +748,51 @@ export default function MachineLearningPredictionDashboard({
                 <Sparkles className="h-4 w-4" /> បង្កើត AI វិភាគ / Generate AI Analysis
               </button>
             </div>
+          </Panel>
+        </section>
+
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <Panel titleKh="ក្រុមលំនាំក្រុមហ៊ុន" titleEn="Unsupervised Company Behavior Clusters">
+            <BarChart color="#2563EB" rows={bundle.clusters.map(cluster => ({
+              label: cluster.clusterNameEn,
+              value: cluster.companyCount,
+              tooltip: `${cluster.clusterNameEn}: ${cluster.companyCount}. ${cluster.descriptionEn}`
+            }))} />
+          </Panel>
+          <Panel titleKh="ភាពមិនប្រក្រតី" titleEn="Anomaly Detection Findings">
+            <div className="space-y-2">
+              {bundle.anomalies.length === 0 ? (
+                <EmptyState label="No anomaly detected / មិនមានភាពមិនប្រក្រតី" />
+              ) : bundle.anomalies.slice(0, 5).map(anomaly => (
+                <div key={`${anomaly.entityType}-${anomaly.entityId}-${anomaly.reason}`} className="rounded-lg border border-slate-100 bg-slate-50 p-3" title={anomaly.reason}>
+                  <div className="flex items-center justify-between gap-2">
+                    <strong className="truncate text-xs text-[#0B2A66]">{anomaly.entityName}</strong>
+                    <span className="rounded px-2 py-1 text-[10px] font-black" style={{ background: `${riskColor[anomaly.severity]}18`, color: riskColor[anomaly.severity] }}>{anomaly.severity} · {anomaly.anomalyScore}</span>
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-[11px] font-semibold text-slate-500">{anomaly.reason}</p>
+                </div>
+              ))}
+            </div>
+          </Panel>
+          <Panel titleKh="លំនាំខេត្ត/ឧបករណ៍" titleEn="Province, Service, and Instrument Pattern Insights">
+            <BarChart color="#D4AF37" rows={bundle.patternInsights.slice(0, 8).map(insight => ({
+              label: insight.label,
+              value: insight.score,
+              tooltip: insight.description
+            }))} />
+          </Panel>
+        </section>
+
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <Panel titleKh="ការបែងចែកក្រុម" titleEn="Company Cluster Distribution">
+            <BarChart color="#0B2A66" rows={bundle.clusters.map(cluster => ({
+              label: cluster.clusterNameEn,
+              value: cluster.companyCount,
+              tooltip: `${cluster.descriptionEn} Recommended action: ${cluster.recommendedAction}`
+            }))} />
+          </Panel>
+          <Panel titleKh="កម្រិតភាពមិនប្រក្រតី" titleEn="Anomaly Severity Distribution">
+            <BarChart color="#EF4444" rows={countByLabel(bundle.anomalies, anomaly => anomaly.severity)} />
           </Panel>
         </section>
 

@@ -436,6 +436,22 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
         highRiskCompanies: mlBundle.predictions.filter(item => item.riskLevel === 'High' || item.riskLevel === 'Critical').length,
         criticalRiskCompanies: mlBundle.predictions.filter(item => item.riskLevel === 'Critical').length,
         topFactors: mlBundle.topRiskFactors.map(item => ({ label: item.label, count: item.count })),
+        clusters: mlBundle.clusters.map(item => ({
+          name: item.clusterNameEn,
+          count: item.companyCount,
+          action: item.recommendedAction
+        })),
+        anomalies: mlBundle.anomalies.slice(0, 10).map(item => ({
+          entity: item.entityName,
+          severity: item.severity,
+          score: item.anomalyScore,
+          reason: item.reason
+        })),
+        patternInsights: mlBundle.patternInsights.slice(0, 10).map(item => ({
+          label: item.label,
+          score: item.score,
+          description: item.description
+        })),
         provinceForecast: mlBundle.provinceRiskForecast.map(item => ({
           province: item.province,
           riskScore: item.riskScore,
@@ -485,6 +501,9 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
       { Indicator: 'Advisory note', Value: payload.mlSummary.disclaimer }
     ]), 'ML Summary');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.mlSummary.topFactors), 'ML Risk Factors');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.mlSummary.clusters), 'ML Clusters');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.mlSummary.anomalies), 'ML Anomalies');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.mlSummary.patternInsights), 'ML Pattern Insights');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.mlSummary.provinceForecast), 'ML Province Forecast');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.mlSummary.reportForecast), 'ML Report Forecast');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.mlSummary.expiryForecast), 'ML Expiry Forecast');

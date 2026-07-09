@@ -77,6 +77,35 @@ export interface MlPredictionResult {
   advisoryNote: string;
 }
 
+export interface MlClusterOutput {
+  clusterId: string;
+  clusterNameKh: string;
+  clusterNameEn: string;
+  companyCount: number;
+  descriptionKh: string;
+  descriptionEn: string;
+  commonFeatures: string[];
+  recommendedAction: string;
+}
+
+export interface MlAnomalyOutput {
+  entityType: 'company' | 'report' | 'province' | 'instrument';
+  entityId: string;
+  entityName: string;
+  anomalyScore: number;
+  severity: MlRiskLevel;
+  reason: string;
+  recommendedAction: string;
+}
+
+export interface MlPatternInsight {
+  type: 'province' | 'instrument' | 'service' | 'company';
+  label: string;
+  score: number;
+  description: string;
+  recommendedAction: string;
+}
+
 export interface MlForecastPoint {
   label: string;
   value: number;
@@ -124,6 +153,9 @@ export interface MlModelMetadata {
 
 export interface MlPredictionBundle {
   predictions: MlPredictionResult[];
+  clusters: MlClusterOutput[];
+  anomalies: MlAnomalyOutput[];
+  patternInsights: MlPatternInsight[];
   dataQuality: MlDataQualitySummary;
   modelMetadata: MlModelMetadata;
   reportVolumeForecast: MlForecastPoint[];
