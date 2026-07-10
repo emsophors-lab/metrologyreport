@@ -51,6 +51,79 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
     }
   };
 
+  // Server-authenticated actions (Telegram webhook setup, test-send) require a
+  // Supabase Auth session token; a local users-table match alone is not enough.
+  const establishServerAuthSession = async (
+    client: NonNullable<ReturnType<typeof getActiveSupabaseClient>>,
+    matchedUser: MetrologyUser,
+    plainPassword: string
+  ): Promise<boolean> => {
+    const authEmail = matchedUser.email || `${matchedUser.username.toLowerCase()}@nmc.gov.kh`;
+
+    let authResult = await client.auth.signInWithPassword({
+      email: authEmail,
+      password: plainPassword
+    });
+
+    if (authResult.error && (
+      authResult.error.message.includes('Invalid login credentials') ||
+      authResult.error.message.includes('invalid_credentials') ||
+      authResult.error.message.includes('Email not confirmed')
+    )) {
+      logTechnicalIssue('Attempting automatic auth profile registration for configured user:', matchedUser.username);
+      const { data: signUpData, error: signUpError } = await client.auth.signUp({
+        email: authEmail,
+        password: plainPassword,
+        options: {
+          data: {
+            username: matchedUser.username
+          }
+        }
+      });
+
+      if (!signUpError && signUpData.user) {
+        const newUserRecord = {
+          id: signUpData.user.id,
+          license_number: matchedUser.license_number,
+          company_name_kh: matchedUser.company_name_kh,
+          company_name_en: matchedUser.company_name_en,
+          address: matchedUser.address,
+          phone: matchedUser.phone,
+          email: authEmail,
+          legal_representative: matchedUser.legal_representative,
+          representative_position: matchedUser.representative_position,
+          username: matchedUser.username,
+          password: matchedUser.password,
+          password_hash: matchedUser.password_hash || null,
+          password_updated_at: matchedUser.password_updated_at || null,
+          must_change_password: matchedUser.must_change_password ?? false,
+          last_password_change_by: matchedUser.last_password_change_by || null,
+          role: matchedUser.role,
+          can_view: matchedUser.can_view,
+          can_edit: matchedUser.can_edit,
+          can_save: matchedUser.can_save,
+          can_delete: matchedUser.can_delete,
+          is_active: matchedUser.is_active ?? true,
+          created_at: matchedUser.created_at || new Date().toISOString()
+        };
+
+        await client.from('users').upsert([newUserRecord]);
+
+        authResult = await client.auth.signInWithPassword({
+          email: authEmail,
+          password: plainPassword
+        });
+      }
+    }
+
+    if (authResult.error || !authResult.data.session) {
+      logTechnicalIssue('Server auth session unavailable, continuing with local session:', authResult.error);
+      return false;
+    }
+
+    return true;
+  };
+
   // Warning effect to handle Database Connection failed or empty fallbacks
   useEffect(() => {
     if (!isUsersLoading) {
@@ -133,6 +206,14 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
           showLoginNotice('គណនីរបស់លោកអ្នកត្រូវផ្អាកបណ្តោះអាសន្ន! / This account has been deactivated!');
           setIsAuthenticating(false);
           return;
+        }
+
+        if (client) {
+          try {
+            await establishServerAuthSession(client, localMatched, password);
+          } catch (authErr) {
+            logTechnicalIssue('Server auth session setup failed, continuing with local session:', authErr);
+          }
         }
 
         clearLoginNotice();
