@@ -85,6 +85,41 @@ import { sendTelegramNotification } from './telegramUtils';
 
 type AppLanguage = 'km' | 'en';
 
+const getReportTimestamp = (report: MetrologyReport) => {
+  const raw = report.updated_at || report.created_at || '';
+  const parsed = raw ? new Date(raw).getTime() : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const mergeReportsPreservingLocal = (
+  remoteReports: MetrologyReport[] = [],
+  localReports: MetrologyReport[] = []
+): MetrologyReport[] => {
+  const mergedById = new Map<string, MetrologyReport>();
+
+  remoteReports.forEach((report) => {
+    mergedById.set(report.id, report);
+  });
+
+  localReports.forEach((localReport) => {
+    const remoteReport = mergedById.get(localReport.id);
+    if (!remoteReport || getReportTimestamp(localReport) > getReportTimestamp(remoteReport)) {
+      mergedById.set(localReport.id, localReport);
+    }
+  });
+
+  return Array.from(mergedById.values()).sort((a, b) => getReportTimestamp(b) - getReportTimestamp(a));
+};
+
+const readCachedReportsSafely = (fallback: MetrologyReport[] = []): MetrologyReport[] => {
+  try {
+    const cachedReports = localStorage.getItem('nmc_reports');
+    return cachedReports ? JSON.parse(cachedReports) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 const OFFICIAL_MINISTRY_KH = 'ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍';
 const OFFICIAL_CENTER_KH = 'មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ';
 const OFFICIAL_CENTER_EN = 'National Metrology Center';
@@ -662,8 +697,12 @@ export default function App() {
           fetchLicensesFromSupabase(sessionUser, { allowFallback: sessionUser.role !== 'superadmin' })
         ]);
         if (cloudReports) {
-          setReports(cloudReports);
-          localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
+          setReports(prevReports => {
+            const localReports = readCachedReportsSafely(prevReports);
+            const mergedReports = mergeReportsPreservingLocal(cloudReports, localReports);
+            localStorage.setItem('nmc_reports', JSON.stringify(mergedReports));
+            return mergedReports;
+          });
         }
         setDashboardLicenses(cloudLicenses);
       } catch (e) {
@@ -1080,8 +1119,11 @@ export default function App() {
       if (activeCfg.url && activeCfg.anonKey && !activeCfg.url.includes('YOUR_SUPABASE_URL')) {
         const cloudReports = await fetchReportsFromSupabase();
         if (cloudReports) {
-          setReports(cloudReports);
-          localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
+          setReports(prevReports => {
+            const mergedReports = mergeReportsPreservingLocal(cloudReports, prevReports);
+            localStorage.setItem('nmc_reports', JSON.stringify(mergedReports));
+            return mergedReports;
+          });
         }
       }
     } catch (e) {
@@ -1109,8 +1151,12 @@ export default function App() {
 
         const cloudReports = await fetchReportsFromSupabase();
         if (cloudReports) {
-          setReports(cloudReports);
-          localStorage.setItem('nmc_reports', JSON.stringify(cloudReports));
+          setReports(prevReports => {
+            const localReports = readCachedReportsSafely(prevReports);
+            const mergedReports = mergeReportsPreservingLocal(cloudReports, localReports);
+            localStorage.setItem('nmc_reports', JSON.stringify(mergedReports));
+            return mergedReports;
+          });
         }
 
         setDbConfig({
