@@ -631,6 +631,116 @@ app.post('/api/provision-auth-session', async (req, res) => {
   }
 });
 
+const REPORT_UPSERT_COLUMNS = [
+  'id', 'user_id', 'license_number', 'company_name_kh', 'customer_name', 'customer_address',
+  'measuring_instrument', 'instrument_serial_number', 'scope_of_weight_measure',
+  'spare_parts', 'spare_part_serial_number', 'service_type', 'service_start_date',
+  'service_end_date', 'report_month', 'report_year', 'report_status', 'rejection_reason',
+  'approved_by', 'approved_at', 'verification_token_hash', 'created_at', 'updated_at'
+];
+
+app.post('/api/reports', async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return apiError(res, 503, 'Server database provider is not configured.');
+    }
+    if (!(await requireApiRole(req, res, ['superadmin', 'admin', 'company']))) return;
+
+    const report = req.body?.report;
+    if (!report || typeof report !== 'object' || !String(report.id || '').trim()) {
+      return apiError(res, 400, 'A report payload with an id is required.');
+    }
+
+    const payload: Record<string, any> = {};
+    for (const column of REPORT_UPSERT_COLUMNS) {
+      if (column in report) payload[column] = report[column];
+    }
+
+    const { error } = await supabaseAdmin
+      .from('reports')
+      .upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.error('Server report upsert failed:', error.message || error);
+      return apiError(res, 500, 'Failed to save the report to the database.');
+    }
+
+    return apiSuccess(res, { id: payload.id });
+  } catch (err: any) {
+    console.error('Server report save exception:', err?.message || err);
+    return apiError(res, 500, 'Failed to save the report to the database.');
+  }
+});
+
+app.delete('/api/reports', async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return apiError(res, 503, 'Server database provider is not configured.');
+    }
+    if (!(await requireApiRole(req, res, ['superadmin', 'admin', 'company']))) return;
+
+    const reportId = String(req.query?.id || '').trim();
+    if (!reportId) {
+      return apiError(res, 400, 'Report id is required.');
+    }
+
+    const { error } = await supabaseAdmin
+      .from('reports')
+      .delete()
+      .eq('id', reportId);
+    if (error) {
+      console.error('Server report delete failed:', error.message || error);
+      return apiError(res, 500, 'Failed to delete the report from the database.');
+    }
+
+    return apiSuccess(res, { id: reportId });
+  } catch (err: any) {
+    console.error('Server report delete exception:', err?.message || err);
+    return apiError(res, 500, 'Failed to delete the report from the database.');
+  }
+});
+
+// Public endpoint backing the QR / Telegram verification links. Anonymous visitors
+// (e.g. on a phone) have no Supabase session, so the lookup runs with the service
+// role here instead of relying on client-side RLS access.
+app.get('/api/verify-report', async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return apiError(res, 503, 'Server database provider is not configured.');
+    }
+
+    const token = String(req.query?.token || '').trim();
+    if (!token) {
+      return apiError(res, 400, 'Verification token is required.');
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token, 'utf8').digest('hex');
+    const { data: byHash } = await supabaseAdmin
+      .from('reports')
+      .select('*')
+      .eq('verification_token_hash', tokenHash)
+      .limit(1);
+    let report = byHash && byHash.length > 0 ? byHash[0] : null;
+
+    if (!report) {
+      const { data: byId } = await supabaseAdmin
+        .from('reports')
+        .select('*')
+        .eq('id', token)
+        .limit(1);
+      report = byId && byId.length > 0 ? byId[0] : null;
+    }
+
+    if (!report) {
+      return apiError(res, 404, 'Report not found.');
+    }
+
+    return apiSuccess(res, { report });
+  } catch (err: any) {
+    console.error('Public report verification failed:', err?.message || err);
+    return apiError(res, 500, 'Report verification failed.');
+  }
+});
+
 app.get('/api/active-telegram-bot', async (req, res) => {
   try {
     const purpose = String(req.query.purpose || 'license_reminder');

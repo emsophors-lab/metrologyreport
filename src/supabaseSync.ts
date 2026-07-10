@@ -543,6 +543,20 @@ export async function sha256(message: string): Promise<string> {
  * Secure QR query resolver
  */
 export async function verifyReportBySecureToken(token: string): Promise<MetrologyReport | null> {
+  // The public server endpoint works for anonymous visitors (phones scanning the
+  // QR / Telegram link) who have no Supabase session and may be blocked by RLS.
+  try {
+    const response = await fetch(`/api/verify-report?token=${encodeURIComponent(token)}`);
+    if (response.ok) {
+      const data = await response.json().catch(() => null);
+      if (data?.report) return data.report as MetrologyReport;
+    } else if (response.status === 404) {
+      return null;
+    }
+  } catch (apiErr) {
+    console.warn('Server verification lookup unavailable, falling back to direct query:', apiErr);
+  }
+
   const client = getActiveSupabaseClient();
   if (!client) return null;
 
@@ -621,6 +635,27 @@ export async function saveReportToSupabase(report: MetrologyReport): Promise<voi
     updated_at: report.updated_at || new Date().toISOString()
   };
 
+  // Save through the backend first: the service role bypasses RLS policies that
+  // reject direct client writes (they reference a profiles table this app does not use).
+  try {
+    const { getApiAuthHeaders } = await import('./apiAuth');
+    const headers = await getApiAuthHeaders();
+    if (headers.Authorization || headers['X-NMC-User-ID']) {
+      const response = await fetch('/api/reports', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ report: payload })
+      });
+      if (response.ok) {
+        console.log('Synchronized monthly report successfully via server API:', report.id);
+        return;
+      }
+      console.warn('Server report save unavailable, falling back to direct upsert. Status:', response.status);
+    }
+  } catch (apiErr) {
+    console.warn('Server report save failed, falling back to direct upsert:', apiErr);
+  }
+
   try {
     const { error } = await client
       .from('reports')
@@ -643,6 +678,24 @@ export async function saveReportToSupabase(report: MetrologyReport): Promise<voi
 export async function deleteReportFromSupabase(reportId: string): Promise<void> {
   const client = getActiveSupabaseClient();
   if (!client) return;
+
+  try {
+    const { getApiAuthHeaders } = await import('./apiAuth');
+    const headers = await getApiAuthHeaders();
+    if (headers.Authorization || headers['X-NMC-User-ID']) {
+      const response = await fetch(`/api/reports?id=${encodeURIComponent(reportId)}`, {
+        method: 'DELETE',
+        headers
+      });
+      if (response.ok) {
+        console.log('Successfully deleted report via server API:', reportId);
+        return;
+      }
+      console.warn('Server report delete unavailable, falling back to direct delete. Status:', response.status);
+    }
+  } catch (apiErr) {
+    console.warn('Server report delete failed, falling back to direct delete:', apiErr);
+  }
 
   try {
     const { error } = await client
