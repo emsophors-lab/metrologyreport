@@ -202,6 +202,7 @@ export async function sendTelegramNotification(
     // 2. Dispatch through backend so Telegram bot tokens never run in browser-side requests.
     const headers = await getApiAuthHeaders();
     if (!headers.Authorization && !headers['X-NMC-User-ID']) {
+      showToast('Telegram Warn: group notification skipped — please log out and log in again to refresh your session.', 'error');
       return;
     }
 

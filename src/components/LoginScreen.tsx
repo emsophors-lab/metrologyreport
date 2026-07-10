@@ -65,54 +65,32 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
       password: plainPassword
     });
 
-    if (authResult.error && (
-      authResult.error.message.includes('Invalid login credentials') ||
-      authResult.error.message.includes('invalid_credentials') ||
-      authResult.error.message.includes('Email not confirmed')
-    )) {
-      logTechnicalIssue('Attempting automatic auth profile registration for configured user:', matchedUser.username);
-      const { data: signUpData, error: signUpError } = await client.auth.signUp({
-        email: authEmail,
-        password: plainPassword,
-        options: {
-          data: {
-            username: matchedUser.username
-          }
-        }
-      });
-
-      if (!signUpError && signUpData.user) {
-        const newUserRecord = {
-          id: signUpData.user.id,
-          license_number: matchedUser.license_number,
-          company_name_kh: matchedUser.company_name_kh,
-          company_name_en: matchedUser.company_name_en,
-          address: matchedUser.address,
-          phone: matchedUser.phone,
-          email: authEmail,
-          legal_representative: matchedUser.legal_representative,
-          representative_position: matchedUser.representative_position,
-          username: matchedUser.username,
-          password: matchedUser.password,
-          password_hash: matchedUser.password_hash || null,
-          password_updated_at: matchedUser.password_updated_at || null,
-          must_change_password: matchedUser.must_change_password ?? false,
-          last_password_change_by: matchedUser.last_password_change_by || null,
-          role: matchedUser.role,
-          can_view: matchedUser.can_view,
-          can_edit: matchedUser.can_edit,
-          can_save: matchedUser.can_save,
-          can_delete: matchedUser.can_delete,
-          is_active: matchedUser.is_active ?? true,
-          created_at: matchedUser.created_at || new Date().toISOString()
-        };
-
-        await client.from('users').upsert([newUserRecord]);
-
-        authResult = await client.auth.signInWithPassword({
-          email: authEmail,
-          password: plainPassword
+    if (authResult.error) {
+      // Sign-in can fail because the auth account does not exist yet, is unconfirmed,
+      // or has a stale password. The server verifies the users-table credentials and
+      // creates/repairs the pre-confirmed Supabase Auth account, then we retry.
+      logTechnicalIssue('Requesting server auth account provisioning for configured user:', matchedUser.username);
+      try {
+        const provisionResponse = await fetch('/api/provision-auth-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: matchedUser.username,
+            password: plainPassword
+          })
         });
+
+        if (provisionResponse.ok) {
+          const provisionData = await provisionResponse.json().catch(() => null);
+          authResult = await client.auth.signInWithPassword({
+            email: provisionData?.email || authEmail,
+            password: plainPassword
+          });
+        } else {
+          logTechnicalIssue('Server auth account provisioning rejected:', provisionResponse.status);
+        }
+      } catch (provisionErr) {
+        logTechnicalIssue('Server auth account provisioning failed:', provisionErr);
       }
     }
 

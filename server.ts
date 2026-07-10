@@ -42,10 +42,10 @@ const supabaseAdmin = (hasSupabaseUrl && hasServiceKey)
     })
   : null;
 
-async function requireApiRole(req: any, res: any, allowedRoles: string[]): Promise<boolean> {
+async function resolveApiRole(req: any): Promise<string | null> {
   if (!supabaseAdmin) {
     // Local/demo mode has no server-side auth provider. Production must configure SUPABASE_SERVICE_ROLE_KEY.
-    return true;
+    return 'superadmin';
   }
 
   const authHeader = req.headers.authorization || '';
@@ -68,23 +68,20 @@ async function requireApiRole(req: any, res: any, allowedRoles: string[]): Promi
           publicUser &&
           String(publicUser.username || '').toLowerCase() === headerUsername &&
           String(publicUser.role || '') === headerRole &&
-          publicUser.is_active !== false &&
-          allowedRoles.includes(String(publicUser.role || ''));
+          publicUser.is_active !== false;
 
         if (publicUserValid) {
-          return true;
+          return String(publicUser.role || '') || null;
         }
       }
     }
 
-    res.status(401).json({ error: 'Authentication required.' });
-    return false;
+    return null;
   }
 
   const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(token);
   if (authError || !authData.user) {
-    res.status(401).json({ error: 'Invalid authentication token.' });
-    return false;
+    return null;
   }
 
   const userId = authData.user.id;
@@ -110,12 +107,59 @@ async function requireApiRole(req: any, res: any, allowedRoles: string[]): Promi
     isActive = profile?.is_active !== false;
   }
 
-  if (!isActive || !role || !allowedRoles.includes(role)) {
+  if (!role) {
+    // The Supabase Auth account id may differ from the users-table row id when the
+    // auth account was auto-provisioned later. Fall back to matching by email.
+    const authEmail = String(authData.user.email || '').trim();
+    if (authEmail) {
+      const { data: emailMatches } = await supabaseAdmin
+        .from('users')
+        .select('role,is_active')
+        .ilike('email', authEmail);
+      const matched = (emailMatches || []).find((u: any) => u.is_active !== false);
+      if (matched) {
+        role = matched.role;
+        isActive = matched.is_active !== false;
+      }
+    }
+  }
+
+  if (!isActive || !role) return null;
+  return String(role);
+}
+
+async function requireApiRole(req: any, res: any, allowedRoles: string[]): Promise<boolean> {
+  const role = await resolveApiRole(req);
+  if (!role) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return false;
+  }
+  if (!allowedRoles.includes(role)) {
     res.status(403).json({ error: 'Insufficient permission for this Telegram action.' });
     return false;
   }
-
   return true;
+}
+
+function verifyUserPasswordServer(password: string, userRow: any): boolean {
+  const storedHash = userRow?.password_hash;
+  if (typeof storedHash === 'string' && storedHash.startsWith('pbkdf2_sha256$')) {
+    const parts = storedHash.split('$');
+    if (parts.length !== 4) return false;
+    const iterations = Number(parts[1]);
+    if (!Number.isFinite(iterations) || iterations < 1) return false;
+    try {
+      const salt = Buffer.from(parts[2], 'base64');
+      const expected = Buffer.from(parts[3], 'base64');
+      const actual = crypto.pbkdf2Sync(password, salt, iterations, expected.length, 'sha256');
+      return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+    } catch {
+      return false;
+    }
+  }
+
+  // Transition compatibility: legacy records may still have plaintext passwords.
+  return typeof userRow?.password === 'string' && userRow.password.length > 0 && userRow.password === password;
 }
 
 /**
@@ -513,6 +557,78 @@ app.get('/api/health', (req, res) => {
     supabase: supabaseAdmin ? 'connected' : 'unconfigured_fallback',
     time: new Date().toISOString()
   });
+});
+
+app.post('/api/provision-auth-session', async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return apiError(res, 503, 'Server authentication provider is not configured.');
+    }
+
+    const username = String(req.body?.username || '').trim();
+    const password = String(req.body?.password || '');
+    if (!username || !password) {
+      return apiError(res, 400, 'Username and password are required.');
+    }
+
+    const { data: candidates, error: lookupError } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .ilike('username', username);
+    if (lookupError) {
+      console.error('Auth provision user lookup failed:', lookupError.message || lookupError);
+      return apiError(res, 500, 'Unable to verify user account.');
+    }
+
+    const userRow = (candidates || []).find(
+      (candidate: any) =>
+        String(candidate.username || '').toLowerCase() === username.toLowerCase() &&
+        candidate.is_active !== false &&
+        verifyUserPasswordServer(password, candidate)
+    );
+    if (!userRow) {
+      return apiError(res, 401, 'Invalid credentials.');
+    }
+
+    const email = String(userRow.email || `${username.toLowerCase()}@nmc.gov.kh`).trim().toLowerCase();
+
+    // Create the Supabase Auth account pre-confirmed, or repair an existing one so its
+    // password matches the verified users-table credentials and its email is confirmed.
+    const created = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { username: userRow.username }
+    });
+
+    if (created.error) {
+      const { data: userList, error: listError } = await supabaseAdmin.auth.admin.listUsers({
+        page: 1,
+        perPage: 1000
+      });
+      const existing = userList?.users?.find(
+        (authUser: any) => String(authUser.email || '').toLowerCase() === email
+      );
+      if (listError || !existing) {
+        console.error('Auth provision failed:', created.error.message || created.error);
+        return apiError(res, 500, 'Unable to provision the authentication account.');
+      }
+
+      const updated = await supabaseAdmin.auth.admin.updateUserById(existing.id, {
+        password,
+        email_confirm: true
+      });
+      if (updated.error) {
+        console.error('Auth account repair failed:', updated.error.message || updated.error);
+        return apiError(res, 500, 'Unable to provision the authentication account.');
+      }
+    }
+
+    return apiSuccess(res, { email });
+  } catch (err: any) {
+    console.error('Auth provision exception:', err?.message || err);
+    return apiError(res, 500, 'Unable to provision the authentication account.');
+  }
 });
 
 app.get('/api/active-telegram-bot', async (req, res) => {
@@ -1294,12 +1410,22 @@ app.post('/api/test-telegram-reminder', async (req, res) => {
     const { licenseId, chatId, customMessage, botToken: bodyBotToken, botUsername: bodyBotUsername, botId, botPurpose } = req.body;
     const requestedPurpose: TelegramBotPurpose = (botPurpose === 'report_group' || botPurpose === 'report_notification') ? 'report_group' : 'license_reminder';
 
-    if (!(await requireApiRole(req, res, ['superadmin', 'admin']))) return;
-    
-    let botToken = bodyBotToken;
+    const requesterRole = await resolveApiRole(req);
+    if (!requesterRole) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+    const isAdminRequester = ['superadmin', 'admin'].includes(requesterRole);
+    // Company users may only dispatch report-group notifications through the stored
+    // active bot; they cannot supply their own token, chat target, or reminder log.
+    const isCompanyGroupDispatch = requesterRole === 'company' && requestedPurpose === 'report_group';
+    if (!isAdminRequester && !isCompanyGroupDispatch) {
+      return res.status(403).json({ error: 'Insufficient permission for this Telegram action.' });
+    }
+
+    let botToken = isAdminRequester ? bodyBotToken : undefined;
     let botUsername = bodyBotUsername || 'Custom Bot';
     let activeBotId: string | null = null;
-    let targetChatId = chatId;
+    let targetChatId = isAdminRequester ? chatId : undefined;
 
     if (!botToken && botId && supabaseAdmin) {
       if (!requireValidTelegramBotId(res, botId)) return;
@@ -1378,7 +1504,7 @@ app.post('/api/test-telegram-reminder', async (req, res) => {
       updatedBotForClient = sanitizeBotForClient({ id: activeBotId, bot_username: botUsername, ...statusUpdate });
     }
 
-    if (supabaseAdmin && licenseId) {
+    if (supabaseAdmin && licenseId && isAdminRequester) {
       // Save reminder log to DB
       await supabaseAdmin.from('license_reminder_logs').insert({
         license_id: licenseId,
