@@ -3160,8 +3160,9 @@ export default function EnterpriseLicensingRegistry({
         </div>
       )}
 
-      {/* Superadmin Database Management Panel */}
-      {(currentUser.role === 'superadmin' || currentUser.role === 'admin') && (
+      {/* Superadmin Database Management Panel — hidden during normal operation; only
+          surfaces when a required database table is missing so the SQL guide is available. */}
+      {(currentUser.role === 'superadmin' || currentUser.role === 'admin') && !tableStatus.allExist && (
         <div className="bg-slate-900 border border-slate-800 text-slate-100 rounded-xl p-5 shadow-lg space-y-4 font-sans" id="database-setup-panel">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center gap-2">
