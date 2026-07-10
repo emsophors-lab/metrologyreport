@@ -389,7 +389,6 @@ export const BusinessLocationMap: React.FC<BusinessLocationMapProps> = ({
       },
       (error) => {
         setGpsLoading(false);
-        console.warn('Geolocation error:', error);
         switch (error.code) {
           case error.PERMISSION_DENIED:
             setGpsPermissionDenied(true);

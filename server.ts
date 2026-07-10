@@ -1445,8 +1445,17 @@ app.use((err: any, req: any, res: any, next: any) => {
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
+    const hmrPort = Number(process.env.VITE_HMR_PORT || (24678 + Math.max(0, PORT - 3000)));
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: process.env.DISABLE_HMR === 'true'
+          ? false
+          : {
+              port: hmrPort,
+              clientPort: hmrPort,
+            },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

@@ -427,6 +427,35 @@ export default function EnterpriseLicensingRegistry({
   toastMsg
 }: EnterpriseLicensingRegistryProps) {
   const isCompanyUser = currentUser?.role?.toLowerCase() === 'company';
+  const isTelegramAdmin = ['admin', 'superadmin'].includes(currentUser?.role?.toLowerCase() || '');
+  const [hasTelegramServerAuth, setHasTelegramServerAuth] = useState(false);
+  const getTelegramAdminApiHeaders = async (showMissingAuthToast = false) => {
+    const headers = await getApiAuthHeaders();
+    const hasServerAuth = Boolean(headers.Authorization || headers['X-NMC-User-ID']);
+    if (!hasServerAuth) {
+      if (showMissingAuthToast) {
+        toastMsg('Telegram admin actions require a server-authenticated admin session. Please sign in again with an admin account.', 'error');
+      }
+      return null;
+    }
+    return headers;
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    getApiAuthHeaders()
+      .then((headers) => {
+        if (!cancelled) {
+          setHasTelegramServerAuth(Boolean(headers.Authorization || headers['X-NMC-User-ID']));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setHasTelegramServerAuth(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.id, currentUser?.role]);
 
   // Database States
   const [licenses, setLicenses] = useState<EnterpriseLicense[]>([]);
@@ -1634,9 +1663,11 @@ export default function EnterpriseLicensingRegistry({
     
     toastMsg('កំពុងផ្ញើសារសាកល្បងទៅកាន់សហគ្រាស... / Dispatching test notification...', 'success');
     try {
+      const headers = await getTelegramAdminApiHeaders(true);
+      if (!headers) return;
       const response = await fetch('/api/test-telegram-reminder', {
         method: 'POST',
-        headers: await getApiAuthHeaders(),
+        headers,
         body: JSON.stringify({
           licenseId: lic.id,
           chatId: lic.telegram_chat_id,
@@ -1776,9 +1807,13 @@ export default function EnterpriseLicensingRegistry({
   };
 
   const ensureTelegramWebhookReady = async () => {
+    const headers = await getTelegramAdminApiHeaders(true);
+    if (!headers) {
+      throw new Error('Telegram admin action requires a server-authenticated admin session.');
+    }
     const response = await fetch('/api/ensure-telegram-webhook', {
       method: 'POST',
-      headers: await getApiAuthHeaders(),
+      headers,
       body: JSON.stringify({ purpose: 'license_reminder' })
     });
     const data = await readResponseJsonSafely(response);
@@ -1948,6 +1983,10 @@ export default function EnterpriseLicensingRegistry({
   const [webhookStatuses, setWebhookStatuses] = useState<Record<string, { status: string; url?: string; last_error_message?: string; last_configured_date?: string }>>({});
 
   const fetchWebhookStatus = async (botId: string) => {
+    if (!isTelegramAdmin) {
+      return;
+    }
+
     if (!isSupabaseUuid(botId) && await canServerUseStoredBotSecrets()) {
       setWebhookStatuses(prev => ({
         ...prev,
@@ -1959,8 +1998,19 @@ export default function EnterpriseLicensingRegistry({
       return;
     }
     try {
+      const headers = await getTelegramAdminApiHeaders(false);
+      if (!headers) {
+        setWebhookStatuses(prev => ({
+          ...prev,
+          [botId]: {
+            status: 'Not Available',
+            last_error_message: 'Webhook status can be checked after server admin authentication.'
+          }
+        }));
+        return;
+      }
       const response = await fetch(`/api/get-telegram-webhook-status?botId=${botId}`, {
-        headers: await getApiAuthHeaders(),
+        headers,
       });
       if (response.ok) {
         const data = await readResponseJsonSafely(response);
@@ -1973,19 +2023,34 @@ export default function EnterpriseLicensingRegistry({
             last_configured_date: data.last_configured_date
           }
         }));
+      } else if (response.status === 401 || response.status === 403) {
+        setWebhookStatuses(prev => ({
+          ...prev,
+          [botId]: {
+            status: 'Not Available',
+            last_error_message: 'Webhook status can be checked after server admin authentication.'
+          }
+        }));
       }
     } catch (err) {
-      console.warn('Failed to fetch webhook status:', err);
+      setWebhookStatuses(prev => ({
+        ...prev,
+        [botId]: {
+          status: 'Not Available',
+          last_error_message: err instanceof Error ? err.message : 'Unable to fetch webhook status.'
+        }
+      }));
     }
   };
 
   useEffect(() => {
+    if (!isTelegramAdmin) return;
     botSettings.forEach(bot => {
       if (!webhookStatuses[bot.id]) {
         fetchWebhookStatus(bot.id);
       }
     });
-  }, [botSettings]);
+  }, [botSettings, isTelegramAdmin, webhookStatuses]);
 
   const handleConfigureWebhook = async (botId: string) => {
     if (!isSupabaseUuid(botId) && await canServerUseStoredBotSecrets()) {
@@ -2008,9 +2073,11 @@ export default function EnterpriseLicensingRegistry({
 
     toastMsg("កំពុងកំណត់ប្រព័ន្ធ Webhook... / Setting webhook URL...", "success");
     try {
+      const headers = await getTelegramAdminApiHeaders(true);
+      if (!headers) return;
       const response = await fetch('/api/set-telegram-webhook', {
         method: 'POST',
-        headers: await getApiAuthHeaders(),
+        headers,
         body: JSON.stringify({
           bot_id: botId,
           webhook_url: trimmedUrl
@@ -2079,9 +2146,11 @@ export default function EnterpriseLicensingRegistry({
         if (!payload.botToken && isProtectedTokenPlaceholder(bot.bot_token_encrypted) && !(await canServerUseStoredBotSecrets())) {
           throw new Error('Bot token is protected in this local session. Please edit this bot, paste the Bot Token once, save it, then send the test group message again.');
         }
+        const headers = await getTelegramAdminApiHeaders(true);
+        if (!headers) return;
         const groupResponse = await fetch('/api/test-telegram-reminder', {
           method: 'POST',
-          headers: await getApiAuthHeaders(),
+          headers,
           body: JSON.stringify(payload)
         });
 
@@ -2149,9 +2218,11 @@ export default function EnterpriseLicensingRegistry({
       if (!isSupabaseUuid(bot.id) && await canServerUseStoredBotSecrets()) {
         throw new Error('Invalid Telegram bot ID. Please refresh bot settings from Supabase.');
       }
+      const headers = await getTelegramAdminApiHeaders(true);
+      if (!headers) return;
       const response = await fetch('/api/test-telegram-bot-connection', {
         method: 'POST',
-        headers: await getApiAuthHeaders(),
+        headers,
         body: JSON.stringify({ bot_id: bot.id })
       });
 
@@ -2183,9 +2254,11 @@ export default function EnterpriseLicensingRegistry({
             if (!isSupabaseUuid(bot.id) && await canServerUseStoredBotSecrets()) {
               throw new Error('Invalid Telegram bot ID. Please refresh bot settings from Supabase.');
             }
+            const headers = await getTelegramAdminApiHeaders(true);
+            if (!headers) return;
             const groupResponse = await fetch('/api/test-telegram-reminder', {
               method: 'POST',
-              headers: await getApiAuthHeaders(),
+              headers,
               body: JSON.stringify({
                 botId: bot.id,
                 botPurpose: 'report_group',
@@ -2313,9 +2386,11 @@ export default function EnterpriseLicensingRegistry({
         // Trigger real Telegram message through the backend so bot tokens never run in browser-side requests.
         if (activeBot && lic.telegram_chat_id) {
           try {
+            const headers = await getTelegramAdminApiHeaders(true);
+            if (!headers) return;
             const tgResponse = await fetch('/api/test-telegram-reminder', {
               method: 'POST',
-              headers: await getApiAuthHeaders(),
+              headers,
               body: JSON.stringify({
                 licenseId: lic.id,
                 chatId: lic.telegram_chat_id.trim(),
@@ -4013,6 +4088,12 @@ export default function EnterpriseLicensingRegistry({
               </div>
             </div>
 
+            {!hasTelegramServerAuth && (
+              <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-[11px] text-slate-600 leading-relaxed">
+                Telegram webhook setup and test-send actions require server admin authentication. The bot record can still be viewed and edited in this session.
+              </div>
+            )}
+
             {botSettings.length === 0 ? (
               <div className="py-12 text-center text-slate-400 italic bg-white border rounded-xl">
                 មិនទាន់មានការកំណត់ប៊ូតតេឡេក្រាមនៅឡើយទេ / No Telegram bots registered.
@@ -4114,7 +4195,13 @@ export default function EnterpriseLicensingRegistry({
                           <button
                             type="button"
                             onClick={() => handleConfigureWebhook(bot.id)}
-                            className="px-2 py-0.5 bg-slate-50 hover:bg-slate-100 border border-[#C9D2E3] text-[#353C96] font-black rounded text-[9.5px] transition-all cursor-pointer shadow-3xs"
+                            disabled={!hasTelegramServerAuth}
+                            title={!hasTelegramServerAuth ? 'Server admin authentication is required for webhook setup.' : 'Configure Telegram webhook'}
+                            className={`px-2 py-0.5 border font-black rounded text-[9.5px] transition-all shadow-3xs ${
+                              hasTelegramServerAuth
+                                ? 'bg-slate-50 hover:bg-slate-100 border-[#C9D2E3] text-[#353C96] cursor-pointer'
+                                : 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                            }`}
                           >
                             កំណត់ Webhook / Set Webhook
                           </button>
@@ -4148,7 +4235,11 @@ export default function EnterpriseLicensingRegistry({
                                 </span>
                               </p>
                               {ws.last_error_message && (
-                                <p className="text-[9px] text-red-500 italic bg-red-50 p-1 rounded border border-red-100 text-justify font-sans">
+                                <p className={`text-[9px] italic p-1 rounded border text-justify font-sans ${
+                                  ws.status === 'Not Available'
+                                    ? 'text-slate-500 bg-slate-50 border-slate-200'
+                                    : 'text-red-500 bg-red-50 border-red-100'
+                                }`}>
                                   {ws.last_error_message}
                                 </p>
                               )}
@@ -4163,8 +4254,13 @@ export default function EnterpriseLicensingRegistry({
                         <button
                           type="button"
                           onClick={() => handleTestBotConnection(bot)}
-                          disabled={!botIsConfiguredActive}
-                          className="p-1.5 text-[10px] font-bold text-sky-700 hover:bg-sky-50 border border-sky-200 rounded transition-colors cursor-pointer font-sans"
+                          disabled={!botIsConfiguredActive || !hasTelegramServerAuth}
+                          title={!hasTelegramServerAuth ? 'Server admin authentication is required to send test messages.' : 'Send Telegram group test message'}
+                          className={`p-1.5 text-[10px] font-bold border rounded transition-colors font-sans ${
+                            botIsConfiguredActive && hasTelegramServerAuth
+                              ? 'text-sky-700 hover:bg-sky-50 border-sky-200 cursor-pointer'
+                              : 'text-slate-400 bg-slate-50 border-slate-200 cursor-not-allowed'
+                          }`}
                         >
                           Send Test Group Message
                         </button>
@@ -4172,9 +4268,14 @@ export default function EnterpriseLicensingRegistry({
                       <button
                         type="button"
                         onClick={() => handleTestBotConnection(bot)}
-                        disabled={!botIsConfiguredActive}
+                        disabled={!botIsConfiguredActive || !hasTelegramServerAuth}
+                        title={!hasTelegramServerAuth ? 'Server admin authentication is required to test Telegram connection.' : 'Test Telegram connection'}
                         style={{ display: botRequiresGroupChat(bot) ? 'none' : undefined }}
-                        className="p-1.5 text-[10px] font-bold text-sky-700 hover:bg-sky-50 border border-sky-200 rounded transition-colors cursor-pointer font-sans"
+                        className={`p-1.5 text-[10px] font-bold border rounded transition-colors font-sans ${
+                          botIsConfiguredActive && hasTelegramServerAuth
+                            ? 'text-sky-700 hover:bg-sky-50 border-sky-200 cursor-pointer'
+                            : 'text-slate-400 bg-slate-50 border-slate-200 cursor-not-allowed'
+                        }`}
                       >
                         តេស្តការតភ្ជាប់ (Test Connection)
                       </button>

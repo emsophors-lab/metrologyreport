@@ -200,9 +200,14 @@ export async function sendTelegramNotification(
     }
 
     // 2. Dispatch through backend so Telegram bot tokens never run in browser-side requests.
+    const headers = await getApiAuthHeaders();
+    if (!headers.Authorization && !headers['X-NMC-User-ID']) {
+      return;
+    }
+
     const tgResponse = await fetch('/api/test-telegram-reminder', {
       method: 'POST',
-      headers: await getApiAuthHeaders(),
+      headers,
       body: JSON.stringify({
         ...reportGroupPayload,
         botPurpose: 'report_group',
@@ -215,7 +220,6 @@ export async function sendTelegramNotification(
       console.log('NMC Official Notification successfully dispatched to Telegram group!');
     } else {
       const message = data?.message || data?.error || 'Send failed';
-      console.error('Telegram endpoint response failure:', message);
       showToast(
         message === 'Report Group Notification Bot is inactive or missing configuration.'
           ? message

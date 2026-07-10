@@ -72,10 +72,11 @@ self.addEventListener('fetch', (event) => {
       fetch(event.request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
-            const responseToCache = networkResponse.clone();
+            const requestCacheCopy = networkResponse.clone();
+            const indexCacheCopy = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseToCache);
-              cache.put('/index.html', responseToCache.clone());
+              cache.put(event.request, requestCacheCopy);
+              cache.put('/index.html', indexCacheCopy);
             });
           }
           return networkResponse;
