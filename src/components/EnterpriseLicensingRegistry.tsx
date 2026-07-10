@@ -3268,7 +3268,8 @@ export default function EnterpriseLicensingRegistry({
       )}
 
 
-      {/* KPI Bento Cards Grid */}
+      {/* KPI Bento Cards Grid — hidden for company users, who only see their own license */}
+      {!isCompanyUser && (
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4" id="license-kpi-grid">
         {/* Total Card */}
         <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl text-slate-100 flex items-center justify-between shadow-xs">
@@ -3330,6 +3331,7 @@ export default function EnterpriseLicensingRegistry({
           </div>
         </div>
       </div>
+      )}
 
       {/* Navigation Sub-Tabs and Filter Area */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200" id="registry-navigator-wrapper bg-white">
