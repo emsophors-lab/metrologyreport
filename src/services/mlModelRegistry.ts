@@ -173,7 +173,7 @@ export function predictWithBaselineModel(feature: MlCompanyFeatures, predictionM
     topFactorsKm: factorsKm.slice(0, 5),
     recommendedAction,
     recommendedActionKm,
-    advisoryNote: 'ML-assisted predictions are advisory and require official review.'
+    advisoryNote: 'Smart-analytics predictions are advisory and require official review.'
   };
 }
 

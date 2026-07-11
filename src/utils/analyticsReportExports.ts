@@ -285,8 +285,8 @@ export async function generateAnalyticsDocxReport(data: AnalyticsExportData) {
               .map(item => [item.company, item.license, item.level, String(item.score)])
           ),
 
-          docSectionTitle('6. Machine Learning Predictive Monitoring'),
-          docParagraph(data.mlSummary?.disclaimer || 'Machine learning predictions are advisory decision-support indicators based on available license and monthly report records. They do not replace official inspection judgment.'),
+          docSectionTitle('6. Smart Analytics Predictive Monitoring'),
+          docParagraph(data.mlSummary?.disclaimer || 'Smart-analytics predictions are advisory decision-support indicators based on available license and monthly report records. They do not replace official inspection judgment.'),
           docTable(['Indicator', 'Value'], mlSummaryRows(data)),
           docTable(
             ['Forecast month', 'Report volume', 'Expiry workload'],
@@ -470,8 +470,8 @@ export function generateAnalyticsPdfReport(data: AnalyticsExportData) {
   paragraph(`Top provinces/areas: ${safeRows(data.provinceRows).slice(0, 5).map(([label, count]) => `${label} (${count})`).join(', ')}.`);
   paragraph(`Top instrument types: ${safeRows(data.instrumentRows).slice(0, 5).map(([label, count]) => `${label} (${count})`).join(', ')}.`);
 
-  heading('6. Machine Learning Predictive Monitoring');
-  paragraph(data.mlSummary?.disclaimer || 'Machine learning predictions are advisory decision-support indicators based on available license and monthly report records. They do not replace official inspection judgment.');
+  heading('6. Smart Analytics Predictive Monitoring');
+  paragraph(data.mlSummary?.disclaimer || 'Smart-analytics predictions are advisory decision-support indicators based on available license and monthly report records. They do not replace official inspection judgment.');
   table(['Indicator', 'Value'], mlSummaryRows(data));
   table(
     ['Unsupervised finding', 'Score / Count'],
@@ -608,8 +608,8 @@ export async function generateAnalyticsPptxBriefing(data: AnalyticsExportData) {
   addRowsSlide(pptx, 'Compliance Risk Analysis', data.riskRows, `No matching monthly report: ${data.noReportCount}. Expiring within 30/60/90 days: ${data.exp30}/${data.exp60}/${data.exp90}.`);
 
   slide = pptx.addSlide();
-  addPptHeader(slide, 'Machine Learning Predictive Monitoring');
-  slide.addText('Machine Learning Predictive Monitoring', { x: 0.62, y: 0.95, w: 10.5, h: 0.4, fontSize: 23, bold: true, color: BLUE, fit: 'shrink' });
+  addPptHeader(slide, 'Smart Analytics Predictive Monitoring');
+  slide.addText('Smart Analytics Predictive Monitoring', { x: 0.62, y: 0.95, w: 10.5, h: 0.4, fontSize: 23, bold: true, color: BLUE, fit: 'shrink' });
   pptCard(slide, 'Model status', data.mlSummary?.modelStatus || 'Unavailable', 0.75, 1.65);
   pptCard(slide, 'Data quality', `${data.mlSummary?.dataQualityScore ?? 0}%`, 3.15, 1.65, '16803A');
   pptCard(slide, 'High risk', String(data.mlSummary?.highRiskCompanies ?? 0), 5.55, 1.65, 'EA580C');

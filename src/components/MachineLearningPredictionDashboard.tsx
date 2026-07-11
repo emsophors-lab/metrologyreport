@@ -329,7 +329,7 @@ function ModelConfidenceCard({
   return (
     <div className="space-y-4">
       <div className="rounded-xl bg-gradient-to-br from-amber-50 to-white p-4 text-center">
-        <svg viewBox="0 0 120 72" className="mx-auto h-32 w-full" role="img" aria-label={`Model confidence ${confidence}%`}>
+        <svg viewBox="0 0 120 72" className="mx-auto h-32 w-full" role="img" aria-label={`Analytics confidence ${confidence}%`}>
           <path d="M18 60 A42 42 0 0 1 102 60" fill="none" stroke="#E5E7EB" strokeWidth="13" strokeLinecap="round" />
           <path d="M18 60 A42 42 0 0 1 102 60" fill="none" stroke={confidence >= 75 ? '#22C55E' : confidence >= 55 ? '#F2B705' : '#F97316'} strokeWidth="13" strokeLinecap="round" strokeDasharray={`${visible} ${circumference}`} />
           <text x="60" y="48" textAnchor="middle" fontSize="19" fontWeight="900" fill="#0B1A35">{confidence}%</text>
@@ -339,15 +339,15 @@ function ModelConfidenceCard({
       </div>
       <div className="space-y-3 text-xs font-semibold text-slate-600">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Training Data</span><strong className="mt-1 block break-words text-lg text-[#0B2A66]">{bundle.modelMetadata.recordCount}</strong></div>
-          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Model Type</span><strong className="mt-1 block break-words text-sm leading-snug text-[#0B2A66]">{hasLearnedWeights ? 'Learned baseline' : 'Rule fallback'}</strong></div>
-          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Model Version</span><strong className="mt-1 block break-words text-sm leading-snug text-[#0B2A66]">{bundle.modelMetadata.modelVersion}</strong></div>
-          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Last Trained</span><strong className="mt-1 block break-words text-sm leading-snug text-[#0B2A66]">{formatUpdatedAt(new Date(trainedAt || bundle.modelMetadata.trainedAt))}</strong></div>
+          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Analyzed Records</span><strong className="mt-1 block break-words text-lg text-[#0B2A66]">{bundle.modelMetadata.recordCount}</strong></div>
+          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Engine Type</span><strong className="mt-1 block break-words text-sm leading-snug text-[#0B2A66]">{hasLearnedWeights ? 'Rules + learned calibration' : 'Transparent rules'}</strong></div>
+          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Engine Version</span><strong className="mt-1 block break-words text-sm leading-snug text-[#0B2A66]">{bundle.modelMetadata.modelVersion}</strong></div>
+          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Last Calibrated</span><strong className="mt-1 block break-words text-sm leading-snug text-[#0B2A66]">{formatUpdatedAt(new Date(trainedAt || bundle.modelMetadata.trainedAt))}</strong></div>
         </div>
         <div className="rounded-lg bg-amber-50 p-3 text-amber-900">
           {hasLearnedWeights
-            ? 'The model has learned calibration weights from historical license/report risk labels. Predictions remain advisory and require official verification.'
-            : 'Insufficient historical labels for learned calibration. The system is using transparent rule-based fallback until more data is available.'}
+            ? 'The risk engine has calibrated its weighting against historical license/report data. Scoring remains rule-based and transparent; predictions are advisory and require official verification.'
+            : 'Insufficient historical data for calibration. The system is using transparent rule-based scoring until more data is available.'}
         </div>
         <div className="text-[11px] font-bold text-slate-500">Data quality: {bundle.dataQuality.score}% · {bundle.dataQuality.totalIssues} issue(s)</div>
       </div>
@@ -450,7 +450,7 @@ function buildExportPayload(bundle: MlPredictionBundle, licenses: EnterpriseLice
         provinceForecast: bundle.provinceRiskForecast.map(item => ({ province: item.province, riskScore: item.riskScore, riskLevel: item.riskLevel })),
       reportForecast: bundle.reportVolumeForecast.map(item => ({ label: item.label, value: item.value })),
       expiryForecast: bundle.expiryWorkloadForecast.map(item => ({ label: item.label, value: item.value })),
-      disclaimer: 'Machine Learning predictions are advisory and require official review and verification by NMC.'
+      disclaimer: 'Smart-analytics predictions are advisory and require official review and verification by NMC.'
     }
   };
 }
@@ -598,7 +598,7 @@ export default function MachineLearningPredictionDashboard({
       Confidence: item.confidence,
       TopFactors: item.topFactors.join('; '),
       RecommendedAction: item.recommendedAction
-    }))), 'ML Predictions');
+    }))), 'Risk Analytics');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(bundle.topRiskFactors), 'Top Risk Factors');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(bundle.provinceRiskForecast), 'Province Forecast');
     XLSX.writeFile(workbook, `nmc-ml-predictions-${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -626,13 +626,13 @@ export default function MachineLearningPredictionDashboard({
     const topFactor = bundle.topRiskFactors[0]?.label || 'limited historical data';
     const topCluster = bundle.clusters[0]?.clusterNameEn || 'no dominant behavior cluster';
     const anomalyCount = bundle.anomalies.length;
-    setAiSummary(`The supervised model predicts ${analytics.likelyMiss.length} companies may miss the next monthly report and ${analytics.highRisk.length} companies are recommended for review. Main driver: ${topFactor}. Unsupervised analysis found ${bundle.clusters.length} behavior cluster(s), led by ${topCluster}, and ${anomalyCount} anomaly finding(s). Focus on report reminders, renewal verification, GPS cleanup, anomaly review, and high-risk inspection planning.`);
+    setAiSummary(`The risk engine estimates ${analytics.likelyMiss.length} companies may miss the next monthly report and ${analytics.highRisk.length} companies are recommended for review. Main driver: ${topFactor}. Behavior grouping found ${bundle.clusters.length} group(s), led by ${topCluster}, and ${anomalyCount} anomaly finding(s). Focus on report reminders, renewal verification, GPS cleanup, anomaly review, and high-risk inspection planning.`);
   };
 
   if (!canAccess) {
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm font-bold text-red-700">
-        Machine Learning Predictions are restricted to Superadmin/Admin users.
+        Smart Analytics &amp; Risk Monitoring is restricted to Superadmin/Admin users.
       </div>
     );
   }
@@ -644,15 +644,15 @@ export default function MachineLearningPredictionDashboard({
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-2xl font-black text-[#0B2A66]">ការព្យាករណ៍ដោយ Machine Learning</h2>
-                <span className="rounded bg-[#0B2A66] px-2 py-1 text-xs font-black text-white">AI</span>
+                <h2 className="text-2xl font-black text-[#0B2A66]">ការវិភាគឆ្លាតវៃ និងតាមដានហានិភ័យ</h2>
+                <span className="rounded bg-[#0B2A66] px-2 py-1 text-xs font-black text-white">Smart Analytics</span>
               </div>
-              <p className="text-base font-black text-[#0B2A66]">Machine Learning Predictions Dashboard</p>
+              <p className="text-base font-black text-[#0B2A66]">Smart Analytics &amp; Risk Monitoring Dashboard</p>
               <p className="mt-1 max-w-4xl text-sm font-semibold leading-relaxed text-slate-500">
                 ផ្ទាំងនេះផ្តល់ការតាមដានព្យាករណ៍ជាជំនួយ សម្រាប់អាជ្ញាបណ្ណ របាយការណ៍ប្រចាំខែ ហានិភ័យតាមខេត្ត និងបន្ទុកការងារ។ Predictions are advisory and require official NMC verification.
               </p>
               <p className="mt-2 max-w-4xl rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold leading-relaxed text-[#0B2A66]">
-                AI-assisted predictive analytics using supervised learning for risk prediction and unsupervised learning for pattern discovery and anomaly detection. All predictions are advisory and subject to official review by NMC.
+                Transparent rule-based risk scoring with statistical trend forecasting and a learned baseline calibration. Behavior groups and anomaly findings come from explainable rules — full machine-learning models are a planned future phase. All results are advisory and subject to official review by NMC.
               </p>
               <p className="mt-1 text-xs font-semibold text-slate-400">{officialDate.fullText}</p>
             </div>
@@ -663,7 +663,7 @@ export default function MachineLearningPredictionDashboard({
               </div>
               <span className="text-xs font-bold text-slate-500">Data updated: {formatUpdatedAt(new Date())}</span>
               <button type="button" onClick={handleTrain} disabled={isTraining} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#0B2A66] px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-[#062B5F] disabled:cursor-wait disabled:opacity-70">
-                <RefreshCw className={`h-4 w-4 ${isTraining ? 'animate-spin' : ''}`} /> {isTraining ? 'Updating Model...' : 'Train / Update Model'}
+                <RefreshCw className={`h-4 w-4 ${isTraining ? 'animate-spin' : ''}`} /> {isTraining ? 'Recalibrating...' : 'Recalibrate Analytics'}
               </button>
               {trainingNote && (
                 <span className="rounded-lg border border-green-100 bg-green-50 px-3 py-2 text-xs font-bold text-green-700">
@@ -737,22 +737,22 @@ export default function MachineLearningPredictionDashboard({
           <Panel titleKh="កត្តាហានិភ័យសំខាន់ៗ" titleEn="Top Risk Factors">
             <BarChart color="#EF4444" rows={bundle.topRiskFactors.map(row => ({ label: row.label, value: row.count, tooltip: row.tooltip }))} />
           </Panel>
-          <Panel titleKh="ទំនុកចិត្តនៃម៉ូដែល" titleEn="Model Confidence">
+          <Panel titleKh="ទំនុកចិត្តនៃការវិភាគ" titleEn="Analytics Confidence">
             <ModelConfidenceCard confidence={analytics.confidence} bundle={bundle} trainedAt={trainedAt} />
           </Panel>
-          <Panel titleKh="ការសង្ខេបដោយ AI" titleEn="AI Summary">
+          <Panel titleKh="ការសង្ខេបស្វ័យប្រវត្តិ" titleEn="Automated Summary">
             <div className="rounded-lg bg-purple-50 p-4 text-sm font-semibold leading-relaxed text-[#0B1A35]">
               <Sparkles className="mb-2 h-7 w-7 text-purple-600" />
-              <p>{aiSummary || 'AI analysis is not configured to receive raw records. Click Generate AI Analysis to create a safe summary from aggregated ML outputs only.'}</p>
+              <p>{aiSummary || 'Click Generate Summary to create a plain-language overview from the aggregated analytics results. The summary is generated locally from the numbers shown on this page.'}</p>
               <button type="button" onClick={handleAiSummary} className="mt-4 inline-flex items-center gap-2 rounded-lg border border-purple-200 bg-white px-4 py-2 text-xs font-black text-purple-700">
-                <Sparkles className="h-4 w-4" /> បង្កើត AI វិភាគ / Generate AI Analysis
+                <Sparkles className="h-4 w-4" /> បង្កើតសង្ខេប / Generate Summary
               </button>
             </div>
           </Panel>
         </section>
 
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-          <Panel titleKh="ក្រុមលំនាំក្រុមហ៊ុន" titleEn="Unsupervised Company Behavior Clusters">
+          <Panel titleKh="ក្រុមលំនាំក្រុមហ៊ុន" titleEn="Company Behavior Groups (Rule-Based)">
             <BarChart color="#2563EB" rows={bundle.clusters.map(cluster => ({
               label: cluster.clusterNameEn,
               value: cluster.companyCount,
@@ -800,7 +800,7 @@ export default function MachineLearningPredictionDashboard({
           <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h3 className="text-sm font-black text-[#0B2A66]">បញ្ជីព្យាករណ៍ទាំងអស់</h3>
-              <p className="text-xs font-semibold text-slate-500">All ML Predictions - possible risk, recommended for review, requires official verification.</p>
+              <p className="text-xs font-semibold text-slate-500">All risk predictions - possible risk, recommended for review, requires official verification.</p>
             </div>
             <span className="text-xs font-bold text-slate-500">Page {page} / {totalPages} · {bundle.predictions.length} records</span>
           </div>
@@ -832,13 +832,13 @@ export default function MachineLearningPredictionDashboard({
               <button type="button" onClick={exportPdf} className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-xs font-black hover:bg-white/15"><Download className="h-5 w-5 text-red-300" /> PDF Report .pdf</button>
               <button type="button" onClick={exportExcel} className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-xs font-black hover:bg-white/15"><FileSpreadsheet className="h-5 w-5 text-green-300" /> Excel Report .xlsx</button>
               <button type="button" onClick={exportPowerPoint} className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-xs font-black hover:bg-white/15"><Presentation className="h-5 w-5 text-orange-300" /> PowerPoint .pptx</button>
-              <button type="button" onClick={exportWord} className="inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-3 text-xs font-black hover:bg-white/10"><Database className="h-5 w-5" /> Generate Full ML Report</button>
+              <button type="button" onClick={exportWord} className="inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-3 text-xs font-black hover:bg-white/10"><Database className="h-5 w-5" /> Generate Full Analytics Report</button>
             </div>
           </div>
         </section>
 
         <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs font-semibold leading-relaxed text-amber-900">
-          <strong>Disclaimer:</strong> Machine Learning predictions are advisory and require official review and verification by NMC. The system does not make automatic government decisions.
+          <strong>Disclaimer:</strong> Predictions come from transparent rule-based analytics with statistical forecasting; they are advisory and require official review and verification by NMC. The system does not make automatic government decisions.
         </section>
       </div>
     </div>

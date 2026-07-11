@@ -181,7 +181,7 @@ const UI_TEXT = {
   users: { km: 'គ្រប់គ្រងគណនីក្រុមហ៊ុន', en: 'Users' },
   loginHistory: { km: 'ប្រវត្តិចូលប្រើប្រាស់', en: 'Login History' },
   backupData: { km: 'បម្រុងទុកទិន្នន័យ', en: 'Backup Data' },
-  mlPredictions: { km: 'ការព្យាករណ៍ ML', en: 'ML Predictions' },
+  mlPredictions: { km: 'ការវិភាគឆ្លាតវៃ', en: 'Smart Analytics' },
   developer: { km: 'សមកាលកម្ម Supabase', en: 'Supabase Sync' },
   role: { km: 'សិទ្ធិ', en: 'Role' },
   company: { km: 'ក្រុមហ៊ុន', en: 'Company' },
@@ -571,7 +571,7 @@ export default function App() {
         showToast('សិទ្ធិមិនគ្រប់គ្រាន់ដើម្បីចូលប្រើប្រាស់ទំព័រនេះទេ (Unauthorized access to Backup Data)', 'error');
       } else if (activeTab === 'ml' && sessionUser.role !== 'superadmin' && sessionUser.role !== 'admin') {
         setActiveTab('dashboard');
-        showToast('សិទ្ធិមិនគ្រប់គ្រាន់សម្រាប់ការព្យាករណ៍ ML (Unauthorized access to ML Predictions)', 'error');
+        showToast('សិទ្ធិមិនគ្រប់គ្រាន់សម្រាប់ការវិភាគឆ្លាតវៃ (Unauthorized access to Smart Analytics)', 'error');
       } else if (activeTab === 'developer' && sessionUser.role !== 'admin' && sessionUser.role !== 'superadmin') {
         setActiveTab('dashboard');
       }
