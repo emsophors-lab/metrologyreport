@@ -828,6 +828,52 @@ app.get('/api/verify-report', async (req, res) => {
   }
 });
 
+// Public endpoint backing the printed-PDF QR codes that verify a FILTERED report
+// list (?verifyReport=filtered&month=...&companyId=...). Anonymous scanners have
+// no local data, so the lookup runs with the service role here.
+app.get('/api/verify-report-list', async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return apiError(res, 503, 'Server database provider is not configured.');
+    }
+
+    const month = String(req.query?.month || 'all');
+    const year = String(req.query?.year || 'all');
+    const companyId = String(req.query?.companyId || 'all');
+    const serviceType = String(req.query?.serviceType || 'all');
+    const searchQuery = String(req.query?.searchQuery || '').toLowerCase().trim();
+
+    let query = supabaseAdmin
+      .from('reports')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(2000);
+    if (companyId && companyId !== 'all') query = query.eq('user_id', companyId);
+    if (month && month !== 'all') query = query.eq('report_month', month);
+    if (year && year !== 'all') query = query.eq('report_year', year);
+    if (serviceType && serviceType !== 'all') query = query.eq('service_type', serviceType);
+
+    const { data, error } = await query;
+    if (error) {
+      console.error('Filtered report verification query failed:', error.message || error);
+      return apiError(res, 500, 'Report list verification failed.');
+    }
+
+    let reportList = data || [];
+    if (searchQuery) {
+      reportList = reportList.filter((r: any) =>
+        [r.customer_name, r.customer_address, r.measuring_instrument, r.instrument_serial_number, r.company_name_kh]
+          .some((value) => String(value || '').toLowerCase().includes(searchQuery))
+      );
+    }
+
+    return apiSuccess(res, { reports: reportList });
+  } catch (err: any) {
+    console.error('Filtered report verification failed:', err?.message || err);
+    return apiError(res, 500, 'Report list verification failed.');
+  }
+});
+
 app.get('/api/active-telegram-bot', async (req, res) => {
   try {
     const purpose = String(req.query.purpose || 'license_reminder');

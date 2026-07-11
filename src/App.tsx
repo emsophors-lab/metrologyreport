@@ -760,6 +760,33 @@ export default function App() {
           const filterS = params.get('serviceType') || 'all';
           const filterQ = params.get('searchQuery') || '';
 
+          // Ask the public server endpoint first so scanned QR codes work on any
+          // device — anonymous visitors have no reports in local memory.
+          try {
+            const serverQuery = new URLSearchParams();
+            for (const key of ['month', 'year', 'companyId', 'serviceType', 'searchQuery']) {
+              const value = params.get(key);
+              if (value) serverQuery.set(key, value);
+            }
+            const response = await fetch(`/api/verify-report-list?${serverQuery.toString()}`);
+            if (response.ok) {
+              const data = await response.json().catch(() => null);
+              if (data && Array.isArray(data.reports)) {
+                setVerifiedReportsList(data.reports);
+                if (filterC !== 'all') {
+                  const comp = usersSource.find(u => u.id === filterC);
+                  setVerifiedCompany(comp || null);
+                } else {
+                  setVerifiedCompany(null);
+                }
+                return;
+              }
+            }
+            console.warn('Server filtered verification unavailable, using local memory. Status:', response.status);
+          } catch (listErr) {
+            console.warn('Server filtered verification failed, using local memory:', listErr);
+          }
+
           let list = [...reportsSource];
           if (filterC !== 'all') {
             list = list.filter(r => r.user_id === filterC);
