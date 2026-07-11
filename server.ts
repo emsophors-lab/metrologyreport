@@ -42,10 +42,10 @@ const supabaseAdmin = (hasSupabaseUrl && hasServiceKey)
     })
   : null;
 
-async function resolveApiRole(req: any): Promise<string | null> {
+async function resolveApiUser(req: any): Promise<{ role: string; userRow: any | null } | null> {
   if (!supabaseAdmin) {
     // Local/demo mode has no server-side auth provider. Production must configure SUPABASE_SERVICE_ROLE_KEY.
-    return 'superadmin';
+    return { role: 'superadmin', userRow: null };
   }
 
   const authHeader = req.headers.authorization || '';
@@ -59,7 +59,7 @@ async function resolveApiRole(req: any): Promise<string | null> {
       if (headerUserId && headerUsername && headerRole) {
         const { data: publicUser, error: publicUserError } = await supabaseAdmin
           .from('users')
-          .select('id,username,role,is_active')
+          .select('*')
           .eq('id', headerUserId)
           .maybeSingle();
 
@@ -71,7 +71,7 @@ async function resolveApiRole(req: any): Promise<string | null> {
           publicUser.is_active !== false;
 
         if (publicUserValid) {
-          return String(publicUser.role || '') || null;
+          return { role: String(publicUser.role || ''), userRow: publicUser };
         }
       }
     }
@@ -87,16 +87,18 @@ async function resolveApiRole(req: any): Promise<string | null> {
   const userId = authData.user.id;
   let role: string | null = null;
   let isActive = true;
+  let userRow: any | null = null;
 
   const { data: userProfile } = await supabaseAdmin
     .from('users')
-    .select('role,is_active')
+    .select('*')
     .eq('id', userId)
     .maybeSingle();
 
   if (userProfile) {
     role = userProfile.role;
     isActive = userProfile.is_active !== false;
+    userRow = userProfile;
   } else {
     const { data: profile } = await supabaseAdmin
       .from('profiles')
@@ -114,18 +116,24 @@ async function resolveApiRole(req: any): Promise<string | null> {
     if (authEmail) {
       const { data: emailMatches } = await supabaseAdmin
         .from('users')
-        .select('role,is_active')
+        .select('*')
         .ilike('email', authEmail);
       const matched = (emailMatches || []).find((u: any) => u.is_active !== false);
       if (matched) {
         role = matched.role;
         isActive = matched.is_active !== false;
+        userRow = matched;
       }
     }
   }
 
   if (!isActive || !role) return null;
-  return String(role);
+  return { role: String(role), userRow };
+}
+
+async function resolveApiRole(req: any): Promise<string | null> {
+  const resolved = await resolveApiUser(req);
+  return resolved ? resolved.role : null;
 }
 
 async function requireApiRole(req: any, res: any, allowedRoles: string[]): Promise<boolean> {
@@ -656,18 +664,97 @@ app.post('/api/reports', async (req, res) => {
       if (column in report) payload[column] = report[column];
     }
 
-    const { error } = await supabaseAdmin
-      .from('reports')
-      .upsert(payload, { onConflict: 'id' });
-    if (error) {
-      console.error('Server report upsert failed:', error.message || error);
-      return apiError(res, 500, 'Failed to save the report to the database.');
+    // The live reports table may predate newer schema columns (e.g. report_status,
+    // verification_token_hash). Strip any column PostgREST reports as unknown and
+    // retry so saves keep working until the schema migration is applied.
+    let lastError: any = null;
+    for (let attempt = 0; attempt <= REPORT_UPSERT_COLUMNS.length; attempt++) {
+      const { error } = await supabaseAdmin
+        .from('reports')
+        .upsert(payload, { onConflict: 'id' });
+      if (!error) {
+        return apiSuccess(res, { id: payload.id });
+      }
+      lastError = error;
+      const missingColumn = /Could not find the '([^']+)' column/.exec(String(error.message || ''));
+      if (missingColumn && missingColumn[1] !== 'id' && missingColumn[1] in payload) {
+        console.warn(`Live reports table is missing column '${missingColumn[1]}'; retrying without it. Run supabase_reports_schema_compatibility.sql to fix permanently.`);
+        delete payload[missingColumn[1]];
+        continue;
+      }
+      break;
     }
 
-    return apiSuccess(res, { id: payload.id });
+    console.error('Server report upsert failed:', lastError?.message || lastError);
+    return apiError(res, 500, 'Failed to save the report to the database.');
   } catch (err: any) {
     console.error('Server report save exception:', err?.message || err);
     return apiError(res, 500, 'Failed to save the report to the database.');
+  }
+});
+
+app.get('/api/reports', async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return apiError(res, 503, 'Server database provider is not configured.');
+    }
+
+    const resolved = await resolveApiUser(req);
+    if (!resolved) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+    const { role, userRow } = resolved;
+    if (!['superadmin', 'admin', 'company'].includes(role)) {
+      return res.status(403).json({ error: 'Insufficient permission.' });
+    }
+
+    if (role === 'company') {
+      // Company users only receive their own reports. Run separate equality queries
+      // (values like company names can contain characters that break or() filters).
+      if (!userRow) {
+        return apiSuccess(res, { reports: [] });
+      }
+      const byId = new Map<string, any>();
+      const filters: Array<[string, string]> = [];
+      if (userRow.id) filters.push(['user_id', String(userRow.id)]);
+      if (userRow.license_number) filters.push(['license_number', String(userRow.license_number)]);
+      if (userRow.company_name_kh) filters.push(['company_name_kh', String(userRow.company_name_kh)]);
+      for (const [column, value] of filters) {
+        const { data, error } = await supabaseAdmin
+          .from('reports')
+          .select('*')
+          .eq(column, value)
+          .order('created_at', { ascending: false })
+          .limit(2000);
+        if (error) {
+          console.error(`Server company reports fetch failed on ${column}:`, error.message || error);
+          continue;
+        }
+        (data || []).forEach((row: any) => byId.set(String(row.id), row));
+      }
+      return apiSuccess(res, { reports: Array.from(byId.values()) });
+    }
+
+    const allReports: any[] = [];
+    const pageSize = 1000;
+    for (let page = 0; page < 50; page++) {
+      const from = page * pageSize;
+      const { data, error } = await supabaseAdmin
+        .from('reports')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(from, from + pageSize - 1);
+      if (error) {
+        console.error('Server reports fetch failed:', error.message || error);
+        return apiError(res, 500, 'Failed to load reports from the database.');
+      }
+      allReports.push(...(data || []));
+      if (!data || data.length < pageSize) break;
+    }
+    return apiSuccess(res, { reports: allReports });
+  } catch (err: any) {
+    console.error('Server reports fetch exception:', err?.message || err);
+    return apiError(res, 500, 'Failed to load reports from the database.');
   }
 });
 

@@ -444,6 +444,26 @@ export async function fetchReportsFromSupabase(currentUser?: MetrologyUser, opti
     return all;
   }
 
+  // Prefer the backend API: the service role sees every report regardless of the
+  // RLS policies applied to direct client queries, and the server scopes company
+  // users to their own records.
+  try {
+    const { getApiAuthHeaders } = await import('./apiAuth');
+    const headers = await getApiAuthHeaders();
+    if (headers.Authorization || headers['X-NMC-User-ID']) {
+      const response = await fetch('/api/reports', { headers });
+      if (response.ok) {
+        const data = await response.json().catch(() => null);
+        if (data && Array.isArray(data.reports)) {
+          return data.reports as MetrologyReport[];
+        }
+      }
+      console.warn('Server reports fetch unavailable, falling back to direct query. Status:', response.status);
+    }
+  } catch (apiErr) {
+    console.warn('Server reports fetch failed, falling back to direct query:', apiErr);
+  }
+
   try {
     let allReports: MetrologyReport[] = [];
     let page = 0;
