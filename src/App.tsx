@@ -111,14 +111,51 @@ const mergeReportsPreservingLocal = (
   return Array.from(mergedById.values()).sort((a, b) => getReportTimestamp(b) - getReportTimestamp(a));
 };
 
-const readCachedReportsSafely = (fallback: MetrologyReport[] = []): MetrologyReport[] => {
+const PENDING_REPORT_SYNC_KEY = 'nmc_pending_report_sync';
+
+const readPendingReportSync = (): MetrologyReport[] => {
   try {
-    const cachedReports = localStorage.getItem('nmc_reports');
-    return cachedReports ? JSON.parse(cachedReports) : fallback;
+    const pending = localStorage.getItem(PENDING_REPORT_SYNC_KEY);
+    return pending ? JSON.parse(pending) : [];
   } catch {
-    return fallback;
+    return [];
   }
 };
+
+const writePendingReportSync = (reports: MetrologyReport[]) => {
+  if (reports.length === 0) {
+    localStorage.removeItem(PENDING_REPORT_SYNC_KEY);
+    return;
+  }
+  localStorage.setItem(PENDING_REPORT_SYNC_KEY, JSON.stringify(reports));
+};
+
+const queuePendingReportSync = (report: MetrologyReport) => {
+  const pending = readPendingReportSync();
+  writePendingReportSync([
+    report,
+    ...pending.filter(item => item.id !== report.id)
+  ]);
+};
+
+const clearPendingReportSync = (reportId: string) => {
+  writePendingReportSync(readPendingReportSync().filter(report => report.id !== reportId));
+};
+
+const getPendingReportsForUser = (user?: MetrologyUser | null): MetrologyReport[] => {
+  const pending = readPendingReportSync();
+  if (!user || user.role !== 'company') return pending;
+  return pending.filter(report =>
+    report.user_id === user.id ||
+    (!!user.license_number && report.license_number === user.license_number) ||
+    (!!user.company_name_kh && report.company_name_kh === user.company_name_kh)
+  );
+};
+
+const reconcileCloudReports = (
+  cloudReports: MetrologyReport[],
+  user?: MetrologyUser | null
+): MetrologyReport[] => mergeReportsPreservingLocal(cloudReports, getPendingReportsForUser(user));
 
 const OFFICIAL_MINISTRY_KH = 'ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍';
 const OFFICIAL_CENTER_KH = 'មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ';
@@ -697,25 +734,20 @@ export default function App() {
           fetchLicensesFromSupabase(sessionUser, { allowFallback: sessionUser.role !== 'superadmin' })
         ]);
         if (cloudReports) {
-          const cachedReportsForRecovery = readCachedReportsSafely([]);
-          const cloudReportIds = new Set(cloudReports.map(report => report.id));
-          const localOnlyReports = cachedReportsForRecovery.filter(report => report.id && !cloudReportIds.has(report.id));
-          if (localOnlyReports.length > 0) {
-            for (const report of localOnlyReports) {
-              try {
-                await saveReportToSupabase(report);
-                cloudReportIds.add(report.id);
-              } catch (syncErr) {
-                console.warn('Cached local report still cannot be synchronized:', report.id, syncErr);
-              }
+          let synchronizedReports = [...cloudReports];
+          const pendingReports = getPendingReportsForUser(sessionUser);
+          for (const report of pendingReports) {
+            try {
+              await saveReportToSupabase(report);
+              clearPendingReportSync(report.id);
+              synchronizedReports = mergeReportsPreservingLocal(synchronizedReports, [report]);
+            } catch (syncErr) {
+              console.warn('Pending report still cannot be synchronized:', report.id, syncErr);
             }
           }
-          setReports(prevReports => {
-            const localReports = readCachedReportsSafely(prevReports);
-            const mergedReports = mergeReportsPreservingLocal(cloudReports, localReports);
-            localStorage.setItem('nmc_reports', JSON.stringify(mergedReports));
-            return mergedReports;
-          });
+          const reconciledReports = reconcileCloudReports(synchronizedReports, sessionUser);
+          localStorage.setItem('nmc_reports', JSON.stringify(reconciledReports));
+          setReports(reconciledReports);
         }
         setDashboardLicenses(cloudLicenses);
       } catch (e) {
@@ -736,6 +768,40 @@ export default function App() {
       }
     };
     syncDatabaseOnLogin();
+  }, [sessionUser]);
+
+  // Keep an open computer aligned with deletions and edits made elsewhere.
+  useEffect(() => {
+    if (!sessionUser) return;
+    const activeCfg = getActiveSupabaseConfig();
+    if (!activeCfg.url || !activeCfg.anonKey || activeCfg.url.includes('YOUR_SUPABASE_URL')) return;
+
+    let cancelled = false;
+    const refreshReports = async () => {
+      try {
+        const cloudReports = await fetchReportsFromSupabase(sessionUser, { allowFallback: false });
+        if (cancelled) return;
+        const reconciledReports = reconcileCloudReports(cloudReports, sessionUser);
+        localStorage.setItem('nmc_reports', JSON.stringify(reconciledReports));
+        setReports(reconciledReports);
+      } catch (error) {
+        console.warn('Background reports refresh failed:', error);
+      }
+    };
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void refreshReports();
+    };
+    const timer = window.setInterval(refreshReports, 60_000);
+    window.addEventListener('focus', refreshReports);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshReports);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, [sessionUser]);
 
   // 1.1 Public Verification via scanned QR-code URL query param checking
@@ -1094,8 +1160,10 @@ export default function App() {
     // Synchronize report to Supabase Cloud
     try {
       await saveReportToSupabase(newRecord);
+      clearPendingReportSync(newRecord.id);
     } catch (e) {
       console.warn('Supabase reports sync issue:', e);
+      queuePendingReportSync(newRecord);
       showToast('Report saved on this device only. Cloud sync failed, so other computers may not see it until server authentication/database access is fixed.', 'error');
     }
 
@@ -1109,12 +1177,14 @@ export default function App() {
     saveReportsToStore(updatedList);
 
     // 2. Synchronize reports to Supabase Cloud on successful local persistence
-    try {
-      for (const rep of importedList) {
+    for (const rep of importedList) {
+      try {
         await saveReportToSupabase(rep);
+        clearPendingReportSync(rep.id);
+      } catch (e) {
+        queuePendingReportSync(rep);
+        console.warn('Supabase sync bulk load error:', rep.id, e);
       }
-    } catch (e) {
-      console.warn('Supabase sync bulk load error:', e);
     }
 
     // 3. Register standard IMPORT_EXCEL_REPORT log
@@ -1148,6 +1218,7 @@ export default function App() {
     try {
       // Synchronize report deletion to Supabase Cloud first
       await deleteReportFromSupabase(id);
+      clearPendingReportSync(id);
 
       // Remove from UI only after Supabase delete succeeds
       const updated = reports.filter(r => r.id !== id);
@@ -1160,11 +1231,9 @@ export default function App() {
       if (activeCfg.url && activeCfg.anonKey && !activeCfg.url.includes('YOUR_SUPABASE_URL')) {
         const cloudReports = await fetchReportsFromSupabase();
         if (cloudReports) {
-          setReports(prevReports => {
-            const mergedReports = mergeReportsPreservingLocal(cloudReports, prevReports);
-            localStorage.setItem('nmc_reports', JSON.stringify(mergedReports));
-            return mergedReports;
-          });
+          const reconciledReports = reconcileCloudReports(cloudReports, sessionUser);
+          localStorage.setItem('nmc_reports', JSON.stringify(reconciledReports));
+          setReports(reconciledReports);
         }
       }
     } catch (e) {
@@ -1192,12 +1261,9 @@ export default function App() {
 
         const cloudReports = await fetchReportsFromSupabase();
         if (cloudReports) {
-          setReports(prevReports => {
-            const localReports = readCachedReportsSafely(prevReports);
-            const mergedReports = mergeReportsPreservingLocal(cloudReports, localReports);
-            localStorage.setItem('nmc_reports', JSON.stringify(mergedReports));
-            return mergedReports;
-          });
+          const reconciledReports = reconcileCloudReports(cloudReports, sessionUser);
+          localStorage.setItem('nmc_reports', JSON.stringify(reconciledReports));
+          setReports(reconciledReports);
         }
 
         setDbConfig({

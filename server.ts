@@ -823,11 +823,44 @@ app.delete('/api/reports', async (req, res) => {
     if (!supabaseAdmin) {
       return apiError(res, 503, 'Server database provider is not configured.');
     }
-    if (!(await requireApiRole(req, res, ['superadmin', 'admin', 'company']))) return;
+
+    const resolved = await resolveApiUser(req);
+    if (!resolved) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+    const { role, userRow } = resolved;
+    if (!['superadmin', 'admin', 'company'].includes(role)) {
+      return res.status(403).json({ error: 'Insufficient permission.' });
+    }
 
     const reportId = String(req.query?.id || '').trim();
     if (!reportId) {
       return apiError(res, 400, 'Report id is required.');
+    }
+
+    if (role === 'company') {
+      if (!userRow) {
+        return res.status(403).json({ error: 'Report ownership could not be verified.' });
+      }
+      const { data: report, error: lookupError } = await supabaseAdmin
+        .from('reports')
+        .select('id,user_id,license_number,company_name_kh')
+        .eq('id', reportId)
+        .maybeSingle();
+      if (lookupError) {
+        console.error('Server report ownership lookup failed:', lookupError.message || lookupError);
+        return apiError(res, 500, 'Failed to verify report ownership.');
+      }
+      if (!report) {
+        return apiSuccess(res, { id: reportId });
+      }
+      const ownsReport =
+        (!!userRow.id && String(report.user_id || '') === String(userRow.id)) ||
+        (!!userRow.license_number && String(report.license_number || '') === String(userRow.license_number)) ||
+        (!!userRow.company_name_kh && String(report.company_name_kh || '') === String(userRow.company_name_kh));
+      if (!ownsReport) {
+        return res.status(403).json({ error: 'You can only delete reports belonging to your company.' });
+      }
     }
 
     const { error } = await supabaseAdmin

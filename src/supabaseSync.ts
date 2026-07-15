@@ -711,9 +711,15 @@ export async function deleteReportFromSupabase(reportId: string): Promise<void> 
         console.log('Successfully deleted report via server API:', reportId);
         return;
       }
+      if (response.status === 401 || response.status === 403) {
+        const error: any = new Error('The server rejected this report deletion.');
+        error.isAuthorizationError = true;
+        throw error;
+      }
       console.warn('Server report delete unavailable, falling back to direct delete. Status:', response.status);
     }
   } catch (apiErr) {
+    if ((apiErr as any)?.isAuthorizationError) throw apiErr;
     console.warn('Server report delete failed, falling back to direct delete:', apiErr);
   }
 
