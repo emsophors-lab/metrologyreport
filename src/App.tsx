@@ -779,11 +779,15 @@ export default function App() {
     let cancelled = false;
     const refreshReports = async () => {
       try {
-        const cloudReports = await fetchReportsFromSupabase(sessionUser, { allowFallback: false });
+        const [cloudReports, cloudLicenses] = await Promise.all([
+          fetchReportsFromSupabase(sessionUser, { allowFallback: false }),
+          fetchLicensesFromSupabase(sessionUser, { allowFallback: false })
+        ]);
         if (cancelled) return;
         const reconciledReports = reconcileCloudReports(cloudReports, sessionUser);
         localStorage.setItem('nmc_reports', JSON.stringify(reconciledReports));
         setReports(reconciledReports);
+        setDashboardLicenses(cloudLicenses);
       } catch (error) {
         console.warn('Background reports refresh failed:', error);
       }
@@ -934,13 +938,18 @@ export default function App() {
         setIsLicenseVerifying(true);
         
         try {
-          const { fetchLicensesFromSupabase } = await import('./supabaseSync');
-          const licenses = await fetchLicensesFromSupabase();
-          const target = licenses.find(l => l.license_number === licNum || l.id === licNum);
-          if (target) {
-            setVerifiedLicense(target);
-          } else {
+          const response = await fetch(`/api/verify-license?reference=${encodeURIComponent(licNum)}`);
+          const data = await response.json().catch(() => null);
+          if (response.ok && data?.license) {
+            setVerifiedLicense(data.license);
+          } else if (response.status === 404) {
             setVerifiedLicense(null);
+          } else {
+            // Local development without the API server can still verify against
+            // the configured Supabase client when its public policies allow it.
+            const { fetchLicensesFromSupabase } = await import('./supabaseSync');
+            const licenses = await fetchLicensesFromSupabase();
+            setVerifiedLicense(licenses.find(l => l.license_number === licNum || l.id === licNum) || null);
           }
         } catch (err) {
           console.error('Error verifying license:', err);
@@ -2898,10 +2907,11 @@ export default function App() {
 
             {/* G. ENTERPRISE LICENSING REGISTRY MODULE */}
             {activeTab === 'licenses' && (
-              <EnterpriseLicensingRegistry 
+              <EnterpriseLicensingRegistry
                 currentUser={sessionUser}
                 usersList={users}
                 toastMsg={showToast}
+                onLicensesChange={setDashboardLicenses}
               />
             )}
 

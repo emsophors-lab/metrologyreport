@@ -921,6 +921,63 @@ app.get('/api/verify-report', async (req, res) => {
   }
 });
 
+// Public endpoint for license-certificate QR scans. Read with the service role so
+// anonymous phones are not blocked by RLS, then return only certificate-safe data.
+app.get('/api/verify-license', async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return apiError(res, 503, 'Server database provider is not configured.');
+    }
+
+    const reference = String(req.query?.reference || '').trim();
+    if (!reference || reference.length > 160) {
+      return apiError(res, 400, 'A valid license reference is required.');
+    }
+
+    const findLicense = async (column: 'license_number' | 'id') => {
+      const { data, error } = await supabaseAdmin
+        .from('enterprise_licenses')
+        .select('*')
+        .eq(column, reference)
+        .limit(1);
+      if (error) throw error;
+      return data && data.length > 0 ? data[0] : null;
+    };
+
+    const license = await findLicense('license_number') || await findLicense('id');
+    if (!license) {
+      return apiError(res, 404, 'License not found.');
+    }
+
+    const publicLicense = {
+      id: license.id,
+      company_name: license.company_name,
+      company_name_kh: license.company_name_kh,
+      license_number: license.license_number,
+      company_address: license.company_address,
+      province_city: license.province_city,
+      district_khan: license.district_khan,
+      commune_sangkat: license.commune_sangkat,
+      village: license.village,
+      business_type: license.business_type,
+      service_scope: license.service_scope,
+      measuring_instrument_type: license.measuring_instrument_type,
+      license_issue_date: license.license_issue_date,
+      license_expiry_date: license.license_expiry_date,
+      license_validity_years: license.license_validity_years,
+      license_status: license.license_status,
+      business_latitude: license.business_latitude,
+      business_longitude: license.business_longitude,
+      business_location_source: license.business_location_source
+    };
+
+    return apiSuccess(res, { license: publicLicense });
+  } catch (err: any) {
+    console.error('Public license verification failed:', err?.message || err);
+    return apiError(res, 500, 'License verification failed.');
+  }
+});
+
 // Public endpoint backing the printed-PDF QR codes that verify a FILTERED report
 // list (?verifyReport=filtered&month=...&companyId=...). Anonymous scanners have
 // no local data, so the lookup runs with the service role here.

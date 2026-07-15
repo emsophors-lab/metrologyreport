@@ -26,6 +26,12 @@
       ]
     }
   ],
+  "rewrites": [
+    {
+      "source": "/verify-license/:path*",
+      "destination": "/index.html"
+    }
+  ],
   "crons": [
     {
       "path": "/api/license-reminders",

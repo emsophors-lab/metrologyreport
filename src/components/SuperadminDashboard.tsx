@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   BarChart3,
@@ -278,12 +278,64 @@ function isSubmittedReport(report: MetrologyReport & Record<string, any>) {
   return !['draft', 'rejected', 'cancelled'].includes(status);
 }
 
-function reportLicenseKey(report: MetrologyReport & Record<string, any>) {
-  return String(getField(report, ['enterprise_license_id', 'license_id', 'license_number']) || '').trim();
+function normalizeIdentity(value: any) {
+  return String(value || '')
+    .normalize('NFKC')
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/[\s\-_./\\]+/g, '');
 }
 
-function licenseKey(license: EnterpriseLicense & Record<string, any>) {
-  return String(getField(license, ['license_number', 'license_id', 'id']) || '').trim();
+function buildLicenseIdentityCounts(licenses: Array<Record<string, any>>) {
+  const ownerIds = new Map<string, number>();
+  const companyNames = new Map<string, number>();
+  const add = (target: Map<string, number>, value: string) => {
+    if (value) target.set(value, (target.get(value) || 0) + 1);
+  };
+
+  licenses.forEach(license => {
+    new Set([license.company_user_id, license.company_id].map(normalizeIdentity).filter(Boolean))
+      .forEach(value => add(ownerIds, value));
+    new Set([license.company_name_kh, license.company_name]
+      .map(normalizeIdentity)
+      .filter(value => value.length >= 3))
+      .forEach(value => add(companyNames, value));
+  });
+
+  return { ownerIds, companyNames };
+}
+
+function reportMatchesLicense(
+  report: MetrologyReport & Record<string, any>,
+  license: Record<string, any>,
+  identityCounts: ReturnType<typeof buildLicenseIdentityCounts>
+) {
+  const reportLicenseId = normalizeIdentity(getField(report, ['enterprise_license_id', 'license_id']));
+  const licenseRecordId = normalizeIdentity(license.id);
+  if (reportLicenseId && licenseRecordId && reportLicenseId === licenseRecordId) return true;
+
+  const reportLicenseNumber = normalizeIdentity(report.license_number);
+  const licenseNumber = normalizeIdentity(license.license_number);
+  if (reportLicenseNumber && licenseNumber && reportLicenseNumber === licenseNumber) return true;
+
+  const reportUserId = normalizeIdentity(report.user_id);
+  const licenseOwnerIds = [license.company_user_id, license.company_id]
+    .map(normalizeIdentity)
+    .filter(Boolean);
+  if (
+    reportUserId &&
+    licenseOwnerIds.includes(reportUserId) &&
+    identityCounts.ownerIds.get(reportUserId) === 1
+  ) {
+    return true;
+  }
+
+  const reportCompany = normalizeIdentity(report.company_name_kh);
+  const licenseCompanies = [license.company_name_kh, license.company_name]
+    .map(normalizeIdentity)
+    .filter(value => value.length >= 3);
+  if (reportCompany.length < 3 || !licenseCompanies.includes(reportCompany)) return false;
+  return identityCounts.companyNames.get(reportCompany) === 1;
 }
 
 function isMonthDue(year: number, month: number, today: Date) {
@@ -516,23 +568,17 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
   const currentMonth = String(reportingAnchorDate.getMonth() + 1).padStart(2, '0');
   const currentMonthDue = isMonthDue(reportingAnchorDate.getFullYear(), reportingAnchorDate.getMonth() + 1, todayPhnomPenh);
 
-  const reportsByLicense = useMemo(() => {
-    const grouped = new Map<string, number>();
-    reports.forEach(report => {
-      if (!isSubmittedReport(report)) return;
-      const key = reportLicenseKey(report);
-      if (key) grouped.set(key, (grouped.get(key) || 0) + 1);
-    });
-    return grouped;
-  }, [reports]);
-
-  const activeLicenseKeys = new Set(activeLicenseRecords.map(licenseKey).filter(Boolean));
-  const currentMonthUniqueReports = new Set(
-    reports
-      .filter(r => isSubmittedReport(r) && reportYearValue(r) === currentYear && reportMonthValue(r) === currentMonth)
-      .map(reportLicenseKey)
-      .filter(key => key && activeLicenseKeys.has(key))
-  ).size;
+  const submittedReports = reports.filter(isSubmittedReport);
+  const licenseIdentityCounts = buildLicenseIdentityCounts(dashboardLicenseRecords);
+  const reportsForLicense = (license: EnterpriseLicense & Record<string, any>) =>
+    submittedReports.filter(report => reportMatchesLicense(report, license, licenseIdentityCounts));
+  const currentMonthUniqueReports = activeLicenseRecords.filter(license =>
+    submittedReports.some(report =>
+      reportYearValue(report) === currentYear &&
+      reportMonthValue(report) === currentMonth &&
+      reportMatchesLicense(report, license, licenseIdentityCounts)
+    )
+  ).length;
   const currentMonthRate = activeLicenses > 0 ? percent(currentMonthUniqueReports, activeLicenses) : null;
   const missingReports = currentMonthDue ? Math.max(0, activeLicenses - currentMonthUniqueReports) : 0;
 
@@ -557,7 +603,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
 
   const allRiskRows = dashboardLicenseRecords
     .map(license => {
-      const reportCount = reportsByLicense.get(licenseKey(license)) || reportsByLicense.get(String(license.license_number || '').trim()) || 0;
+      const reportCount = reportsForLicense(license).length;
       const risk = riskForLicense(license, reportCount);
       return {
         license,
@@ -586,21 +632,25 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
     };
   });
   const trendRows = reportYearMonths.map(month => {
-    const denominator = operationalLicenses.filter(license => isActiveOnDate(license, month.monthStart)).length;
-    const thisYearCount = new Set(
-      reports
-        .filter(r => isSubmittedReport(r) && reportYearValue(r) === String(month.year) && reportMonthValue(r) === month.value)
-        .map(reportLicenseKey)
-        .filter(key => key && operationalLicenses.some(license => licenseKey(license) === key && isActiveOnDate(license, month.monthStart)))
-    ).size;
+    const eligibleLicenses = operationalLicenses.filter(license => isActiveOnDate(license, month.monthStart));
+    const denominator = eligibleLicenses.length;
+    const thisYearCount = eligibleLicenses.filter(license =>
+      submittedReports.some(report =>
+        reportYearValue(report) === String(month.year) &&
+        reportMonthValue(report) === month.value &&
+        reportMatchesLicense(report, license, licenseIdentityCounts)
+      )
+    ).length;
     const previousYearMonthStart = new Date(month.year - 1, month.monthNumber - 1, 1);
-    const previousYearDenominator = operationalLicenses.filter(license => isActiveOnDate(license, previousYearMonthStart)).length;
-    const lastYearCount = new Set(
-      reports
-        .filter(r => isSubmittedReport(r) && reportYearValue(r) === String(month.year - 1) && reportMonthValue(r) === month.value)
-        .map(reportLicenseKey)
-        .filter(key => key && operationalLicenses.some(license => licenseKey(license) === key && isActiveOnDate(license, previousYearMonthStart)))
-    ).size;
+    const previousYearEligibleLicenses = operationalLicenses.filter(license => isActiveOnDate(license, previousYearMonthStart));
+    const previousYearDenominator = previousYearEligibleLicenses.length;
+    const lastYearCount = previousYearEligibleLicenses.filter(license =>
+      submittedReports.some(report =>
+        reportYearValue(report) === String(month.year - 1) &&
+        reportMonthValue(report) === month.value &&
+        reportMatchesLicense(report, license, licenseIdentityCounts)
+      )
+    ).length;
     return {
       month,
       rate: denominator > 0 ? percent(thisYearCount, denominator) : null,
@@ -630,7 +680,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
         isSubmittedReport(report) &&
         reportYearValue(report) === String(month.year) &&
         reportMonthValue(report) === month.value &&
-        (reportLicenseKey(report) === licenseKey(license) || reportLicenseKey(report) === String(license.license_number || '').trim())
+        reportMatchesLicense(report, license, licenseIdentityCounts)
       );
       if (submitted) return 'submitted';
       return isMonthDue(month.year, month.monthNumber, todayPhnomPenh) ? 'missing' : 'not_yet_due';

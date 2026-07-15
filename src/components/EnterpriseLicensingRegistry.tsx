@@ -419,12 +419,14 @@ interface EnterpriseLicensingRegistryProps {
   currentUser: MetrologyUser;
   usersList: MetrologyUser[];
   toastMsg: (msg: string, type: 'success' | 'error') => void;
+  onLicensesChange?: (licenses: EnterpriseLicense[]) => void;
 }
 
 export default function EnterpriseLicensingRegistry({
   currentUser,
   usersList,
-  toastMsg
+  toastMsg,
+  onLicensesChange
 }: EnterpriseLicensingRegistryProps) {
   const isCompanyUser = currentUser?.role?.toLowerCase() === 'company';
   const isTelegramAdmin = ['admin', 'superadmin'].includes(currentUser?.role?.toLowerCase() || '');
@@ -775,6 +777,7 @@ export default function EnterpriseLicensingRegistry({
       
       licensesRef.current = resolvedLics;
       setLicenses(resolvedLics);
+      onLicensesChange?.(resolvedLics);
       setReminderLogs(logs);
       setRenewalHistory(history);
       setBotSettings(bots);
@@ -1827,6 +1830,7 @@ export default function EnterpriseLicensingRegistry({
     const freshLicenses = await fetchLicensesFromSupabase(currentUser);
     licensesRef.current = freshLicenses;
     setLicenses(freshLicenses);
+    onLicensesChange?.(freshLicenses);
     return freshLicenses.find(l => l.id === licenseId) || null;
   };
 
@@ -6016,8 +6020,8 @@ export default function EnterpriseLicensingRegistry({
                   
                   {/* Bottom Left: QR Code Verification block */}
                   <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-3 rounded-lg max-w-sm">
-                    <img 
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`${window.location.origin}/verify-license/${showCertificateModal.license_number}`)}`} 
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`${window.location.origin}/?verifyLicense=${encodeURIComponent(showCertificateModal.license_number)}`)}`}
                       alt="Verification Token Scan" 
                       className="h-16 w-16 bg-white border border-slate-300 p-0.5"
                       referrerPolicy="no-referrer"
