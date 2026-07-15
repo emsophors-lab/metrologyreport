@@ -1083,6 +1083,7 @@ export default function App() {
       await saveReportToSupabase(newRecord);
     } catch (e) {
       console.warn('Supabase reports sync issue:', e);
+      showToast('Report saved on this device only. Cloud sync failed, so other computers may not see it until server authentication/database access is fixed.', 'error');
     }
 
     // Trigger Telegram Push Notification in the background asynchronously

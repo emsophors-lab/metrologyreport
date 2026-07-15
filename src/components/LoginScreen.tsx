@@ -164,8 +164,10 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
       const hasSupabase = !!client;
       const dbIsEmpty = usersList.length === 0;
 
-      if (isDemoAllowed && localMatched) {
-        // If it's an allowed demo user, log them in directly in testing mode
+      if (isDemoAllowed && localMatched && !hasSupabase) {
+        // If it's an allowed demo user without Supabase, log them in directly in testing mode.
+        // When Supabase exists, continue into the configured-user path below so
+        // report saves and Telegram notifications get a real server auth token.
         logTechnicalIssue('Development login path used:', localMatched.username);
         onLoginSuccess(localMatched);
         setIsAuthenticating(false);
