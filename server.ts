@@ -127,6 +127,31 @@ async function resolveApiUser(req: any): Promise<{ role: string; userRow: any | 
     }
   }
 
+  if (!role) {
+    // Accounts provisioned from legacy users-table credentials may use a normalized
+    // Auth email while the source user row has an empty or invalid email. In that
+    // case, resolve through the trusted username stored in Auth metadata.
+    const authUsername = String(
+      authData.user.user_metadata?.username ||
+      authData.user.app_metadata?.username ||
+      ''
+    ).trim().toLowerCase();
+    if (authUsername) {
+      const { data: usernameMatches } = await supabaseAdmin
+        .from('users')
+        .select('*')
+        .ilike('username', authUsername);
+      const matched = (usernameMatches || []).find(
+        (u: any) => String(u.username || '').toLowerCase() === authUsername && u.is_active !== false
+      );
+      if (matched) {
+        role = matched.role;
+        isActive = matched.is_active !== false;
+        userRow = matched;
+      }
+    }
+  }
+
   if (!isActive || !role) return null;
   return { role: String(role), userRow };
 }
@@ -168,6 +193,37 @@ function verifyUserPasswordServer(password: string, userRow: any): boolean {
 
   // Transition compatibility: legacy records may still have plaintext passwords.
   return typeof userRow?.password === 'string' && userRow.password.length > 0 && userRow.password === password;
+}
+
+function normalizeAuthEmail(username: string, userRow: any): string {
+  const rawEmail = String(userRow?.email || '').trim().toLowerCase();
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) return rawEmail;
+
+  const safeUsername = String(username || userRow?.username || 'user')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._+-]/g, '_')
+    .replace(/^_+|_+$/g, '') || 'user';
+  return `${safeUsername}@nmc.gov.kh`;
+}
+
+async function findAuthUserByEmail(email: string) {
+  if (!supabaseAdmin) return null;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  for (let page = 1; page <= 50; page += 1) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+      page,
+      perPage: 1000
+    });
+    if (error) throw error;
+
+    const found = data?.users?.find(
+      (authUser: any) => String(authUser.email || '').toLowerCase() === normalizedEmail
+    );
+    if (found) return found;
+    if (!data?.users || data.users.length < 1000) break;
+  }
+  return null;
 }
 
 /**
@@ -598,7 +654,7 @@ app.post('/api/provision-auth-session', async (req, res) => {
       return apiError(res, 401, 'Invalid credentials.');
     }
 
-    const email = String(userRow.email || `${username.toLowerCase()}@nmc.gov.kh`).trim().toLowerCase();
+    const email = normalizeAuthEmail(username, userRow);
 
     // Create the Supabase Auth account pre-confirmed, or repair an existing one so its
     // password matches the verified users-table credentials and its email is confirmed.
@@ -610,21 +666,25 @@ app.post('/api/provision-auth-session', async (req, res) => {
     });
 
     if (created.error) {
-      const { data: userList, error: listError } = await supabaseAdmin.auth.admin.listUsers({
-        page: 1,
-        perPage: 1000
-      });
-      const existing = userList?.users?.find(
-        (authUser: any) => String(authUser.email || '').toLowerCase() === email
-      );
-      if (listError || !existing) {
-        console.error('Auth provision failed:', created.error.message || created.error);
+      let existing = null;
+      try {
+        existing = await findAuthUserByEmail(email);
+      } catch (listError: any) {
+        console.error('Auth provision existing-user lookup failed:', listError?.message || listError);
+      }
+
+      if (!existing) {
+        console.error('Auth provision failed:', {
+          createError: created.error.message || created.error,
+          email
+        });
         return apiError(res, 500, 'Unable to provision the authentication account.');
       }
 
       const updated = await supabaseAdmin.auth.admin.updateUserById(existing.id, {
         password,
-        email_confirm: true
+        email_confirm: true,
+        user_metadata: { username: userRow.username }
       });
       if (updated.error) {
         console.error('Auth account repair failed:', updated.error.message || updated.error);

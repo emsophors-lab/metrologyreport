@@ -697,6 +697,19 @@ export default function App() {
           fetchLicensesFromSupabase(sessionUser, { allowFallback: sessionUser.role !== 'superadmin' })
         ]);
         if (cloudReports) {
+          const cachedReportsForRecovery = readCachedReportsSafely([]);
+          const cloudReportIds = new Set(cloudReports.map(report => report.id));
+          const localOnlyReports = cachedReportsForRecovery.filter(report => report.id && !cloudReportIds.has(report.id));
+          if (localOnlyReports.length > 0) {
+            for (const report of localOnlyReports) {
+              try {
+                await saveReportToSupabase(report);
+                cloudReportIds.add(report.id);
+              } catch (syncErr) {
+                console.warn('Cached local report still cannot be synchronized:', report.id, syncErr);
+              }
+            }
+          }
           setReports(prevReports => {
             const localReports = readCachedReportsSafely(prevReports);
             const mergedReports = mergeReportsPreservingLocal(cloudReports, localReports);

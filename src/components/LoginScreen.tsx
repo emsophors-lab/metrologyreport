@@ -35,6 +35,8 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
   const limitedConnectionNotice = 'ប្រព័ន្ធកំពុងដំណើរការក្នុងរបៀបមានកំណត់។ សូមពិនិត្យការតភ្ជាប់ ឬទាក់ទងអ្នកគ្រប់គ្រងប្រព័ន្ធ។ / Limited connection mode. Please check your connection or contact the system administrator.';
   const setupNotice = 'ប្រព័ន្ធមិនទាន់មានគណនីអ្នកប្រើប្រាស់សម្រាប់ចូលប្រើ។ សូមទាក់ទងអ្នកគ្រប់គ្រងប្រព័ន្ធ។ / User access is not ready. Please contact the system administrator.';
 
+  const cloudAuthRequiredNotice = 'Cloud synchronization is not ready for this account. Please log in again after the administrator verifies the account email/password and server environment. Reports cannot be added safely until cloud sync is active.';
+
   const showLoginNotice = (message: string, tone: 'error' | 'warning' = 'error') => {
     setNoticeTone(tone);
     setErrorMessage(message);
@@ -51,6 +53,17 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
     }
   };
 
+  const getAuthEmail = (matchedUser: MetrologyUser) => {
+    const rawEmail = String(matchedUser.email || '').trim().toLowerCase();
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) return rawEmail;
+    const safeUsername = String(matchedUser.username || 'user')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9._+-]/g, '_')
+      .replace(/^_+|_+$/g, '') || 'user';
+    return `${safeUsername}@nmc.gov.kh`;
+  };
+
   // Server-authenticated actions (Telegram webhook setup, test-send) require a
   // Supabase Auth session token; a local users-table match alone is not enough.
   const establishServerAuthSession = async (
@@ -58,7 +71,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
     matchedUser: MetrologyUser,
     plainPassword: string
   ): Promise<boolean> => {
-    const authEmail = matchedUser.email || `${matchedUser.username.toLowerCase()}@nmc.gov.kh`;
+    const authEmail = getAuthEmail(matchedUser);
 
     let authResult = await client.auth.signInWithPassword({
       email: authEmail,
@@ -87,7 +100,8 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
             password: plainPassword
           });
         } else {
-          logTechnicalIssue('Server auth account provisioning rejected:', provisionResponse.status);
+          const provisionError = await provisionResponse.json().catch(() => null);
+          logTechnicalIssue('Server auth account provisioning rejected:', provisionError || provisionResponse.status);
         }
       } catch (provisionErr) {
         logTechnicalIssue('Server auth account provisioning failed:', provisionErr);
@@ -95,7 +109,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
     }
 
     if (authResult.error || !authResult.data.session) {
-      logTechnicalIssue('Server auth session unavailable, continuing with local session:', authResult.error);
+      logTechnicalIssue('Server auth session unavailable:', authResult.error);
       return false;
     }
 
@@ -190,9 +204,17 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
 
         if (client) {
           try {
-            await establishServerAuthSession(client, localMatched, password);
+            const serverAuthReady = await establishServerAuthSession(client, localMatched, password);
+            if (!serverAuthReady) {
+              showLoginNotice(cloudAuthRequiredNotice, 'warning');
+              setIsAuthenticating(false);
+              return;
+            }
           } catch (authErr) {
-            logTechnicalIssue('Server auth session setup failed, continuing with local session:', authErr);
+            logTechnicalIssue('Server auth session setup failed:', authErr);
+            showLoginNotice(cloudAuthRequiredNotice, 'warning');
+            setIsAuthenticating(false);
+            return;
           }
         }
 
