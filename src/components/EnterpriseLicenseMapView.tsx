@@ -30,6 +30,7 @@ export interface EnterpriseLicenseMapViewProps {
   nmcLogoUrl?: string;
   onViewLicense?: (license: EnterpriseLicenseRecord) => void;
   className?: string;
+  groupSharedLocations?: boolean;
 }
 
 const CAMBODIA_CENTER: [number, number] = [12.5657, 104.991];
@@ -139,7 +140,21 @@ function formatCoordinate(value: number): string {
   return Number(value).toFixed(7).replace(/0+$/, "").replace(/\.$/, "");
 }
 
-function createNmcIcon(nmcLogoUrl?: string): L.Icon | L.DivIcon {
+function createNmcIcon(nmcLogoUrl?: string, locationCount = 1): L.Icon | L.DivIcon {
+  if (locationCount > 1) {
+    const logo = nmcLogoUrl && String(nmcLogoUrl).trim() !== ''
+      ? `<img src="${encodeURI(nmcLogoUrl)}" alt="" style="width:38px;height:38px;object-fit:contain;border-radius:9999px;background:#fff;" />`
+      : '<span style="font-size:11px;font-weight:800;">NMC</span>';
+
+    return L.divIcon({
+      className: 'nmc-location-group-marker',
+      html: `<div style="position:relative;width:46px;height:46px;border-radius:9999px;display:flex;align-items:center;justify-content:center;background:#fff;border:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,.35);overflow:visible;">${logo}<span style="position:absolute;right:-8px;top:-8px;min-width:22px;height:22px;padding:0 5px;border-radius:9999px;display:flex;align-items:center;justify-content:center;background:#353C96;color:#fff;border:2px solid #fff;font-size:11px;font-weight:800;line-height:1;">${locationCount}</span></div>`,
+      iconSize: [46, 46],
+      iconAnchor: [23, 23],
+      popupAnchor: [0, -23],
+    });
+  }
+
   if (nmcLogoUrl && String(nmcLogoUrl).trim() !== "") {
     return L.icon({
       iconUrl: nmcLogoUrl,
@@ -312,6 +327,59 @@ function EnterpriseMarkerPopup({
   );
 }
 
+function EnterpriseLocationGroupPopup({
+  locations,
+  onViewLicense,
+}: {
+  locations: Array<{ license: EnterpriseLicenseRecord; lat: number; lng: number }>;
+  onViewLicense?: (license: EnterpriseLicenseRecord) => void;
+}) {
+  if (locations.length === 1) {
+    const { license, lat, lng } = locations[0];
+    return <EnterpriseMarkerPopup license={license} lat={lat} lng={lng} onViewLicense={onViewLicense} />;
+  }
+
+  const { lat, lng } = locations[0];
+  const googleUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+
+  return (
+    <div style={{ minWidth: 280, maxWidth: 380, fontSize: 13 }}>
+      <div style={{ fontWeight: 800, color: '#353C96', marginBottom: 6 }}>
+        {locations.length} licensed enterprises at this GPS location
+      </div>
+      <div style={{ marginBottom: 8, color: '#475569' }}>
+        GPS: {formatCoordinate(lat)}, {formatCoordinate(lng)}
+      </div>
+      <div style={{ maxHeight: 220, overflowY: 'auto', borderTop: '1px solid #e2e8f0' }}>
+        {locations.map(({ license }, index) => (
+          <div key={`${String(license?.id || index)}-${index}`} style={{ padding: '8px 0', borderBottom: '1px solid #e2e8f0' }}>
+            <div style={{ fontWeight: 800, color: '#0f172a' }}>{getCompanyName(license)}</div>
+            <div style={{ marginTop: 2 }}><strong>License:</strong> {getLicenseNumber(license)}</div>
+            <div style={{ marginTop: 2 }}><strong>Status:</strong> {getStatus(license)}</div>
+            {onViewLicense && (
+              <button
+                type="button"
+                onClick={() => onViewLicense(license)}
+                style={{ border: 0, borderRadius: 6, background: '#353C96', color: '#fff', padding: '5px 8px', cursor: 'pointer', fontWeight: 700, marginTop: 6 }}
+              >
+                View
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      <a
+        href={googleUrl}
+        target="_blank"
+        rel="noreferrer"
+        style={{ display: 'inline-block', marginTop: 10, border: '1px solid #353C96', borderRadius: 6, color: '#353C96', padding: '6px 10px', textDecoration: 'none', fontWeight: 700 }}
+      >
+        Open in Google Maps
+      </a>
+    </div>
+  );
+}
+
 interface MapErrorBoundaryState {
   hasError: boolean;
   message: string;
@@ -361,6 +429,7 @@ export function EnterpriseLicenseMapView({
   nmcLogoUrl = nmcLogo,
   onViewLicense,
   className = "",
+  groupSharedLocations = true,
 }: EnterpriseLicenseMapViewProps) {
   const validLocations = useMemo(() => {
     return (licenses || [])
@@ -388,6 +457,40 @@ export function EnterpriseLicenseMapView({
 
   const nmcIcon = useMemo(() => createNmcIcon(nmcLogoUrl), [nmcLogoUrl]);
 
+  const locationGroups = useMemo(() => {
+    const groups = new Map<string, {
+      key: string;
+      lat: number;
+      lng: number;
+      locations: typeof validLocations;
+    }>();
+
+    validLocations.forEach((location) => {
+      // Coordinates are rounded only for grouping. Each popup still shows the stored value.
+      const key = `${location.lat.toFixed(6)},${location.lng.toFixed(6)}`;
+      const group = groups.get(key);
+      if (group) {
+        group.locations.push(location);
+      } else {
+        groups.set(key, { key, lat: location.lat, lng: location.lng, locations: [location] });
+      }
+    });
+
+    return Array.from(groups.values());
+  }, [validLocations]);
+
+  const groupedEnterpriseCount = locationGroups.reduce((total, group) => total + Math.max(0, group.locations.length - 1), 0);
+  const displayedLocationGroups = useMemo(() => (
+    groupSharedLocations
+      ? locationGroups
+      : validLocations.map((location) => ({
+        key: location.key,
+        lat: location.lat,
+        lng: location.lng,
+        locations: [location],
+      }))
+  ), [groupSharedLocations, locationGroups, validLocations]);
+
   return (
     <div className={className}>
       <style>
@@ -405,6 +508,10 @@ export function EnterpriseLicenseMapView({
             border: 2px solid #ffffff;
             box-shadow: 0 2px 8px rgba(0,0,0,.35);
             background: #ffffff;
+          }
+          .nmc-location-group-marker {
+            background: transparent;
+            border: 0;
           }
         `}
       </style>
@@ -459,6 +566,22 @@ export function EnterpriseLicenseMapView({
           </div>
         </div>
 
+        {groupSharedLocations && groupedEnterpriseCount > 0 && (
+          <div
+            style={{
+              marginBottom: 12,
+              border: '1px solid #bfdbfe',
+              background: '#eff6ff',
+              color: '#1e3a8a',
+              borderRadius: 10,
+              padding: 12,
+              fontWeight: 700,
+            }}
+          >
+            {validLocations.length} enterprises are shown in {locationGroups.length} GPS location groups. Numbered markers contain multiple licensed enterprises at the same recorded coordinates.
+          </div>
+        )}
+
         {validLocations.length === 0 && (
           <div
             style={{
@@ -498,6 +621,9 @@ export function EnterpriseLicenseMapView({
                   : PHNOM_PENH_CENTER
               }
               zoom={validLocations.length === 1 ? 16 : 12}
+              minZoom={groupSharedLocations ? 5 : undefined}
+              maxZoom={groupSharedLocations ? 19 : undefined}
+              zoomControl={groupSharedLocations ? true : undefined}
               scrollWheelZoom={true}
               className="h-full w-full"
               style={{ width: "100%", height: "100%" }}
@@ -508,21 +634,21 @@ export function EnterpriseLicenseMapView({
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
 
-              {validLocations.map(({ license, lat, lng, key }) => (
-                <Marker key={key} position={[lat, lng]} icon={nmcIcon}>
+              {displayedLocationGroups.map(({ key, lat, lng, locations }) => (
+                <Marker
+                  key={key}
+                  position={[lat, lng]}
+                  icon={locations.length > 1 ? createNmcIcon(nmcLogoUrl, locations.length) : nmcIcon}
+                  title={locations.length > 1 ? `${locations.length} licensed enterprises at this location` : getCompanyName(locations[0].license)}
+                >
                   <Popup>
-                    <EnterpriseMarkerPopup
-                      license={license}
-                      lat={lat}
-                      lng={lng}
-                      onViewLicense={onViewLicense}
-                    />
+                    <EnterpriseLocationGroupPopup locations={locations} onViewLicense={onViewLicense} />
                   </Popup>
                 </Marker>
               ))}
 
               <FitBoundsToMarkers
-                locations={validLocations.map((item) => ({
+                locations={displayedLocationGroups.map((item) => ({
                   lat: item.lat,
                   lng: item.lng,
                 }))}

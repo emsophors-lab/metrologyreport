@@ -4314,6 +4314,7 @@ export default function EnterpriseLicensingRegistry({
             <EnterpriseLicenseMapView
               licenses={roleAccessibleLicenses}
               onViewLicense={(lic) => setShowCertificateModal(lic)}
+              groupSharedLocations={false}
             />
           </div>
         )}

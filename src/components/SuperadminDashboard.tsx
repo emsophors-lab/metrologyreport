@@ -674,7 +674,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
   });
   const trendPath = trendPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
   const lastYearTrendPath = lastYearTrendPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
-  const heatmapRows = dashboardLicenseRecords.slice(0, 12).map(license => {
+  const heatmapRows = dashboardLicenseRecords.map(license => {
     const submittedMonths = reportYearMonths.map(month => {
       const submitted = reports.some(report =>
         isSubmittedReport(report) &&
@@ -688,6 +688,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
     const submitted = submittedMonths.filter(status => status === 'submitted').length;
     const dueMonths = submittedMonths.filter(status => status !== 'not_yet_due').length;
     return {
+      id: license.id,
       name: license.company_name_kh || license.company_name || license.license_number,
       submittedMonths,
       rate: dueMonths > 0 ? percent(submitted, dueMonths) : null
@@ -945,7 +946,7 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
               {heatmapRows.length === 0 ? (
                 <tr><td colSpan={reportYearMonths.length + 2}>No license data available.</td></tr>
               ) : heatmapRows.map(row => (
-                <tr key={row.name}>
+                <tr key={row.id}>
                   <td>{row.name}</td>
                   {row.submittedMonths.map((status, index) => (
                     <td key={index}><span className={`is-${status}`}>{status === 'submitted' ? '✓' : status === 'missing' ? '×' : '-'}</span></td>
