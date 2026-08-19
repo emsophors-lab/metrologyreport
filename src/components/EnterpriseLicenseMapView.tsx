@@ -1,12 +1,17 @@
-import React, { Component, useEffect, useMemo } from "react";
+import React, { Component, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
+import { Focus, LocateFixed, Maximize2, Minimize2, RotateCcw, Search, X } from "lucide-react";
+import MarkerClusterGroup from "react-leaflet-cluster";
 import {
+  CircleMarker,
   MapContainer,
   Marker,
   Popup,
   TileLayer,
   useMap,
 } from "react-leaflet";
+import "react-leaflet-cluster/dist/assets/MarkerCluster.css";
+import "react-leaflet-cluster/dist/assets/MarkerCluster.Default.css";
 import nmcLogo from "./NMClogo.png";
 
 /**
@@ -31,10 +36,12 @@ export interface EnterpriseLicenseMapViewProps {
   onViewLicense?: (license: EnterpriseLicenseRecord) => void;
   className?: string;
   groupSharedLocations?: boolean;
+  language?: 'km' | 'en';
+  isLoading?: boolean;
 }
 
 const CAMBODIA_CENTER: [number, number] = [12.5657, 104.991];
-const PHNOM_PENH_CENTER: [number, number] = [11.5564, 104.9282];
+const CAMBODIA_DEFAULT_ZOOM = 7;
 
 function firstValue(record: EnterpriseLicenseRecord, keys: string[]): string {
   for (const key of keys) {
@@ -85,6 +92,33 @@ function getStatus(license: EnterpriseLicenseRecord): string {
       "validity_status",
     ]) || "N/A"
   );
+}
+
+function getProvince(license: EnterpriseLicenseRecord): string {
+  return firstValue(license, ["province_city", "province", "province_name", "city"]);
+}
+
+function getServiceType(license: EnterpriseLicenseRecord): string {
+  return firstValue(license, ["service_scope", "business_type", "service_type", "measuring_instrument_type"]);
+}
+
+function getStatusGroup(license: EnterpriseLicenseRecord): "active" | "expiring" | "expired" {
+  const status = getStatus(license).toLowerCase();
+  if (status.includes("expiring") || status.includes("ជិត")) return "expiring";
+  if (status.includes("expired") || status.includes("cancel") || status.includes("suspend") || status.includes("ផុត")) return "expired";
+  return "active";
+}
+
+function getSearchText(license: EnterpriseLicenseRecord): string {
+  return [
+    getCompanyName(license),
+    firstValue(license, ["company_name_en", "enterprise_name_en", "company_name"]),
+    getLicenseNumber(license),
+    getProvince(license),
+    getKhmerAddress(license),
+    firstValue(license, ["license_owner_name", "legal_representative", "representative_name", "owner_name"]),
+    getServiceType(license),
+  ].join(" ").toLowerCase();
 }
 
 function getKhmerAddress(license: EnterpriseLicenseRecord): string {
@@ -195,37 +229,60 @@ function ResizeMapFix() {
   return null;
 }
 
-function FitBoundsToMarkers({
+function fitLocations(map: L.Map, locations: Array<{ lat: number; lng: number }>) {
+  map.closePopup();
+  if (locations.length === 0) {
+    map.setView(CAMBODIA_CENTER, CAMBODIA_DEFAULT_ZOOM, { animate: true });
+  } else if (locations.length === 1) {
+    map.setView([locations[0].lat, locations[0].lng], 16, { animate: true });
+  } else {
+    map.fitBounds(L.latLngBounds(locations.map(({ lat, lng }) => [lat, lng])), {
+      padding: [50, 50], maxZoom: 13, animate: true,
+    });
+  }
+}
+
+function MapViewportController({
   locations,
+  normalRequest,
+  fitRequest,
+  focusRequest,
 }: {
   locations: Array<{ lat: number; lng: number }>;
+  normalRequest: number;
+  fitRequest: number;
+  focusRequest: { id: number; lat: number; lng: number } | null;
 }) {
   const map = useMap();
+  const initializedRef = useRef(false);
+  const handledNormalRef = useRef(normalRequest);
+  const handledFitRef = useRef(fitRequest);
+  const handledFocusRef = useRef(0);
 
   useEffect(() => {
-    const timers: number[] = [];
-    const invalidateSoon = (delay: number) => {
-      const timer = window.setTimeout(() => map.invalidateSize(), delay);
-      timers.push(timer);
-    };
-
-    if (!locations || locations.length === 0) {
-      map.setView(CAMBODIA_CENTER, 7);
-      invalidateSoon(150);
-      return () => timers.forEach(window.clearTimeout);
-    }
-
-    if (locations.length === 1) {
-      map.setView([locations[0].lat, locations[0].lng], 16);
-      invalidateSoon(150);
-      return () => timers.forEach(window.clearTimeout);
-    }
-
-    const bounds = L.latLngBounds(locations.map((item) => [item.lat, item.lng]));
-    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
-    invalidateSoon(150);
-    return () => timers.forEach(window.clearTimeout);
+    if (initializedRef.current || locations.length === 0) return;
+    initializedRef.current = true;
+    fitLocations(map, locations);
   }, [locations, map]);
+
+  useEffect(() => {
+    if (handledNormalRef.current === normalRequest) return;
+    handledNormalRef.current = normalRequest;
+    map.closePopup();
+    map.setView(CAMBODIA_CENTER, CAMBODIA_DEFAULT_ZOOM, { animate: true });
+  }, [map, normalRequest]);
+
+  useEffect(() => {
+    if (handledFitRef.current === fitRequest) return;
+    handledFitRef.current = fitRequest;
+    fitLocations(map, locations);
+  }, [fitRequest, locations, map]);
+
+  useEffect(() => {
+    if (!focusRequest || handledFocusRef.current === focusRequest.id) return;
+    handledFocusRef.current = focusRequest.id;
+    map.flyTo([focusRequest.lat, focusRequest.lng], Math.max(map.getZoom(), 15), { duration: 0.6 });
+  }, [focusRequest, map]);
 
   return null;
 }
@@ -430,10 +487,55 @@ export function EnterpriseLicenseMapView({
   onViewLicense,
   className = "",
   groupSharedLocations = true,
+  language = "en",
+  isLoading = false,
 }: EnterpriseLicenseMapViewProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [provinceFilter, setProvinceFilter] = useState("all");
+  const [serviceFilter, setServiceFilter] = useState("all");
+  const [normalRequest, setNormalRequest] = useState(0);
+  const [fitRequest, setFitRequest] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [locationMessage, setLocationMessage] = useState("");
+  const [focusRequest, setFocusRequest] = useState<{ id: number; lat: number; lng: number } | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(searchQuery.trim().toLowerCase()), 250);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsFullscreen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    window.setTimeout(() => window.dispatchEvent(new Event("resize")), 50);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+      window.setTimeout(() => window.dispatchEvent(new Event("resize")), 50);
+    };
+  }, [isFullscreen]);
+
+  const provinces = useMemo(() => Array.from(new Set((licenses || []).map(getProvince).filter(Boolean))).sort(), [licenses]);
+  const services = useMemo(() => Array.from(new Set((licenses || []).map(getServiceType).filter(Boolean))).sort(), [licenses]);
+  const filteredLicenses = useMemo(() => (licenses || []).filter((license) => {
+    if (debouncedSearch && !getSearchText(license).includes(debouncedSearch)) return false;
+    if (statusFilter !== "all" && getStatusGroup(license) !== statusFilter) return false;
+    if (provinceFilter !== "all" && getProvince(license) !== provinceFilter) return false;
+    if (serviceFilter !== "all" && getServiceType(license) !== serviceFilter) return false;
+    return true;
+  }), [debouncedSearch, licenses, provinceFilter, serviceFilter, statusFilter]);
+
   const validLocations = useMemo(() => {
-    return (licenses || [])
-      .map((license) => {
+    return filteredLicenses
+      .map((license, index) => {
         const lat = getLatitude(license);
         const lng = getLongitude(license);
         if (lat === null || lng === null) return null;
@@ -443,8 +545,7 @@ export function EnterpriseLicenseMapView({
           lat,
           lng,
           key:
-            String(license?.id || "") ||
-            `${getLicenseNumber(license)}-${lat}-${lng}`,
+            `${String(license?.id || getLicenseNumber(license))}-${index}`,
         };
       })
       .filter(Boolean) as Array<{
@@ -453,7 +554,7 @@ export function EnterpriseLicenseMapView({
       lng: number;
       key: string;
     }>;
-  }, [licenses]);
+  }, [filteredLicenses]);
 
   const nmcIcon = useMemo(() => createNmcIcon(nmcLogoUrl), [nmcLogoUrl]);
 
@@ -491,8 +592,38 @@ export function EnterpriseLicenseMapView({
       }))
   ), [groupSharedLocations, locationGroups, validLocations]);
 
+  const statusCounts = {
+    active: filteredLicenses.filter((license) => getStatusGroup(license) === "active").length,
+    expiring: filteredLicenses.filter((license) => getStatusGroup(license) === "expiring").length,
+    expired: filteredLicenses.filter((license) => getStatusGroup(license) === "expired").length,
+  };
+  const missingGps = filteredLicenses.length - validLocations.length;
+  const hasFilters = Boolean(searchQuery || statusFilter !== "all" || provinceFilter !== "all" || serviceFilter !== "all");
+  const clearFilters = () => {
+    setSearchQuery("");
+    setDebouncedSearch("");
+    setStatusFilter("all");
+    setProvinceFilter("all");
+    setServiceFilter("all");
+  };
+  const locateUser = () => {
+    setLocationMessage("");
+    if (!navigator.geolocation) {
+      setLocationMessage("Location is not available in this browser.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(({ coords }) => {
+      const location = { lat: coords.latitude, lng: coords.longitude };
+      setUserLocation(location);
+      setFocusRequest({ id: Date.now(), ...location });
+    }, () => setLocationMessage(label("មិនអាចប្រើទីតាំងបច្ចុប្បន្នបានទេ។", "Location permission denied.")), {
+      enableHighAccuracy: true, timeout: 10000, maximumAge: 60000,
+    });
+  };
+  const label = (kh: string, en: string) => language === "km" ? kh : en;
+
   return (
-    <div className={className}>
+    <div className={`${className} ${isFullscreen ? "nmc-map-fullscreen" : ""}`}>
       <style>
         {`
           .nmc-license-map .leaflet-container {
@@ -513,13 +644,40 @@ export function EnterpriseLicenseMapView({
             background: transparent;
             border: 0;
           }
+          .nmc-license-map .marker-cluster div { background:#173f73; color:#fff; font-weight:900; }
+          .nmc-license-map .marker-cluster-small,
+          .nmc-license-map .marker-cluster-medium,
+          .nmc-license-map .marker-cluster-large { background:rgba(212,175,55,.82); }
+          .nmc-map-fullscreen { position:fixed !important; inset:0; z-index:10000; background:#eef4f8; padding:12px; overflow:auto; }
+          .nmc-map-fullscreen .nmc-license-map { height:calc(100vh - 290px) !important; min-height:360px !important; }
+          .nmc-map-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+          .nmc-map-search { position:relative; flex:1 1 320px; }
+          .nmc-map-search input, .nmc-map-filter { width:100%; height:40px; border:1px solid #c9d2e3; border-radius:6px; background:#fff; padding:0 10px; font-weight:650; }
+          .nmc-map-search input { padding-left:36px; }
+          .nmc-map-search svg { position:absolute; left:11px; top:11px; color:#64748b; }
+          .nmc-map-button { height:40px; display:inline-flex; align-items:center; justify-content:center; gap:6px; border:1px solid #244b82; border-radius:6px; padding:0 11px; background:#fff; color:#244b82; font-weight:800; cursor:pointer; white-space:nowrap; }
+          .nmc-map-button.primary { background:#173f73; color:#fff; }
+          .nmc-map-filter-row { display:grid; grid-template-columns:repeat(4,minmax(130px,1fr)); gap:8px; margin-bottom:10px; }
+          .nmc-map-summary { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+          .nmc-map-summary span { border-left:4px solid var(--tone); border-radius:4px; background:#f8fafc; padding:7px 10px; min-width:105px; color:#64748b; font-size:11px; font-weight:750; }
+          .nmc-map-summary strong { display:block; color:#0f172a; font-size:17px; }
+          .nmc-map-legend { display:flex; gap:14px; flex-wrap:wrap; align-items:center; padding-top:10px; color:#475569; font-size:12px; font-weight:750; }
+          .nmc-map-legend span { display:inline-flex; gap:6px; align-items:center; }
+          .nmc-map-legend i { width:10px; height:10px; border-radius:50%; }
+          @media(max-width:700px) {
+            .nmc-map-filter-row { grid-template-columns:1fr 1fr; }
+            .nmc-map-button { flex:1 1 auto; }
+            .nmc-license-map { height:430px !important; min-height:350px !important; }
+            .nmc-map-fullscreen { padding:5px; }
+            .nmc-map-fullscreen .nmc-license-map { height:calc(100vh - 390px) !important; }
+          }
         `}
       </style>
 
       <div
         style={{
           border: "1px solid #C9D2E3",
-          borderRadius: 16,
+          borderRadius: 8,
           background: "#ffffff",
           padding: 16,
           boxShadow: "0 1px 4px rgba(15, 23, 42, .08)",
@@ -545,44 +703,44 @@ export function EnterpriseLicenseMapView({
                 lineHeight: 1.25,
               }}
             >
-              ផែនទីទីតាំងសហគ្រាសដែលទទួលបានអាជ្ញាប័ណ្ណ
+              {label("ផែនទីទីតាំងអាជ្ញាប័ណ្ណ", "License Map")}
             </h2>
             <div style={{ color: "#475569", fontWeight: 700, marginTop: 4 }}>
-              Map of Licensed Enterprises
+              {label("ទីតាំងសហគ្រាសដែលទទួលបានអាជ្ញាប័ណ្ណ", "Enterprise license locations")}
             </div>
           </div>
 
-          <div
-            style={{
-              border: "1px solid #C9D2E3",
-              borderRadius: 10,
-              padding: "8px 12px",
-              color: "#0f172a",
-              background: "#f8fafc",
-              fontWeight: 800,
-            }}
-          >
-            GPS Locations: {validLocations.length}
-          </div>
+          {groupSharedLocations && <div className="nmc-map-toolbar">
+            <button className="nmc-map-button" type="button" title="Return to Cambodia view" onClick={() => setNormalRequest((value) => value + 1)}><RotateCcw size={15} />{label("ទិដ្ឋភាពធម្មតា", "Normal View")}</button>
+            <button className="nmc-map-button" type="button" title="Fit all filtered enterprises" onClick={() => setFitRequest((value) => value + 1)}><Focus size={15} />{label("បង្ហាញទាំងអស់", "Fit All")}</button>
+            <button className="nmc-map-button" type="button" title="Show current location" onClick={locateUser}><LocateFixed size={15} />{label("ទីតាំងបច្ចុប្បន្ន", "Current Location")}</button>
+            <button className="nmc-map-button primary" type="button" title={isFullscreen ? "Exit fullscreen" : "Fullscreen map"} onClick={() => setIsFullscreen((value) => !value)}>{isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}{isFullscreen ? "Exit" : label("ពេញអេក្រង់", "Fullscreen")}</button>
+          </div>}
         </div>
 
-        {groupSharedLocations && groupedEnterpriseCount > 0 && (
-          <div
-            style={{
-              marginBottom: 12,
-              border: '1px solid #bfdbfe',
-              background: '#eff6ff',
-              color: '#1e3a8a',
-              borderRadius: 10,
-              padding: 12,
-              fontWeight: 700,
-            }}
-          >
-            {validLocations.length} enterprises are shown in {locationGroups.length} GPS location groups. Numbered markers contain multiple licensed enterprises at the same recorded coordinates.
+        {groupSharedLocations && <>
+          <div className="nmc-map-toolbar">
+            <div className="nmc-map-search"><Search size={17} /><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={label("ស្វែងរកសហគ្រាស លេខអាជ្ញាប័ណ្ណ ខេត្ត...", "Search enterprise, license, province...")} aria-label="Search enterprise locations" /></div>
+            {hasFilters && <button className="nmc-map-button" type="button" onClick={clearFilters}><X size={15} />{label("សម្អាតតម្រង", "Clear filters")}</button>}
           </div>
-        )}
+          <div className="nmc-map-filter-row">
+            <select className="nmc-map-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Status filter"><option value="all">Status: All</option><option value="active">Active</option><option value="expiring">Expiring Soon</option><option value="expired">Expired</option></select>
+            <select className="nmc-map-filter" value={provinceFilter} onChange={(event) => setProvinceFilter(event.target.value)} aria-label="Province filter"><option value="all">Province: All</option>{provinces.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+            <select className="nmc-map-filter" value={serviceFilter} onChange={(event) => setServiceFilter(event.target.value)} aria-label="Service filter"><option value="all">Service: All</option>{services.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+            <button className="nmc-map-button" type="button" onClick={() => setFitRequest((value) => value + 1)}>Fit filtered results</button>
+          </div>
+          <div className="nmc-map-summary">
+            <span style={{"--tone":"#173f73"} as React.CSSProperties}><strong>{validLocations.length}</strong>On map</span>
+            <span style={{"--tone":"#16a34a"} as React.CSSProperties}><strong>{statusCounts.active}</strong>Active</span>
+            <span style={{"--tone":"#f59e0b"} as React.CSSProperties}><strong>{statusCounts.expiring}</strong>Expiring Soon</span>
+            <span style={{"--tone":"#dc2626"} as React.CSSProperties}><strong>{statusCounts.expired}</strong>Expired</span>
+            <span style={{"--tone":"#94a3b8"} as React.CSSProperties}><strong>{missingGps}</strong>Missing GPS</span>
+          </div>
+        </>}
 
-        {validLocations.length === 0 && (
+        {locationMessage && <div style={{ marginBottom: 12, color: "#92400e", fontWeight: 700 }}>{locationMessage}</div>}
+
+        {!isLoading && validLocations.length === 0 && (
           <div
             style={{
               marginBottom: 12,
@@ -597,9 +755,11 @@ export function EnterpriseLicenseMapView({
             មិនមានទីតាំងសហគ្រាសសម្រាប់បង្ហាញលើផែនទីទេ។ សូមបញ្ចូល Latitude
             និង Longitude ក្នុងទម្រង់អាជ្ញាប័ណ្ណជាមុនសិន។
             <br />
-            No licensed enterprise locations are available on the map.
+            {filteredLicenses.length === 0 ? "No enterprises match the current filters." : "No licensed enterprise locations are available on the map."}
           </div>
         )}
+
+        {isLoading && <div style={{ marginBottom: 12, color: "#475569", fontWeight: 700 }}>Loading enterprise locations...</div>}
 
         <MapErrorBoundary>
           <div
@@ -615,15 +775,11 @@ export function EnterpriseLicenseMapView({
             }}
           >
             <MapContainer
-              center={
-                validLocations.length === 1
-                  ? [validLocations[0].lat, validLocations[0].lng]
-                  : PHNOM_PENH_CENTER
-              }
-              zoom={validLocations.length === 1 ? 16 : 12}
+              center={CAMBODIA_CENTER}
+              zoom={CAMBODIA_DEFAULT_ZOOM}
               minZoom={groupSharedLocations ? 5 : undefined}
               maxZoom={groupSharedLocations ? 19 : undefined}
-              zoomControl={groupSharedLocations ? true : undefined}
+              zoomControl={true}
               scrollWheelZoom={true}
               className="h-full w-full"
               style={{ width: "100%", height: "100%" }}
@@ -634,28 +790,49 @@ export function EnterpriseLicenseMapView({
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
 
-              {displayedLocationGroups.map(({ key, lat, lng, locations }) => (
+              {groupSharedLocations ? <MarkerClusterGroup
+                chunkedLoading
+                animate
+                removeOutsideVisibleBounds
+                showCoverageOnHover={false}
+                spiderfyOnMaxZoom
+                spiderfyDistanceMultiplier={1.7}
+                zoomToBoundsOnClick
+              >{validLocations.map(({ key, lat, lng, license }) => (
                 <Marker
                   key={key}
                   position={[lat, lng]}
-                  icon={locations.length > 1 ? createNmcIcon(nmcLogoUrl, locations.length) : nmcIcon}
-                  title={locations.length > 1 ? `${locations.length} licensed enterprises at this location` : getCompanyName(locations[0].license)}
+                  icon={nmcIcon}
+                  title={getCompanyName(license)}
                 >
                   <Popup>
-                    <EnterpriseLocationGroupPopup locations={locations} onViewLicense={onViewLicense} />
+                    <EnterpriseMarkerPopup license={license} lat={lat} lng={lng} onViewLicense={onViewLicense} />
                   </Popup>
+                </Marker>
+              ))}</MarkerClusterGroup> : displayedLocationGroups.map(({ key, lat, lng, locations }) => (
+                <Marker key={key} position={[lat, lng]} icon={nmcIcon} title={getCompanyName(locations[0].license)}>
+                  <Popup><EnterpriseLocationGroupPopup locations={locations} onViewLicense={onViewLicense} /></Popup>
                 </Marker>
               ))}
 
-              <FitBoundsToMarkers
-                locations={displayedLocationGroups.map((item) => ({
-                  lat: item.lat,
-                  lng: item.lng,
-                }))}
+              {userLocation && <CircleMarker center={[userLocation.lat, userLocation.lng]} radius={9} pathOptions={{ color: "#fff", weight: 3, fillColor: "#2563eb", fillOpacity: 1 }}><Popup>Your current location</Popup></CircleMarker>}
+
+              <MapViewportController
+                locations={validLocations.map(({ lat, lng }) => ({ lat, lng }))}
+                normalRequest={normalRequest}
+                fitRequest={fitRequest}
+                focusRequest={focusRequest}
               />
             </MapContainer>
           </div>
         </MapErrorBoundary>
+        <div className="nmc-map-legend">
+          <span><i style={{background:"#16a34a"}} />{label("សកម្ម", "Active")}</span>
+          <span><i style={{background:"#f59e0b"}} />{label("ជិតផុតកំណត់", "Expiring Soon")}</span>
+          <span><i style={{background:"#dc2626"}} />{label("ផុតកំណត់", "Expired")}</span>
+          <span><i style={{background:"#94a3b8"}} />{label("គ្មាន GPS", "Missing GPS")}</span>
+          {groupSharedLocations && <span><i style={{background:"#173f73", border:"2px solid #d4af37"}} />Cluster count</span>}
+        </div>
       </div>
     </div>
   );

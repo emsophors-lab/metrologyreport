@@ -1037,14 +1037,15 @@ export default function SuperadminDashboard({ currentUser, reports, users, activ
         </div>
         <RenderWhenNearViewport fallback={<div className="superdash-map" />}>
           <Suspense fallback={<div className="superdash-map" />}>
-            <EnterpriseLicenseMapView licenses={mapRecords} nmcLogoUrl={nmcLogo} className="superdash-map" />
+            <EnterpriseLicenseMapView
+              licenses={mapRecords}
+              nmcLogoUrl={nmcLogo}
+              className="superdash-map"
+              language={language}
+              isLoading={isLoading}
+            />
           </Suspense>
         </RenderWhenNearViewport>
-        <div className="superdash-map-legend">
-          <span><i className="is-active" /> {dt('active', language)}</span>
-          <span><i className="is-expiring" /> {dt('expiringSoon', language)}</span>
-          <span><i className="is-expired" /> {dt('expired', language)}</span>
-        </div>
       </section>
 
       <TopServiceCompanies reports={reports} users={users} />
