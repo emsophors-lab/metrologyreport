@@ -109,6 +109,27 @@ function getStatusGroup(license: EnterpriseLicenseRecord): "active" | "expiring"
   return "active";
 }
 
+function getDaysLeft(license: EnterpriseLicenseRecord): number | null {
+  const value = firstValue(license, ["license_expiry_date", "expiry_date", "expiration_date"]);
+  if (!value) return null;
+  const expiry = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value);
+  if (Number.isNaN(expiry.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  expiry.setHours(0, 0, 0, 0);
+  return Math.ceil((expiry.getTime() - today.getTime()) / 86400000);
+}
+
+function isTelegramLinked(license: EnterpriseLicenseRecord): boolean {
+  return Boolean(firstValue(license, ["telegram_chat_id", "telegram_connected_at"])) ||
+    license?.telegram_linked === true || license?.is_telegram_linked === true;
+}
+
+function getCompleteness(license: EnterpriseLicenseRecord): number {
+  const checks = [getCompanyName(license) !== "N/A", getLicenseNumber(license) !== "N/A", getKhmerAddress(license), getProvince(license), getServiceType(license), getLatitude(license), getLongitude(license)];
+  return Math.round(checks.filter((value) => value !== null && value !== "").length / checks.length * 100);
+}
+
 function getSearchText(license: EnterpriseLicenseRecord): string {
   return [
     getCompanyName(license),
@@ -174,38 +195,26 @@ function formatCoordinate(value: number): string {
   return Number(value).toFixed(7).replace(/0+$/, "").replace(/\.$/, "");
 }
 
-function createNmcIcon(nmcLogoUrl?: string, locationCount = 1): L.Icon | L.DivIcon {
-  if (locationCount > 1) {
-    const logo = nmcLogoUrl && String(nmcLogoUrl).trim() !== ''
-      ? `<img src="${encodeURI(nmcLogoUrl)}" alt="" style="width:38px;height:38px;object-fit:contain;border-radius:9999px;background:#fff;" />`
-      : '<span style="font-size:11px;font-weight:800;">NMC</span>';
-
-    return L.divIcon({
-      className: 'nmc-location-group-marker',
-      html: `<div style="position:relative;width:46px;height:46px;border-radius:9999px;display:flex;align-items:center;justify-content:center;background:#fff;border:3px solid #ffffff;box-shadow:0 2px 8px rgba(0,0,0,.35);overflow:visible;">${logo}<span style="position:absolute;right:-8px;top:-8px;min-width:22px;height:22px;padding:0 5px;border-radius:9999px;display:flex;align-items:center;justify-content:center;background:#353C96;color:#fff;border:2px solid #fff;font-size:11px;font-weight:800;line-height:1;">${locationCount}</span></div>`,
-      iconSize: [46, 46],
-      iconAnchor: [23, 23],
-      popupAnchor: [0, -23],
-    });
-  }
-
-  if (nmcLogoUrl && String(nmcLogoUrl).trim() !== "") {
-    return L.icon({
-      iconUrl: nmcLogoUrl,
-      iconSize: [40, 40],
-      iconAnchor: [20, 20],
-      popupAnchor: [0, -20],
-      className: "nmc-logo-leaflet-marker",
-    });
-  }
-
+function createNmcIcon(nmcLogoUrl?: string): L.DivIcon {
+  const logo = nmcLogoUrl && String(nmcLogoUrl).trim() !== ""
+    ? `<img src="${encodeURI(nmcLogoUrl)}" alt="" />`
+    : "<span>NMC</span>";
   return L.divIcon({
-    className: "nmc-fallback-leaflet-marker",
-    html:
-      '<div style="width:40px;height:40px;border-radius:9999px;background:#353C96;color:white;display:flex;align-items:center;justify-content:center;font-weight:800;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,.35);font-size:11px;">NMC</div>',
-    iconSize: [40, 40],
-    iconAnchor: [20, 20],
-    popupAnchor: [0, -20],
+    className: "nmc-enterprise-marker",
+    html: `<div class="nmc-enterprise-marker__pin">${logo}</div>`,
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
+    popupAnchor: [0, -22],
+  });
+}
+
+function createClusterIcon(cluster: { getChildCount: () => number }): L.DivIcon {
+  const count = cluster.getChildCount();
+  return L.divIcon({
+    className: "nmc-cluster-marker",
+    html: `<div class="nmc-cluster-marker__outer"><span>${count}</span></div>`,
+    iconSize: [50, 50],
+    iconAnchor: [25, 25],
   });
 }
 
@@ -305,6 +314,8 @@ function EnterpriseMarkerPopup({
 
   const osmUrl = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=18/${lat}/${lng}`;
   const googleUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  const issueDate = firstValue(license, ["license_issue_date", "issue_date"]) || "N/A";
+  const expiryDate = firstValue(license, ["license_expiry_date", "expiry_date", "expiration_date"]) || "N/A";
 
   return (
     <div style={{ minWidth: 260, maxWidth: 340, fontSize: 13 }}>
@@ -319,6 +330,11 @@ function EnterpriseMarkerPopup({
       <div style={{ marginBottom: 4 }}>
         <strong>ស្ថានភាព / Status:</strong> {status}
       </div>
+
+      <div style={{ marginBottom: 4 }}><strong>Issue / Expiry:</strong> {issueDate} / {expiryDate}</div>
+      <div style={{ marginBottom: 4 }}><strong>Province:</strong> {getProvince(license) || "N/A"}</div>
+      <div style={{ marginBottom: 4 }}><strong>Telegram:</strong> {isTelegramLinked(license) ? "Linked" : "Not linked"}</div>
+      <div style={{ marginBottom: 4 }}><strong>Data completeness:</strong> {getCompleteness(license)}%</div>
 
       <div style={{ marginBottom: 4 }}>
         <strong>អាសយដ្ឋាន / Address:</strong>
@@ -379,6 +395,13 @@ function EnterpriseMarkerPopup({
         >
           Google Maps
         </a>
+        <button
+          type="button"
+          onClick={() => navigator.clipboard?.writeText(`${formatCoordinate(lat)}, ${formatCoordinate(lng)}`)}
+          style={{ border: "1px solid #353C96", borderRadius: 6, color: "#353C96", background: "#fff", padding: "6px 10px", fontWeight: 700, cursor: "pointer" }}
+        >
+          Copy Coordinates
+        </button>
       </div>
     </div>
   );
@@ -495,6 +518,9 @@ export function EnterpriseLicenseMapView({
   const [statusFilter, setStatusFilter] = useState("all");
   const [provinceFilter, setProvinceFilter] = useState("all");
   const [serviceFilter, setServiceFilter] = useState("all");
+  const [gpsFilter, setGpsFilter] = useState("all");
+  const [telegramFilter, setTelegramFilter] = useState("all");
+  const [validityFilter, setValidityFilter] = useState("all");
   const [normalRequest, setNormalRequest] = useState(0);
   const [fitRequest, setFitRequest] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -530,8 +556,17 @@ export function EnterpriseLicenseMapView({
     if (statusFilter !== "all" && getStatusGroup(license) !== statusFilter) return false;
     if (provinceFilter !== "all" && getProvince(license) !== provinceFilter) return false;
     if (serviceFilter !== "all" && getServiceType(license) !== serviceFilter) return false;
+    const hasGps = getLatitude(license) !== null && getLongitude(license) !== null;
+    if (gpsFilter === "gps" && !hasGps) return false;
+    if (gpsFilter === "missing" && hasGps) return false;
+    if (telegramFilter === "linked" && !isTelegramLinked(license)) return false;
+    if (telegramFilter === "unlinked" && isTelegramLinked(license)) return false;
+    const days = getDaysLeft(license);
+    if (validityFilter === "30" && (days === null || days < 0 || days > 30)) return false;
+    if (validityFilter === "90" && (days === null || days < 0 || days > 90)) return false;
+    if (validityFilter === "expired" && (days === null || days >= 0)) return false;
     return true;
-  }), [debouncedSearch, licenses, provinceFilter, serviceFilter, statusFilter]);
+  }), [debouncedSearch, gpsFilter, licenses, provinceFilter, serviceFilter, statusFilter, telegramFilter, validityFilter]);
 
   const validLocations = useMemo(() => {
     return filteredLicenses
@@ -598,13 +633,16 @@ export function EnterpriseLicenseMapView({
     expired: filteredLicenses.filter((license) => getStatusGroup(license) === "expired").length,
   };
   const missingGps = filteredLicenses.length - validLocations.length;
-  const hasFilters = Boolean(searchQuery || statusFilter !== "all" || provinceFilter !== "all" || serviceFilter !== "all");
+  const hasFilters = Boolean(searchQuery || statusFilter !== "all" || provinceFilter !== "all" || serviceFilter !== "all" || gpsFilter !== "all" || telegramFilter !== "all" || validityFilter !== "all");
   const clearFilters = () => {
     setSearchQuery("");
     setDebouncedSearch("");
     setStatusFilter("all");
     setProvinceFilter("all");
     setServiceFilter("all");
+    setGpsFilter("all");
+    setTelegramFilter("all");
+    setValidityFilter("all");
   };
   const locateUser = () => {
     setLocationMessage("");
@@ -634,20 +672,38 @@ export function EnterpriseLicenseMapView({
           .nmc-license-map .leaflet-popup-content-wrapper {
             border-radius: 10px;
           }
-          .nmc-logo-leaflet-marker {
-            border-radius: 9999px;
-            border: 2px solid #ffffff;
-            box-shadow: 0 2px 8px rgba(0,0,0,.35);
-            background: #ffffff;
-          }
-          .nmc-location-group-marker {
+          .nmc-enterprise-marker,
+          .nmc-cluster-marker {
             background: transparent;
             border: 0;
           }
-          .nmc-license-map .marker-cluster div { background:#173f73; color:#fff; font-weight:900; }
-          .nmc-license-map .marker-cluster-small,
-          .nmc-license-map .marker-cluster-medium,
-          .nmc-license-map .marker-cluster-large { background:rgba(212,175,55,.82); }
+          .nmc-enterprise-marker__pin {
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            border: 4px solid #16a34a;
+            border-radius: 9999px;
+            background: #ffffff;
+            box-shadow: 0 2px 10px rgba(15, 23, 42, .48);
+          }
+          .nmc-enterprise-marker__pin img { width: 32px; height: 32px; object-fit: contain; border-radius: 9999px; }
+          .nmc-enterprise-marker__pin span { color: #173f73; font-size: 10px; font-weight: 900; }
+          .nmc-cluster-marker__outer {
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            border: 4px solid #f5c242;
+            border-radius: 9999px;
+            background: #173f73;
+            box-shadow: 0 2px 11px rgba(15, 23, 42, .48);
+          }
+          .nmc-cluster-marker__outer span { color: #ffffff; font-size: 15px; font-weight: 900; line-height: 1; }
           .nmc-map-fullscreen { position:fixed !important; inset:0; z-index:10000; background:#eef4f8; padding:12px; overflow:auto; }
           .nmc-map-fullscreen .nmc-license-map { height:calc(100vh - 290px) !important; min-height:360px !important; }
           .nmc-map-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
@@ -727,6 +783,9 @@ export function EnterpriseLicenseMapView({
             <select className="nmc-map-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Status filter"><option value="all">Status: All</option><option value="active">Active</option><option value="expiring">Expiring Soon</option><option value="expired">Expired</option></select>
             <select className="nmc-map-filter" value={provinceFilter} onChange={(event) => setProvinceFilter(event.target.value)} aria-label="Province filter"><option value="all">Province: All</option>{provinces.map((value) => <option key={value} value={value}>{value}</option>)}</select>
             <select className="nmc-map-filter" value={serviceFilter} onChange={(event) => setServiceFilter(event.target.value)} aria-label="Service filter"><option value="all">Service: All</option>{services.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+            <select className="nmc-map-filter" value={gpsFilter} onChange={(event) => setGpsFilter(event.target.value)} aria-label="GPS filter"><option value="all">GPS: All</option><option value="gps">Has GPS</option><option value="missing">Missing GPS</option></select>
+            <select className="nmc-map-filter" value={telegramFilter} onChange={(event) => setTelegramFilter(event.target.value)} aria-label="Telegram filter"><option value="all">Telegram: All</option><option value="linked">Linked</option><option value="unlinked">Not linked</option></select>
+            <select className="nmc-map-filter" value={validityFilter} onChange={(event) => setValidityFilter(event.target.value)} aria-label="Validity filter"><option value="all">Validity: All</option><option value="30">Expires in 30 days</option><option value="90">Expires in 90 days</option><option value="expired">Expired</option></select>
             <button className="nmc-map-button" type="button" onClick={() => setFitRequest((value) => value + 1)}>Fit filtered results</button>
           </div>
           <div className="nmc-map-summary">
@@ -798,6 +857,7 @@ export function EnterpriseLicenseMapView({
                 spiderfyOnMaxZoom
                 spiderfyDistanceMultiplier={1.7}
                 zoomToBoundsOnClick
+                iconCreateFunction={createClusterIcon}
               >{validLocations.map(({ key, lat, lng, license }) => (
                 <Marker
                   key={key}
