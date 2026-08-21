@@ -208,32 +208,38 @@ function createNmcIcon(nmcLogoUrl?: string): L.DivIcon {
   });
 }
 
-function createClusterIcon(cluster: { getChildCount: () => number }): L.DivIcon {
+function createClusterIcon(cluster: { getChildCount: () => number }, size = 50): L.DivIcon {
   const count = cluster.getChildCount();
   return L.divIcon({
     className: "nmc-cluster-marker",
-    html: `<div class="nmc-cluster-marker__outer"><span>${count}</span></div>`,
-    iconSize: [50, 50],
-    iconAnchor: [25, 25],
+    html: `<div class="nmc-cluster-marker__outer" style="width:${size}px;height:${size}px"><span>${count}</span></div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
   });
 }
 
-function ResizeMapFix() {
+function ResizeMapFix({ layoutKey }: { layoutKey: string }) {
   const map = useMap();
 
   useEffect(() => {
-    const timer1 = window.setTimeout(() => map.invalidateSize(), 100);
-    const timer2 = window.setTimeout(() => map.invalidateSize(), 500);
+    const invalidate = () => map.invalidateSize({ pan: false });
+    const timers = [0, 200, 500].map((delay) => window.setTimeout(invalidate, delay));
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => invalidate());
+    resizeObserver?.observe(map.getContainer());
 
-    const handleResize = () => map.invalidateSize();
+    const handleResize = () => invalidate();
     window.addEventListener("resize", handleResize);
+    window.addEventListener("orientationchange", handleResize);
 
     return () => {
-      window.clearTimeout(timer1);
-      window.clearTimeout(timer2);
+      timers.forEach(window.clearTimeout);
+      resizeObserver?.disconnect();
       window.removeEventListener("resize", handleResize);
+      window.removeEventListener("orientationchange", handleResize);
     };
-  }, [map]);
+  }, [layoutKey, map]);
 
   return null;
 }
@@ -524,6 +530,7 @@ export function EnterpriseLicenseMapView({
   const [normalRequest, setNormalRequest] = useState(0);
   const [fitRequest, setFitRequest] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationMessage, setLocationMessage] = useState("");
   const [focusRequest, setFocusRequest] = useState<{ id: number; lat: number; lng: number } | null>(null);
@@ -532,6 +539,14 @@ export function EnterpriseLicenseMapView({
     const timer = window.setTimeout(() => setDebouncedSearch(searchQuery.trim().toLowerCase()), 250);
     return () => window.clearTimeout(timer);
   }, [searchQuery]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 700px)");
+    const updateViewport = () => setIsMobileViewport(mediaQuery.matches);
+    updateViewport();
+    mediaQuery.addEventListener("change", updateViewport);
+    return () => mediaQuery.removeEventListener("change", updateViewport);
+  }, []);
 
   useEffect(() => {
     if (!isFullscreen) return;
@@ -659,6 +674,10 @@ export function EnterpriseLicenseMapView({
     });
   };
   const label = (kh: string, en: string) => language === "km" ? kh : en;
+  const mapLayoutKey = `${isFullscreen}-${isMobileViewport}-${validLocations.length}`;
+  const clusterIconCreate = useMemo(() => (
+    (cluster: { getChildCount: () => number }) => createClusterIcon(cluster, isMobileViewport ? 44 : 50)
+  ), [isMobileViewport]);
 
   return (
     <div className={`${className} ${isFullscreen ? "nmc-map-fullscreen" : ""}`}>
@@ -704,6 +723,10 @@ export function EnterpriseLicenseMapView({
             box-shadow: 0 2px 11px rgba(15, 23, 42, .48);
           }
           .nmc-cluster-marker__outer span { color: #ffffff; font-size: 15px; font-weight: 900; line-height: 1; }
+          .nmc-license-map .leaflet-marker-pane,
+          .nmc-license-map .leaflet-popup-pane { z-index: 650; }
+          .nmc-license-map .leaflet-popup { max-width: calc(100vw - 32px); }
+          .nmc-license-map .leaflet-popup-content { max-width: calc(100vw - 72px); overflow-wrap: anywhere; }
           .nmc-map-fullscreen { position:fixed !important; inset:0; z-index:10000; background:#eef4f8; padding:12px; overflow:auto; }
           .nmc-map-fullscreen .nmc-license-map { height:calc(100vh - 290px) !important; min-height:360px !important; }
           .nmc-map-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
@@ -726,6 +749,9 @@ export function EnterpriseLicenseMapView({
             .nmc-license-map { height:430px !important; min-height:350px !important; }
             .nmc-map-fullscreen { padding:5px; }
             .nmc-map-fullscreen .nmc-license-map { height:calc(100vh - 390px) !important; }
+            .nmc-enterprise-marker__pin { width: 42px; height: 42px; }
+            .nmc-enterprise-marker__pin img { width: 30px; height: 30px; }
+            .nmc-cluster-marker__outer span { font-size: 14px; }
           }
         `}
       </style>
@@ -843,7 +869,7 @@ export function EnterpriseLicenseMapView({
               className="h-full w-full"
               style={{ width: "100%", height: "100%" }}
             >
-              <ResizeMapFix />
+              <ResizeMapFix layoutKey={mapLayoutKey} />
               <TileLayer
                 attribution="&copy; OpenStreetMap contributors"
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -852,12 +878,14 @@ export function EnterpriseLicenseMapView({
               {groupSharedLocations ? <MarkerClusterGroup
                 chunkedLoading
                 animate
-                removeOutsideVisibleBounds
+                removeOutsideVisibleBounds={!isMobileViewport}
                 showCoverageOnHover={false}
                 spiderfyOnMaxZoom
                 spiderfyDistanceMultiplier={1.7}
                 zoomToBoundsOnClick
-                iconCreateFunction={createClusterIcon}
+                disableClusteringAtZoom={isMobileViewport ? 12 : 13}
+                maxClusterRadius={isMobileViewport ? 34 : 50}
+                iconCreateFunction={clusterIconCreate}
               >{validLocations.map(({ key, lat, lng, license }) => (
                 <Marker
                   key={key}
