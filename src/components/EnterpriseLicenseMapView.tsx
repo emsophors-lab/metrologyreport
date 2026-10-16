@@ -222,7 +222,10 @@ function ResizeMapFix({ layoutKey }: { layoutKey: string }) {
   const map = useMap();
 
   useEffect(() => {
-    const invalidate = () => map.invalidateSize({ pan: false });
+    // Keep the map centre stable across resizes. invalidateSize({ pan: false })
+    // anchors the top-left corner instead, so when the container shrinks on a
+    // phone the markers drift outside the visible area.
+    const invalidate = () => map.invalidateSize();
     const timers = [0, 200, 500].map((delay) => window.setTimeout(invalidate, delay));
     const resizeObserver = typeof ResizeObserver === "undefined"
       ? null
@@ -244,15 +247,27 @@ function ResizeMapFix({ layoutKey }: { layoutKey: string }) {
   return null;
 }
 
-function fitLocations(map: L.Map, locations: Array<{ lat: number; lng: number }>) {
+// `animate` is off for automatic fits: during start-up and layout changes the
+// map is still being invalidated, which cancels an in-flight pan animation and
+// leaves the map on its default view with every marker off screen.
+function fitLocations(map: L.Map, locations: Array<{ lat: number; lng: number }>, animate = true) {
   map.closePopup();
+  // Leaflet must know its real size before it can work out the right zoom,
+  // otherwise the fit is computed for a stale container and markers land
+  // outside the visible area on small screens.
+  map.invalidateSize();
   if (locations.length === 0) {
-    map.setView(CAMBODIA_CENTER, CAMBODIA_DEFAULT_ZOOM, { animate: true });
+    map.setView(CAMBODIA_CENTER, CAMBODIA_DEFAULT_ZOOM, { animate });
   } else if (locations.length === 1) {
-    map.setView([locations[0].lat, locations[0].lng], 16, { animate: true });
+    map.setView([locations[0].lat, locations[0].lng], 16, { animate });
   } else {
+    // A flat 50px inset eats most of a phone-sized map, which pushes outer
+    // markers off screen. Scale the padding to the container instead.
+    const size = map.getSize();
+    const padX = Math.max(12, Math.min(50, Math.round(size.x * 0.08)));
+    const padY = Math.max(12, Math.min(50, Math.round(size.y * 0.08)));
     map.fitBounds(L.latLngBounds(locations.map(({ lat, lng }) => [lat, lng])), {
-      padding: [50, 50], maxZoom: 13, animate: true,
+      padding: [padX, padY], maxZoom: 13, animate,
     });
   }
 }
@@ -273,11 +288,62 @@ function MapViewportController({
   const handledNormalRef = useRef(normalRequest);
   const handledFitRef = useRef(fitRequest);
   const handledFocusRef = useRef(0);
+  const userMovedRef = useRef(false);
+  const lastSizeRef = useRef<{ width: number; height: number } | null>(null);
 
   useEffect(() => {
     if (initializedRef.current || locations.length === 0) return;
     initializedRef.current = true;
-    fitLocations(map, locations);
+    fitLocations(map, locations, false);
+    // Remember the size this fit was computed for, so that any later layout
+    // change is seen as a change and the view is re-fitted.
+    const container = map.getContainer();
+    lastSizeRef.current = { width: container.clientWidth, height: container.clientHeight };
+  }, [locations, map]);
+
+  // Once the user pans/zooms/taps the map themselves, stop re-fitting the view.
+  useEffect(() => {
+    const container = map.getContainer();
+    const markMoved = () => { userMovedRef.current = true; };
+    container.addEventListener("pointerdown", markMoved, { passive: true });
+    container.addEventListener("wheel", markMoved, { passive: true });
+    return () => {
+      container.removeEventListener("pointerdown", markMoved);
+      container.removeEventListener("wheel", markMoved);
+    };
+  }, [map]);
+
+  // The initial fit is computed once, for whatever size the container had at the
+  // time. On phones the container is still resizing afterwards (lazy mount, late
+  // CSS/font layout, the mobile breakpoint flip, rotation, browser chrome hiding),
+  // so that fit goes stale and the markers end up outside the smaller viewport.
+  // Re-fit whenever the container changes size materially and the user has not
+  // taken over the map yet.
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const container = map.getContainer();
+
+    const observer = new ResizeObserver(() => {
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      if (width === 0 || height === 0) return;
+
+      const previous = lastSizeRef.current;
+      lastSizeRef.current = { width, height };
+      if (!previous) return;
+      if (Math.abs(previous.width - width) < 40 && Math.abs(previous.height - height) < 40) return;
+      if (userMovedRef.current || locations.length === 0) return;
+
+      // Deferred so the refit runs after this layout pass, not inside it.
+      window.requestAnimationFrame(() => {
+        if (userMovedRef.current) return;
+        map.invalidateSize();
+        fitLocations(map, locations, false);
+      });
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
   }, [locations, map]);
 
   useEffect(() => {
