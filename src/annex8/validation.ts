@@ -148,7 +148,7 @@ export function validateAnnex8(
 
   if (hasAnyFailed(state) && state.events.e6_5?.yes === false) {
     add('block', 'R10', STEP_INDEX.PART6,
-      'មានឧបករណ៍ «មិនឆ្លង» — ចំណុច ៦.៥ ត្រូវជ្រើស «មាន» ហើយបញ្ជាក់វិធានការ', 'events.e6_5.yes');
+      'មានឧបករណ៍ «ធ្លាក់» — ចំណុច ៦.៥ ត្រូវជ្រើស «មាន» ហើយបញ្ជាក់វិធានការ', 'events.e6_5.yes');
   }
 
   /* ---------- Part 7 — declaration & timing ---------- */

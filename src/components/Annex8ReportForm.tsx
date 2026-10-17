@@ -864,7 +864,7 @@ export default function Annex8ReportForm({
                         <tr>
                           <th className="p-2 text-left">ប្រភេទ / Category</th>
                           <th className="p-2">ផលិត</th><th className="p-2">ដំឡើង</th><th className="p-2">ជួសជុល</th>
-                          <th className="p-2">ឆ្លង</th><th className="p-2">មិនឆ្លង</th><th className="p-2">រង់ចាំ</th>
+                          <th className="p-2">ជាប់</th><th className="p-2">ធ្លាក់</th><th className="p-2">រង់ចាំ</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -896,7 +896,7 @@ export default function Annex8ReportForm({
                     </table>
                   </div>
                   <p className={`mt-2 text-[11px] font-black ${summary.balanced ? 'text-emerald-600' : 'text-red-600'}`}>
-                    V01: ផលិត + ដំឡើង + ជួសជុល ({summary.activity}) = ឆ្លង + មិនឆ្លង + រង់ចាំ ({summary.results}) {summary.balanced ? '✓' : '✗'}
+                    V01: ផលិត + ដំឡើង + ជួសជុល ({summary.activity}) = ជាប់ + ធ្លាក់ + រង់ចាំ ({summary.results}) {summary.balanced ? '✓' : '✗'}
                   </p>
                   {summary.provinces.length > 0 && (
                     <p className="mt-1 text-[11px] font-semibold text-slate-500">

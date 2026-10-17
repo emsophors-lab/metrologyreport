@@ -24,7 +24,7 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 const STATUS_KH: Record<string, string> = {
-  PASSED: 'ឆ្លង', FAILED: 'មិនឆ្លង', PENDING: 'រង់ចាំ',
+  PASSED: 'ជាប់', FAILED: 'ធ្លាក់', PENDING: 'រង់ចាំ',
 };
 
 function StatCard({
@@ -100,8 +100,8 @@ function VerificationDonut({ passed, failed, pending }: { passed: number; failed
       </div>
       <ul className="min-w-0 flex-1 space-y-1.5 text-[11px] font-bold">
         {[
-          ['ឆ្លង / Passed', passed, 'bg-emerald-500'],
-          ['មិនឆ្លង / Failed', failed, 'bg-red-500'],
+          ['ជាប់ / Passed', passed, 'bg-emerald-500'],
+          ['ធ្លាក់ / Failed', failed, 'bg-red-500'],
           ['រង់ចាំ / Pending', pending, 'bg-amber-500'],
         ].map(([label, value, dot]) => (
           <li key={String(label)} className="flex items-center gap-2">
@@ -182,9 +182,9 @@ export default function Annex8ReportOverview({ state }: { state: Annex8State }) 
           value={summary.total.installed} tone="border-[#2F6682]/25 bg-[#2F6682]/5 text-[#2F6682]" />
         <StatCard icon={<Wrench className="h-5 w-5" />} kh="ជួសជុល" en="Repaired"
           value={summary.total.repaired} tone="border-[#C9A227]/30 bg-[#C9A227]/10 text-[#8a6f14]" />
-        <StatCard icon={<CheckCircle2 className="h-5 w-5" />} kh="ឆ្លង" en="Passed"
+        <StatCard icon={<CheckCircle2 className="h-5 w-5" />} kh="ជាប់" en="Passed"
           value={summary.total.passed} tone="border-emerald-200 bg-emerald-50 text-emerald-700" />
-        <StatCard icon={<XCircle className="h-5 w-5" />} kh="មិនឆ្លង" en="Failed"
+        <StatCard icon={<XCircle className="h-5 w-5" />} kh="ធ្លាក់" en="Failed"
           value={summary.total.failed} tone="border-red-200 bg-red-50 text-red-700" />
         <StatCard icon={<Clock3 className="h-5 w-5" />} kh="រង់ចាំ" en="Pending"
           value={summary.total.pending} tone="border-amber-200 bg-amber-50 text-amber-700" />

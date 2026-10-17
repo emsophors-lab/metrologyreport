@@ -81,8 +81,8 @@ export const OP_CODE_LABELS: Record<OpCode, { kh: string; en: string }> = {
 };
 
 export const VERIFICATION_LABELS: Record<VerificationStatus, { kh: string; en: string }> = {
-  PASSED: { kh: 'ឆ្លង', en: 'Passed' },
-  FAILED: { kh: 'មិនឆ្លង', en: 'Failed' },
+  PASSED: { kh: 'ជាប់', en: 'Passed' },
+  FAILED: { kh: 'ធ្លាក់', en: 'Failed' },
   PENDING: { kh: 'រង់ចាំ', en: 'Pending' },
 };
 
