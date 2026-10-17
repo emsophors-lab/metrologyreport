@@ -17,3 +17,4 @@ reports/private/
 *.tmp
 *.zip
 *.7z
+test-output/

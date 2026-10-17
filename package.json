@@ -9,7 +9,9 @@
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js dist/server.cjs",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "annex8:check": "tsx scripts/annex8-check-template.ts && tsx scripts/annex8-check-db-mapping.ts",
+    "annex8:fill": "tsx lib/annex8/fill-cli.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

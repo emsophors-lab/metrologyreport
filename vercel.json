@@ -40,7 +40,7 @@
   ],
   "functions": {
     "api/[...path].ts": {
-      "includeFiles": "{dist/server.cjs,templates/**,lib/annex8/**}"
+      "includeFiles": "{dist/server.cjs,templates/**}"
     }
   }
 }

@@ -1,0 +1,22 @@
+{
+  "report": {
+    "format_version": "A8-2026.2",
+    "meta": {"licence_no":"MISTI-NMC-L-0123","licence_type":"MANUF_INSTALL","enterprise_name_kh":"ក្រុមហ៊ុន ឧទាហរណ៍ ឯ.ក","enterprise_name_en":"Example Scale Co., Ltd.","registration_no":"REG-2025-0456","licence_valid_to":"2028-12-31","operating_address":"ផ្លូវ ១២៣ សង្កាត់ទឹកថ្លា ខណ្ឌសែនសុខ រាជធានីភ្នំពេញ","period_month":"2026-09","report_type":"REGULAR","original_report_id":"","contact":{"name":"សុខ ដារា","position":"ប្រធានផ្នែកបច្ចេកទេស","phone":"+855 12 345 678","email":"dara@example.com"}},
+    "part3_instruments": [
+      {"op_code":"I","category":"WEIGHBRIDGE","category_other":"","instrument_name":"ជញ្ជីងថ្លឹងរថយន្ត","model":"WB-60","serial_no":"WB-26-0012","manufacturer":"Example Scale","country":"Cambodia","max":"60000","min":"400","e":"20","unit":"kg","accuracy_class":"III","type_approval_no":"NMC-TA-2025-07","completion_date":"2026-09-18","customer_name":"ក្រុមហ៊ុន ស្រូវអង្ករ ក","province":"បាត់ដំបង","address":"ស្រុកសង្កែ","lat":"13.0957","long":"103.2022","label_qr_no":"QR-000981","verification_status":"PASSED","verification_cert_no":"VC-26-1102","verification_date":"2026-09-22"},
+      {"op_code":"M","category":"NAWI","category_other":"","instrument_name":"ជញ្ជីងអេឡិចត្រូនិក","model":"ES-30","serial_no":"ES-26-0451","manufacturer":"Example Scale","country":"Cambodia","max":"30","min":"0.2","e":"0.01","unit":"kg","accuracy_class":"III","type_approval_no":"OIML R76/2006-CN1-19.01","completion_date":"2026-09-25","customer_name":"","province":"","address":"","lat":"","long":"","label_qr_no":"QR-000982","verification_status":"PENDING","verification_cert_no":"","verification_date":""}
+    ],
+    "part3a_modules": [
+      {"host_serial_no":"WB-26-0012","part":"P3","module_name":"Load cell","model":"ZSFY-30t","serial_no":"LC-8812","range_e":"30 t / C3","manufacturer":"Keli","country":"China","cert_no":"R60/2017-CN1-21.04","new_or_replacement":"NEW"},
+      {"host_serial_no":"WB-26-0012","part":"P3","module_name":"Indicator","model":"XK3190-D2","serial_no":"IND-5521","range_e":"","manufacturer":"Yaohua","country":"China","cert_no":"R76/2006-CN1-18.02","new_or_replacement":"NEW"}
+    ],
+    "part4_repairs": [
+      {"category":"FUEL_DISPENSER","instrument_name":"ឧបករណ៍ចែកចាយប្រេង","model":"Tatsuno Sunny","serial_no":"FD-77120","customer_name":"ស្ថានីយប្រេង ខ","province":"កណ្ដាល","address":"ក្រុងតាខ្មៅ","lat":"11.4833","long":"104.9500","repair_from":"2026-09-10","repair_to":"2026-09-11","repair_description":"ប្ដូរ pulser ថ្មី ហើយធ្វើតេស្ត 20 L ក្រោយជួសជុល","seal_broken":true,"seal_removed_no":"S-55021","notification_no":"NTF-26-0331","technician":"ចាន់ វណ្ណា","verification_status":"PASSED","verification_cert_no":"VC-26-1150","verification_date":"2026-09-14"}
+    ],
+    "part5_standards": [],
+    "carry_over_updates": [{"serial_no":"WB-24-0091","status":"PASSED"}],
+    "part6_events": {"e6_1":{"yes":false,"details":""},"e6_2":{"yes":false,"details":""},"e6_3":{"yes":false,"details":""},"e6_4":{"yes":false,"details":""},"e6_5":{"yes":false,"details":""},"e6_6":{"yes":false,"details":""}},
+    "declaration_accepted": true
+  },
+  "extra": {"decision_no":"១២៣ ម.ម.ជ","decision_date":"2025-12-15","submitted_at":"2026-10-05T09:30:00+07:00","signed_place":"រាជធានីភ្នំពេញ","legal_rep_name":"លោក ហេង សុវណ្ណ","report_id":"NMC-RPT-202609-00042","received_at":"2026-10-05","on_time":true}
+}

@@ -1,0 +1,42 @@
+# The official Annex 8 document is produced by filling
+# templates/Annex8_template_v1.docx. If a tag is renamed or deleted in Word,
+# the printed annex silently loses a field, so the tag contract is checked on
+# every change to the template or the fill module.
+name: Annex 8 template
+
+on:
+  push:
+    paths:
+      - 'templates/**'
+      - 'lib/annex8/**'
+      - 'scripts/annex8-check-template.ts'
+      - 'src/annex8/officialDocument.ts'
+      - 'scripts/annex8-check-db-mapping.ts'
+  pull_request:
+    paths:
+      - 'templates/**'
+      - 'lib/annex8/**'
+      - 'scripts/annex8-check-template.ts'
+      - 'src/annex8/officialDocument.ts'
+      - 'scripts/annex8-check-db-mapping.ts'
+  workflow_dispatch:
+
+jobs:
+  tags:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run annex8:check
+      # The four fixtures are kept so the layout can be reviewed without
+      # running the check locally.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: annex8-fixtures
+          path: test-output/
+          if-no-files-found: ignore

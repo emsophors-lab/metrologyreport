@@ -4,28 +4,37 @@
  * The official record of a submitted report is the DOCX produced by FILLING
  * templates/Annex8_template_v1.docx, and the PDF converted from it. The
  * template is the single source of truth for layout, fonts and sizes: nothing
- * here generates, restyles or regenerates it.
+ * here generates, restyles or regenerates it. If the printed document looks
+ * wrong, the tag or section in the template is what needs editing — not this
+ * file.
  *
- * This module owns only the parts around that:
- *   - loading the submitted report + licence record out of the database,
- *   - delegating to lib/annex8/fill-annex8 (buildAnnex8Data / renderAnnex8),
+ * This module owns only the parts around the fill:
+ *   - loading the submitted report out of the database and shaping it back
+ *     into the A8-2026.2 payload that buildAnnex8Data expects,
  *   - converting the filled DOCX to PDF via Gotenberg,
- *   - picking the template version a report was submitted under.
+ *   - storing both in the private bucket and picking the template version a
+ *     report was submitted under.
  *
- * buildAnnex8Data() is NOT reimplemented here. It is required at runtime from
- * lib/annex8/fill-annex8, so its logic stays the one in that file.
+ * buildAnnex8Data() is NOT reimplemented here. It is imported from
+ * lib/annex8/fill-annex8, so the logic stays the one in that file.
  */
 
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
+import {
+  Annex8Extra,
+  buildAnnex8Data,
+  listTags,
+  renderAnnex8,
+} from '../../lib/annex8/fill-annex8';
+
 export const DEFAULT_TEMPLATE_VERSION = 'v1';
 
-/** Where the template and the fill module live, relative to the repo root. */
+/** Where the template lives, relative to the repo root. */
 export const templatePathFor = (version: string) =>
   path.join(process.cwd(), 'templates', `Annex8_template_${version}.docx`);
-export const FILL_MODULE_PATH = path.join(process.cwd(), 'lib', 'annex8', 'fill-annex8');
 
 export class Annex8TemplateMissingError extends Error {
   constructor(public readonly missing: string[]) {
@@ -34,24 +43,19 @@ export class Annex8TemplateMissingError extends Error {
   }
 }
 
-/**
- * Required at runtime through a computed path so the bundler does not try to
- * resolve it at build time — the file is supplied with the template assets and
- * may legitimately be absent from a checkout that never renders documents.
- */
-function loadFillModule(): any {
-  // Indirect, so the bundler leaves it alone instead of warning about eval.
-  const runtimeRequire = new Function('return require')() as NodeRequire;
-  return runtimeRequire(FILL_MODULE_PATH);
-}
-
 export function officialAssetsStatus(version = DEFAULT_TEMPLATE_VERSION) {
   const templateFile = templatePathFor(version);
   const missing: string[] = [];
+  // The fill module is bundled with the server; only the .docx is read from
+  // disk at runtime, which is why vercel.json ships templates/**.
   if (!fs.existsSync(templateFile)) missing.push(`templates/Annex8_template_${version}.docx`);
-  const hasFill = ['.js', '.cjs', '.ts'].some((ext) => fs.existsSync(FILL_MODULE_PATH + ext));
-  if (!hasFill) missing.push('lib/annex8/fill-annex8.js');
   return { ready: missing.length === 0, missing, templateFile };
+}
+
+export function readTemplate(version = DEFAULT_TEMPLATE_VERSION): Buffer {
+  const status = officialAssetsStatus(version);
+  if (!status.ready) throw new Annex8TemplateMissingError(status.missing);
+  return fs.readFileSync(status.templateFile);
 }
 
 /* ------------------------------------------------------------------ *
@@ -59,19 +63,24 @@ export function officialAssetsStatus(version = DEFAULT_TEMPLATE_VERSION) {
  * ------------------------------------------------------------------ */
 
 export interface Annex8RenderInput {
+  /** The row itself, for naming and storage paths. */
   report: Record<string, any>;
-  licence: Record<string, any>;
-  instruments: Record<string, any>[];
-  modules: Record<string, any>[];
-  repairs: Record<string, any>[];
-  standards: Record<string, any>[];
-  carryOver: Record<string, any>[];
+  /** The A8-2026.2 payload shape buildAnnex8Data reads. */
+  payload: Record<string, any>;
+  /** Licence-record and submission values the payload does not carry. */
+  extra: Annex8Extra;
 }
 
+const str = (v: unknown) => (v === null || v === undefined ? '' : String(v));
+
 /**
- * Everything the cover letter and Parts 1-7 need, read from the submitted
- * report and the licence record. Part 2 totals are deliberately NOT included:
- * buildAnnex8Data() recomputes them from the rows.
+ * Rebuilds the submitted payload from the stored rows. The column names differ
+ * from the payload field names in a few places (max_capacity / min_capacity /
+ * e_value, latitude / longitude, host_part, new_status), so the mapping is
+ * written out rather than spread.
+ *
+ * Part 2 totals are deliberately NOT included: buildAnnex8Data recomputes them
+ * from the rows, and nothing client-computed is passed through.
  */
 export async function loadAnnex8RenderInput(
   supabaseAdmin: any,
@@ -91,60 +100,140 @@ export async function loadAnnex8RenderInput(
     supabaseAdmin.from('enterprise_licenses').select('*').eq('license_number', report.licence_no).maybeSingle(),
   ]);
 
-  return {
-    report,
-    licence: {
+  const payload = {
+    format_version: report.format_version,
+    meta: {
       licence_no: report.licence_no,
-      // Named explicitly in the spec as coming from the licence record.
-      decision_no: profile.data?.decision_no || '',
-      decision_date: profile.data?.decision_date || '',
-      legal_rep_name: profile.data?.legal_rep_name || licence.data?.license_owner_name || '',
-      legal_rep_position: profile.data?.legal_rep_position || licence.data?.license_owner_position || '',
-      registration_no: profile.data?.registration_no || report.registration_no || '',
-      licence_valid_to: report.licence_valid_to || licence.data?.license_expiry_date || '',
+      licence_type: report.licence_type,
       enterprise_name_kh: report.enterprise_name_kh,
       enterprise_name_en: report.enterprise_name_en,
+      registration_no: report.registration_no,
+      licence_valid_to: str(report.licence_valid_to),
       operating_address: report.operating_address,
+      period_month: report.period_month,
+      report_type: report.report_type,
+      original_report_id: str(report.original_report_id),
+      contact: {
+        name: str(report.contact_name),
+        position: str(report.contact_position),
+        phone: str(report.contact_phone),
+        email: str(report.contact_email),
+      },
     },
-    instruments: instruments.data || [],
-    modules: modules.data || [],
-    repairs: repairs.data || [],
-    standards: standards.data || [],
-    carryOver: carryOver.data || [],
+    part3_instruments: (instruments.data || []).map((x: any) => ({
+      op_code: x.op_code,
+      category: x.category,
+      category_other: str(x.category_other),
+      instrument_name: x.instrument_name,
+      model: str(x.model),
+      serial_no: x.serial_no,
+      manufacturer: str(x.manufacturer),
+      country: str(x.country),
+      max: str(x.max_capacity),
+      min: str(x.min_capacity),
+      e: str(x.e_value),
+      unit: str(x.unit),
+      accuracy_class: str(x.accuracy_class),
+      type_approval_no: str(x.type_approval_no),
+      completion_date: str(x.completion_date),
+      customer_name: str(x.customer_name),
+      province: str(x.province),
+      address: str(x.address),
+      lat: str(x.latitude),
+      long: str(x.longitude),
+      label_qr_no: str(x.label_qr_no),
+      verification_status: x.verification_status,
+      verification_cert_no: str(x.verification_cert_no),
+      verification_date: str(x.verification_date),
+    })),
+    part3a_modules: (modules.data || []).map((x: any) => ({
+      host_serial_no: x.host_serial_no,
+      part: x.host_part || 'P3',
+      module_name: x.module_name,
+      model: str(x.model),
+      serial_no: str(x.serial_no),
+      range_e: str(x.range_e),
+      manufacturer: str(x.manufacturer),
+      country: str(x.country),
+      cert_no: str(x.cert_no),
+      new_or_replacement: x.new_or_replacement,
+    })),
+    part4_repairs: (repairs.data || []).map((x: any) => ({
+      category: x.category,
+      instrument_name: x.instrument_name,
+      model: str(x.model),
+      serial_no: x.serial_no,
+      customer_name: str(x.customer_name),
+      province: str(x.province),
+      address: str(x.address),
+      lat: str(x.latitude),
+      long: str(x.longitude),
+      repair_from: str(x.repair_from),
+      repair_to: str(x.repair_to),
+      repair_description: str(x.repair_description),
+      seal_broken: !!x.seal_broken,
+      seal_removed_no: str(x.seal_removed_no),
+      notification_no: str(x.notification_no),
+      technician: str(x.technician),
+      verification_status: x.verification_status,
+      verification_cert_no: str(x.verification_cert_no),
+      verification_date: str(x.verification_date),
+    })),
+    part5_standards: (standards.data || []).map((x: any) => ({
+      equipment: x.equipment,
+      serial_no: str(x.serial_no),
+      class_range: str(x.class_range),
+      cal_cert_no: str(x.cal_cert_no),
+      lab: str(x.lab),
+      cal_date: str(x.cal_date),
+      due_date: str(x.due_date),
+      status: x.status,
+    })),
+    // The column is new_status; the field the fill module reads is status.
+    carry_over_updates: (carryOver.data || []).map((x: any) => ({
+      ref: x.source_part,
+      serial_no: str(x.serial_no),
+      status: x.new_status,
+      cert_no: str(x.cert_no),
+      date: str(x.verification_date),
+    })),
+    part6_events: report.events || {},
+    declaration_accepted: !!report.declaration_accepted,
   };
+
+  const extra: Annex8Extra = {
+    // Named in the spec as coming from the licence record.
+    decision_no: str(profile.data?.decision_no),
+    decision_date: str(profile.data?.decision_date),
+    legal_rep_name: str(profile.data?.legal_rep_name || licence.data?.license_owner_name),
+    preparer_name: str(report.contact_name),
+    preparer_position: str(report.contact_position),
+    submitted_at: str(report.submitted_at),
+    received_at: str(report.received_at || report.submitted_at),
+    report_id: str(report.report_id),
+    on_time: report.on_time === null || report.on_time === undefined ? undefined : !!report.on_time,
+  };
+
+  return { report, payload, extra };
 }
 
 /* ------------------------------------------------------------------ *
- * 2. Fill the template  (delegates to lib/annex8/fill-annex8)
+ * 2. Fill the template
  * ------------------------------------------------------------------ */
 
 export function renderOfficialDocx(
   input: Annex8RenderInput,
   version = DEFAULT_TEMPLATE_VERSION,
 ): Buffer {
-  const status = officialAssetsStatus(version);
-  if (!status.ready) throw new Annex8TemplateMissingError(status.missing);
-
-  const fill = loadFillModule();
-  if (typeof fill.buildAnnex8Data !== 'function' || typeof fill.renderAnnex8 !== 'function') {
-    throw new Annex8TemplateMissingError(['lib/annex8/fill-annex8 must export buildAnnex8Data and renderAnnex8']);
-  }
-
-  // Part 2 totals are recomputed inside buildAnnex8Data; nothing client-side
-  // is passed through.
-  const data = fill.buildAnnex8Data(input);
-  return fill.renderAnnex8(data, status.templateFile);
+  const template = readTemplate(version);
+  // Part 2 totals are recomputed inside buildAnnex8Data.
+  const data = buildAnnex8Data(input.payload, input.extra);
+  return renderAnnex8(template, data);
 }
 
 /** Tag list of a template, for the CI check against buildAnnex8Data's keys. */
 export function listTemplateTags(version = DEFAULT_TEMPLATE_VERSION): string[] {
-  const status = officialAssetsStatus(version);
-  if (!status.ready) throw new Annex8TemplateMissingError(status.missing);
-  const fill = loadFillModule();
-  if (typeof fill.listTags !== 'function') {
-    throw new Annex8TemplateMissingError(['lib/annex8/fill-annex8 must export listTags']);
-  }
-  return fill.listTags(status.templateFile);
+  return listTags(readTemplate(version));
 }
 
 /* ------------------------------------------------------------------ *
