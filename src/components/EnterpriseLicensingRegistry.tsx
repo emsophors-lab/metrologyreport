@@ -344,27 +344,18 @@ const sanitizeTelegramError = (message: string, token?: string | null) => {
   return safe.replace(/bot\d+:[A-Za-z0-9_-]+/g, 'bot[REDACTED]');
 };
 
+/**
+ * Only a token the operator has just typed into the form. A stored token is
+ * never fetched into the browser: it used to be read straight out of
+ * telegram_bot_settings, which put a live bot token in page memory for anyone
+ * with the anon key. Tests against a stored bot go through the server
+ * (/api/test-telegram-bot-connection), which holds the token itself.
+ */
 const fetchRealBotTokenForLocalTest = async (bot: TelegramBotSetting): Promise<string> => {
   if (bot.bot_token_encrypted && !isProtectedTokenPlaceholder(bot.bot_token_encrypted)) {
     return bot.bot_token_encrypted;
   }
-
-  const client = getActiveSupabaseClient();
-  if (!client) return '';
-  if (!isSupabaseUuid(bot.id)) return '';
-
-  const { data, error } = await client
-    .from('telegram_bot_settings')
-    .select('bot_token_encrypted')
-    .eq('id', bot.id)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.warn('Unable to read Telegram Bot token for local getMe test:', error.message);
-    return '';
-  }
-  return String(data?.bot_token_encrypted || '').trim();
+  return '';
 };
 
 const buildReportGroupTestPayload = async (bot: TelegramBotSetting, customMessage: string) => {
@@ -2119,14 +2110,10 @@ export default function EnterpriseLicensingRegistry({
       };
       setBotSettings(prev => prev.map(item => item.id === bot.id ? { ...item, ...safeUpdates } : item));
 
-      const client = getActiveSupabaseClient();
-      if (!client) return;
       if (!isSupabaseUuid(bot.id)) return;
       try {
-        await client
-          .from('telegram_bot_settings')
-          .update(safeUpdates)
-          .eq('id', bot.id);
+        // Through the server, which owns the bot token and never returns it.
+        await saveBotSettingToSupabase({ ...bot, ...safeUpdates } as TelegramBotSetting);
       } catch (err: any) {
         console.warn('Unable to save Telegram Bot connection metadata:', err?.message || err);
       }

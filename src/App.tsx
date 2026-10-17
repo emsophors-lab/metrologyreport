@@ -64,6 +64,7 @@ import LoginScreen from './components/LoginScreen';
 const UserManagement = lazy(() => import('./components/UserManagement'));
 const ReportForm = lazy(() => import('./components/ReportForm'));
 const Annex8ReportForm = lazy(() => import('./components/Annex8ReportForm'));
+const Annex8ReportSearch = lazy(() => import('./components/Annex8ReportSearch'));
 const ExcelReportUpload = lazy(() => import('./components/ExcelReportUpload'));
 const DashboardStats = lazy(() => import('./components/DashboardStats'));
 const SuperadminDashboard = lazy(() => import('./components/SuperadminDashboard'));
@@ -466,6 +467,8 @@ export default function App() {
   // 'annex8' is the new Annex 8 (A8-2026.2) wizard. It runs alongside the legacy
   // 'manual' form until the new one is signed off; neither replaces the other yet.
   const [addReportMethod, setAddReportMethod] = useState<'manual' | 'annex8' | 'excel'>('manual');
+  /** Reports tab: filling a report in, or searching the ones already filed. */
+  const [reportView, setReportView] = useState<'entry' | 'search'>('entry');
   const [selectedPrintReport, setSelectedPrintReport] = useState<MetrologyReport | null>(null);
   const [isPrintAllPreview, setIsPrintAllPreview] = useState(false);
 
@@ -2242,6 +2245,9 @@ export default function App() {
               // legacy header actions, summary cards and detail table belong to
               // the old flat report shape and would only confuse the two.
               const isAnnex8Mode = addReportMethod === 'annex8' && !selectedEditReport && sessionUser.can_save;
+              const isSearchMode = reportView === 'search' && !selectedEditReport;
+              // Both the Annex 8 wizard and the search own the whole page.
+              const hideLegacy = isAnnex8Mode || isSearchMode;
               return (
               <div className="space-y-6 animate-fade-in duration-300">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -2253,7 +2259,7 @@ export default function App() {
                   {/* Quick toggle list printable — Annex 8 carries its own
                       Print/Word/Excel actions in its header, so the legacy
                       export buttons are hidden while that form is open. */}
-                  <div className={`items-center gap-2 w-full sm:w-auto ${isAnnex8Mode ? 'hidden' : 'flex'}`}>
+                  <div className={`items-center gap-2 w-full sm:w-auto ${hideLegacy ? 'hidden' : 'flex'}`}>
                     <button
                       onClick={handleExportExcel}
                       className="flex-1 sm:flex-none px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-200 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
@@ -2278,8 +2284,38 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Fill in a report, or search what has already been filed.
+                    Search is open to every role; the server scopes a company
+                    account to its own licence. */}
+                {!selectedEditReport && (
+                  <div className="flex max-w-xs rounded-lg bg-slate-100 p-1">
+                    <button
+                      onClick={() => setReportView('entry')}
+                      className={`flex-1 cursor-pointer rounded-md py-2 text-center text-[11px] font-bold transition-all ${
+                        reportView === 'entry'
+                          ? 'border border-slate-200/50 bg-white text-slate-800 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      បំពេញរបាយការណ៍ / Fill in
+                    </button>
+                    <button
+                      onClick={() => setReportView('search')}
+                      className={`flex-1 cursor-pointer rounded-md py-2 text-center text-[11px] font-bold transition-all ${
+                        reportView === 'search'
+                          ? 'border border-slate-200/50 bg-white text-[#0B2A66] shadow-xs'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      ស្វែងរក / Search
+                    </button>
+                  </div>
+                )}
+
+                {isSearchMode && <Annex8ReportSearch currentUser={sessionUser} />}
+
                 {/* Addition Switch Toggles */}
-                {sessionUser.can_save && !selectedEditReport && (
+                {!isSearchMode && sessionUser.can_save && !selectedEditReport && (
                   <div className="flex bg-slate-100 p-1 rounded-lg max-w-sm">
                     <button
                       onClick={() => setAddReportMethod('manual')}
@@ -2315,7 +2351,7 @@ export default function App() {
                 )}
 
                 {/* Form or Excel Upload column based on permission view */}
-                {selectedEditReport ? (
+                {isSearchMode ? null : selectedEditReport ? (
                   <ReportForm 
                     currentUser={sessionUser}
                     selectedReport={selectedEditReport}
@@ -2357,7 +2393,7 @@ export default function App() {
                 )}
 
                 {/* Legacy report views. Annex 8 mode shows only its own content. */}
-                {!isAnnex8Mode && (<>
+                {!hideLegacy && (<>
                 {/* Report Summary Cards - superadmin only */}
                 {sessionUser.role === 'superadmin' && (() => {
                   const submittedReports = reports.filter(r => {

@@ -79,6 +79,44 @@ function stripProtectedBotSecrets(setting: TelegramBotSetting): Partial<Telegram
   return payload;
 }
 
+/**
+ * Calls one of our own API routes.
+ *
+ * The browser no longer reaches the database directly: every read and write
+ * goes through server.ts, which holds the service-role key and enforces the
+ * permissions. That is what lets the database move to MISTI's own PostgreSQL
+ * server later — supabase-js speaks to PostgREST, our API speaks to whatever
+ * the server is connected to. See docs/database-portability.md.
+ */
+export async function apiRequest<T = any>(
+  path: string,
+  init: { method?: string; body?: any } = {},
+): Promise<T> {
+  const headers = await getApiJsonHeaders();
+  const response = await fetch(path, {
+    method: init.method || 'GET',
+    headers,
+    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+  });
+
+  const payload = await readJsonResponseSafely(response);
+  if (!response.ok || payload?.success === false) {
+    const message = payload?.error || payload?.message || `${response.status} ${response.statusText}`;
+    throw new Error(`${init.method || 'GET'} ${path} failed: ${message}`);
+  }
+  return (payload || {}) as T;
+}
+
+/**
+ * Whether the app is running against a real backend rather than the
+ * localStorage demo mode. The Supabase config still answers this, because it
+ * is what the deployment sets; it no longer means the browser talks to
+ * Supabase itself.
+ */
+function isCloudBacked(): boolean {
+  return !!getActiveSupabaseClient();
+}
+
 async function readJsonResponseSafely(response: Response): Promise<any | null> {
   const contentType = response.headers.get('content-type') || '';
   const text = await response.text();
@@ -163,85 +201,53 @@ export function getActiveSupabaseClient(): SupabaseClient | null {
 /**
  * Seed Supabase tables with initial metrology data if brand new
  */
-export async function seedSupabaseIfEmpty(client: SupabaseClient) {
+export async function seedSupabaseIfEmpty(_client?: SupabaseClient) {
   try {
-    // Check users
-    const { count: userCount, error: uErr } = await client
-      .from('users')
-      .select('*', { count: 'exact', head: true });
-
-    if (!uErr && (userCount === 0 || userCount === null)) {
-      console.log('Supabase users table is empty. Seeding INITIAL_USERS...');
-      // Strip out optional fields that match schema or map properly
-      const mappedUsers = INITIAL_USERS.map(u => ({
-        id: u.id,
-        license_number: u.license_number,
-        company_name_kh: u.company_name_kh,
-        company_name_en: u.company_name_en,
-        address: u.address,
-        phone: u.phone,
-        email: u.email,
-        legal_representative: u.legal_representative,
-        representative_position: u.representative_position,
-        username: u.username,
-        password: u.password || 'admin123',
-        password_hash: u.password_hash || null,
-        password_updated_at: u.password_updated_at || null,
-        must_change_password: u.must_change_password ?? false,
-        last_password_change_by: u.last_password_change_by || null,
-        role: u.role,
-        can_view: u.can_view,
-        can_edit: u.can_edit,
-        can_save: u.can_save,
-        can_delete: u.can_delete,
-        created_at: u.created_at || new Date().toISOString()
-      }));
-
-      const { error: seedUsersErr } = await client.from('users').insert(mappedUsers);
-      if (seedUsersErr) {
-        if (isMissingPasswordMetadataColumn(seedUsersErr)) {
-          const legacyMappedUsers = mappedUsers.map(withoutPasswordMetadata);
-          const { error: legacySeedErr } = await client.from('users').insert(legacyMappedUsers);
-          if (legacySeedErr) {
-            console.warn('Could not seed users table (Row Level Security may be active or columns mismatched):', legacySeedErr);
-          }
-        } else {
-          console.warn('Could not seed users table (Row Level Security may be active or columns mismatched):', seedUsersErr);
-        }
+    // Seeding goes through the API like everything else, so the browser needs
+    // no write access to the database. Each row is upserted on its own: one
+    // demo account the server rejects must not stop the others.
+    for (const u of INITIAL_USERS) {
+      try {
+        await apiRequest('/api/users', {
+          method: 'POST',
+          body: {
+            user: {
+              id: u.id,
+              license_number: u.license_number,
+              company_name_kh: u.company_name_kh,
+              company_name_en: u.company_name_en,
+              address: u.address,
+              phone: u.phone,
+              email: u.email,
+              legal_representative: u.legal_representative,
+              representative_position: u.representative_position,
+              username: u.username,
+              password: u.password || 'admin123',
+              password_hash: u.password_hash || null,
+              password_updated_at: u.password_updated_at || null,
+              must_change_password: u.must_change_password ?? false,
+              last_password_change_by: u.last_password_change_by || null,
+              role: u.role,
+              can_view: u.can_view,
+              can_edit: u.can_edit,
+              can_save: u.can_save,
+              can_delete: u.can_delete,
+              created_at: u.created_at || new Date().toISOString(),
+            },
+          },
+        });
+      } catch (err) {
+        console.warn('Could not seed demo user', u.username, err);
       }
     }
 
-    // Check reports
-    const { count: reportCount, error: rErr } = await client
-      .from('reports')
-      .select('*', { count: 'exact', head: true });
+    if (!isDemoDataEnabled()) return;
 
-    if (!rErr && (reportCount === 0 || reportCount === null) && isDemoDataEnabled()) {
-      console.log('Supabase reports table is empty. Seeding INITIAL_REPORTS...');
-      const mappedReports = INITIAL_REPORTS.map(r => ({
-        id: r.id,
-        user_id: r.user_id,
-        license_number: r.license_number,
-        company_name_kh: r.company_name_kh,
-        customer_name: r.customer_name,
-        customer_address: r.customer_address,
-        measuring_instrument: r.measuring_instrument,
-        instrument_serial_number: r.instrument_serial_number,
-        scope_of_weight_measure: r.scope_of_weight_measure,
-        spare_parts: r.spare_parts || '',
-        spare_part_serial_number: r.spare_part_serial_number || '',
-        service_type: r.service_type,
-        service_start_date: r.service_start_date,
-        service_end_date: r.service_end_date,
-        report_month: r.report_month,
-        report_year: r.report_year,
-        created_at: r.created_at || new Date().toISOString(),
-        updated_at: r.updated_at || new Date().toISOString()
-      }));
-
-      const { error: seedReportsErr } = await client.from('reports').insert(mappedReports);
-      if (seedReportsErr) {
-        console.warn('Could not seed reports table (Row Level Security might restrict client-direct writes):', seedReportsErr);
+    for (const r of INITIAL_REPORTS) {
+      try {
+        await apiRequest('/api/reports', { method: 'POST', body: { report: r } });
+      } catch (err) {
+        console.warn('Could not seed demo report', r.id, err);
       }
     }
   } catch (error) {
@@ -254,51 +260,21 @@ export async function seedSupabaseIfEmpty(client: SupabaseClient) {
  * Implements automatic chunking/pagination to query more than 1,000 records safely.
  */
 export async function fetchUsersFromSupabase(): Promise<MetrologyUser[]> {
-  const client = getActiveSupabaseClient();
-  if (!client) return [];
+  if (!isCloudBacked()) return [];
 
   try {
-    let allUsers: MetrologyUser[] = [];
-    let page = 0;
-    const pageSize = 1000;
-    let hasMore = true;
+    // Through our own API. The server decides what this account may see — a
+    // company user gets only its own row — and strips password material, so
+    // no hash ever reaches the browser.
+    const { users } = await apiRequest<{ users: MetrologyUser[] }>('/api/users');
+    if (users && users.length > 0) return users;
 
-    while (hasMore) {
-      const from = page * pageSize;
-      const to = from + pageSize - 1;
-
-      const { data, error } = await client
-        .from('users')
-        .select('*')
-        .order('created_at', { ascending: true })
-        .range(from, to);
-
-      if (error) {
-        console.error(`Supabase query error for users at range ${from}-${to}:`, error);
-        throw error;
-      }
-
-      if (data && data.length > 0) {
-        allUsers = [...allUsers, ...(data as MetrologyUser[])];
-        if (data.length < pageSize) {
-          hasMore = false;
-        } else {
-          page++;
-        }
-      } else {
-        hasMore = false;
-      }
-    }
-
-    if (allUsers.length > 0) {
-      return allUsers;
-    }
-    
-    // Seed database if we got positive empty set response
-    await seedSupabaseIfEmpty(client);
+    // An empty registry on a fresh database: seed the demo accounts.
+    const client = getActiveSupabaseClient();
+    if (client) await seedSupabaseIfEmpty(client);
     return INITIAL_USERS;
   } catch (e) {
-    console.warn('Falling back to local storage registries on Supabase fetch failure:', e);
+    console.warn('Falling back to local storage registries on user fetch failure:', e);
     throw e;
   }
 }
@@ -341,27 +317,11 @@ export async function saveUserToSupabase(user: MetrologyUser): Promise<void> {
   };
 
   try {
-    const { error } = await client
-      .from('users')
-      .upsert(payload, { onConflict: 'id' });
-
-    if (error) {
-      if (isMissingPasswordMetadataColumn(error)) {
-        const { error: legacyError } = await client
-          .from('users')
-          .upsert(withoutPasswordMetadata(payload), { onConflict: 'id' });
-        if (legacyError) {
-          console.error('Supabase upsert error on users table:', legacyError);
-          throw legacyError;
-        }
-      } else {
-        console.error('Supabase upsert error on users table:', error);
-        throw error;
-      }
-    }
-    console.log('Synchronized licensee user successfully to Supabase:', user.username);
+    // The server drops columns this database does not have, so the password
+    // metadata retry that used to live here is no longer needed.
+    await apiRequest('/api/users', { method: 'POST', body: { user: payload } });
   } catch (e) {
-    console.warn('Failed to upsert user to Supabase:', e);
+    console.warn('Failed to save the user account:', e);
     throw e;
   }
 }
@@ -380,27 +340,13 @@ export async function changeOwnPasswordInSupabase(
     last_password_change_by: user.id,
   };
 
-  const client = getActiveSupabaseClient();
-  if (!client) {
-    return updatedUser;
-  }
+  if (!isCloudBacked()) return updatedUser;
 
-  const { error } = await client
-    .from('users')
-    .update({
-      password_hash: passwordHash,
-      password_updated_at: changedAt,
-      must_change_password: false,
-      last_password_change_by: user.id,
-    })
-    .eq('id', user.id);
-
-  if (error) {
-    if (isMissingPasswordMetadataColumn(error)) {
-      throw new Error('Password hash columns are missing. Please run supabase_change_password_migration.sql first.');
-    }
-    throw error;
-  }
+  // The server checks that the row being written is the caller's own.
+  await apiRequest('/api/users/change-password', {
+    method: 'POST',
+    body: { user_id: user.id, password_hash: passwordHash },
+  });
 
   return updatedUser;
 }
@@ -409,22 +355,12 @@ export async function changeOwnPasswordInSupabase(
  * Delete user profile from Supabase
  */
 export async function deleteUserFromSupabase(userId: string): Promise<void> {
-  const client = getActiveSupabaseClient();
-  if (!client) return;
+  if (!isCloudBacked()) return;
 
   try {
-    const { error } = await client
-      .from('users')
-      .delete()
-      .eq('id', userId);
-
-    if (error) {
-      console.error('Supabase query error deleting user:', error);
-      throw error;
-    }
-    console.log('Successfully removed user from Supabase:', userId);
+    await apiRequest(`/api/users/${encodeURIComponent(userId)}`, { method: 'DELETE' });
   } catch (e) {
-    console.warn('Failed to delete user on Supabase instance:', e);
+    console.warn('Failed to delete the user account:', e);
     throw e;
   }
 }
@@ -434,88 +370,26 @@ export async function deleteUserFromSupabase(userId: string): Promise<void> {
  * Implements automatic chunking/pagination to query more than 1,000 records safely.
  */
 export async function fetchReportsFromSupabase(currentUser?: MetrologyUser, options: { allowFallback?: boolean } = {}): Promise<MetrologyReport[]> {
-  const client = getActiveSupabaseClient();
-  if (!client) {
+  const localCopy = () => {
     const local = localStorage.getItem('nmc_reports');
     const all: MetrologyReport[] = local ? JSON.parse(local) : INITIAL_REPORTS;
     if (currentUser && currentUser.role === 'company') {
       return all.filter(r => isReportOwnedByCurrentCompany(r, currentUser));
     }
     return all;
-  }
+  };
 
-  // Prefer the backend API: the service role sees every report regardless of the
-  // RLS policies applied to direct client queries, and the server scopes company
-  // users to their own records.
-  try {
-    const { getApiAuthHeaders } = await import('./apiAuth');
-    const headers = await getApiAuthHeaders();
-    if (headers.Authorization || headers['X-NMC-User-ID']) {
-      const response = await fetch('/api/reports', { headers });
-      if (response.ok) {
-        const data = await response.json().catch(() => null);
-        if (data && Array.isArray(data.reports)) {
-          return data.reports as MetrologyReport[];
-        }
-      }
-      console.warn('Server reports fetch unavailable, falling back to direct query. Status:', response.status);
-    }
-  } catch (apiErr) {
-    console.warn('Server reports fetch failed, falling back to direct query:', apiErr);
-  }
+  if (!isCloudBacked()) return localCopy();
 
   try {
-    let allReports: MetrologyReport[] = [];
-    let page = 0;
-    const pageSize = 1000;
-    let hasMore = true;
+    // The server sees every report through the service role and scopes a
+    // company account to its own records.
+    const { reports } = await apiRequest<{ reports: MetrologyReport[] }>('/api/reports');
+    if (reports && reports.length > 0) return reports;
 
-    while (hasMore) {
-      const from = page * pageSize;
-      const to = from + pageSize - 1;
-
-      let q = client
-        .from('reports')
-        .select('*');
-
-      if (currentUser && currentUser.role === 'company') {
-        const conds: string[] = [];
-        if (currentUser.id) conds.push(`user_id.eq.${currentUser.id}`);
-        if (currentUser.license_number) conds.push(`license_number.eq.${currentUser.license_number}`);
-        if (currentUser.company_name_kh) conds.push(`company_name_kh.eq.${currentUser.company_name_kh}`);
-        if (conds.length > 0) {
-          q = q.or(conds.join(','));
-        }
-      }
-
-      const { data, error } = await q
-        .order('created_at', { ascending: false })
-        .range(from, to);
-
-      if (error) {
-        console.error(`Supabase query error fetch reports at range ${from}-${to}:`, error);
-        throw error;
-      }
-
-      if (data && data.length > 0) {
-        allReports = [...allReports, ...(data as MetrologyReport[])];
-        if (data.length < pageSize) {
-          hasMore = false;
-        } else {
-          page++;
-        }
-      } else {
-        hasMore = false;
-      }
-    }
-
-    if (allReports.length > 0) {
-      return allReports;
-    }
-
-    // Seed database if positive empty response returned
+    // An empty table on a fresh database: seed the demo rows if enabled.
     if (isDemoDataEnabled()) {
-      await seedSupabaseIfEmpty(client);
+      await seedSupabaseIfEmpty();
       const seeded = INITIAL_REPORTS;
       if (currentUser && currentUser.role === 'company') {
         return seeded.filter(r => isReportOwnedByCurrentCompany(r, currentUser));
@@ -525,16 +399,11 @@ export async function fetchReportsFromSupabase(currentUser?: MetrologyUser, opti
     return [];
   } catch (e) {
     if (options.allowFallback === false) {
-      console.warn('Supabase reports fetch failed without dashboard fallback:', e);
+      console.warn('Reports fetch failed without dashboard fallback:', e);
       throw e;
     }
-    console.warn('Falling back to local storage databases on Supabase reports fetch failure:', e);
-    const local = localStorage.getItem('nmc_reports');
-    const all: MetrologyReport[] = local ? JSON.parse(local) : INITIAL_REPORTS;
-    if (currentUser && currentUser.role === 'company') {
-      return all.filter(r => isReportOwnedByCurrentCompany(r, currentUser));
-    }
-    return all;
+    console.warn('Falling back to local storage on reports fetch failure:', e);
+    return localCopy();
   }
 }
 
@@ -563,49 +432,18 @@ export async function sha256(message: string): Promise<string> {
  * Secure QR query resolver
  */
 export async function verifyReportBySecureToken(token: string): Promise<MetrologyReport | null> {
-  // The public server endpoint works for anonymous visitors (phones scanning the
-  // QR / Telegram link) who have no Supabase session and may be blocked by RLS.
+  // Public endpoint: a phone scanning the printed QR has no session at all, so
+  // this is the one lookup that must work for an anonymous visitor. The server
+  // does the token hashing and the lookup.
   try {
     const response = await fetch(`/api/verify-report?token=${encodeURIComponent(token)}`);
     if (response.ok) {
       const data = await response.json().catch(() => null);
-      if (data?.report) return data.report as MetrologyReport;
-    } else if (response.status === 404) {
-      return null;
+      return (data?.report as MetrologyReport) || null;
     }
-  } catch (apiErr) {
-    console.warn('Server verification lookup unavailable, falling back to direct query:', apiErr);
-  }
-
-  const client = getActiveSupabaseClient();
-  if (!client) return null;
-
-  try {
-    const hash = await sha256(token);
-    const { data, error } = await client
-      .from('reports')
-      .select('*')
-      .eq('verification_token_hash', hash);
-
-    if (error) {
-      console.error('Error fetching report by secure verification hash:', error);
-      return null;
+    if (response.status !== 404) {
+      console.warn('Report verification lookup failed with status', response.status);
     }
-
-    if (data && data.length > 0) {
-      return data[0] as MetrologyReport;
-    }
-
-    // Try finding by direct ID as a clean fallback for older testing records
-    const { data: dataById } = await client
-      .from('reports')
-      .select('*')
-      .eq('id', token);
-    
-    if (dataById && dataById.length > 0) {
-      return dataById[0] as MetrologyReport;
-    }
-
     return null;
   } catch (err) {
     console.warn('verifyReportBySecureToken error:', err);
@@ -655,145 +493,65 @@ export async function saveReportToSupabase(report: MetrologyReport): Promise<voi
     updated_at: report.updated_at || new Date().toISOString()
   };
 
-  // Save through the backend first: the service role bypasses RLS policies that
-  // reject direct client writes (they reference a profiles table this app does not use).
-  try {
-    const { getApiAuthHeaders } = await import('./apiAuth');
-    const headers = await getApiAuthHeaders();
-    if (headers.Authorization || headers['X-NMC-User-ID']) {
-      const response = await fetch('/api/reports', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ report: payload })
-      });
-      if (response.ok) {
-        console.log('Synchronized monthly report successfully via server API:', report.id);
-        return;
-      }
-      console.warn('Server report save unavailable, falling back to direct upsert. Status:', response.status);
-    }
-  } catch (apiErr) {
-    console.warn('Server report save failed, falling back to direct upsert:', apiErr);
-  }
-
-  try {
-    const { error } = await client
-      .from('reports')
-      .upsert(payload, { onConflict: 'id' });
-
-    if (error) {
-      console.error('Supabase upload error on reports collection:', error);
-      throw error;
-    }
-    console.log('Synchronized monthly report successfully to Supabase:', report.id);
-  } catch (e) {
-    console.error('Failed to save report to Supabase Cloud:', e);
-    throw e;
-  }
+  // Saved through the backend: the service role holds the credentials and
+  // decides whether this account may write this report.
+  await apiRequest('/api/reports', { method: 'POST', body: { report: payload } });
 }
 
 /**
  * Delete metrology report from Supabase
  */
 export async function deleteReportFromSupabase(reportId: string): Promise<void> {
-  const client = getActiveSupabaseClient();
-  if (!client) return;
+  if (!isCloudBacked()) return;
 
-  try {
-    const { getApiAuthHeaders } = await import('./apiAuth');
-    const headers = await getApiAuthHeaders();
-    if (headers.Authorization || headers['X-NMC-User-ID']) {
-      const response = await fetch(`/api/reports?id=${encodeURIComponent(reportId)}`, {
-        method: 'DELETE',
-        headers
-      });
-      if (response.ok) {
-        console.log('Successfully deleted report via server API:', reportId);
-        return;
-      }
-      if (response.status === 401 || response.status === 403) {
-        const error: any = new Error('The server rejected this report deletion.');
-        error.isAuthorizationError = true;
-        throw error;
-      }
-      console.warn('Server report delete unavailable, falling back to direct delete. Status:', response.status);
-    }
-  } catch (apiErr) {
-    if ((apiErr as any)?.isAuthorizationError) throw apiErr;
-    console.warn('Server report delete failed, falling back to direct delete:', apiErr);
-  }
-
-  try {
-    const { error } = await client
-      .from('reports')
-      .delete()
-      .eq('id', reportId);
-
-    if (error) {
-       console.error('Supabase deletion error on report:', error);
-       throw error;
-    }
-    console.log('Successfully deleted report from Supabase:', reportId);
-  } catch (e) {
-    console.error('Failed to delete report on Supabase Cloud:', e);
-    throw e;
-  }
+  // The server decides whether this account may delete this report; there is
+  // no second path that could bypass that decision.
+  await apiRequest(`/api/reports?id=${encodeURIComponent(reportId)}`, { method: 'DELETE' });
 }
 
 /**
  * Fetch licenses from Supabase with safe offline fallback
  */
 export async function fetchLicensesFromSupabase(currentUser?: MetrologyUser, options: { allowFallback?: boolean } = {}): Promise<EnterpriseLicense[]> {
-  const client = getActiveSupabaseClient();
-  if (!client) {
+  const localCopy = () => {
     const local = localStorage.getItem('nmc_licenses');
     const all = local ? JSON.parse(local) : INITIAL_LICENSES;
     if (currentUser && currentUser.role === 'company') {
       return all.filter((l: any) => isLicenseOwnedByCurrentCompany(l, currentUser));
     }
     return all;
-  }
+  };
+
+  if (!isCloudBacked()) return localCopy();
 
   try {
-    const query = client
-      .from('enterprise_licenses')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    const { data, error } = await query;
-
-    if (error) throw error;
-    if (data && data.length > 0) {
-      const records = data as EnterpriseLicense[];
+    // The server scopes a company account to its own licence, so the filter
+    // below is belt and braces for an older server, not the actual boundary.
+    const { licenses } = await apiRequest<{ licenses: EnterpriseLicense[] }>('/api/licenses');
+    const records = licenses || [];
+    if (records.length > 0) {
       if (currentUser && currentUser.role === 'company') {
         return records.filter((l: any) => isLicenseOwnedByCurrentCompany(l, currentUser));
       }
       return records;
     }
-    
-    // Seed only when demo data is explicitly enabled; otherwise an empty Supabase table is a real empty state.
+
+    // Seed only when demo data is explicitly enabled; an empty table is a real empty state.
     if (isDemoDataEnabled()) {
-      const local = localStorage.getItem('nmc_licenses');
-      const records = local ? JSON.parse(local) : INITIAL_LICENSES;
-      await client.from('enterprise_licenses').insert(records);
-      if (currentUser && currentUser.role === 'company') {
-        return records.filter((l: any) => isLicenseOwnedByCurrentCompany(l, currentUser));
+      const seeded = localCopy();
+      for (const license of seeded) {
+        await apiRequest('/api/licenses', { method: 'POST', body: { license } });
       }
-      return records;
+      return seeded;
     }
     return [];
   } catch (e) {
     if (options.allowFallback === false) {
-      console.warn('Supabase enterprise_licenses fetch failed without dashboard fallback:', e);
+      console.warn('License fetch failed without dashboard fallback:', e);
       throw e;
     }
-    console.warn('Failed to fetch from enterprise_licenses Supabase table. Using local storage Fallback.', e);
-    const local = localStorage.getItem('nmc_licenses');
-    const all = local ? JSON.parse(local) : INITIAL_LICENSES;
-    if (currentUser && currentUser.role === 'company') {
-      return all.filter((l: any) => isLicenseOwnedByCurrentCompany(l, currentUser));
-    }
-    return all;
+    console.warn('Failed to fetch licenses from the API. Using local storage fallback.', e);
+    return localCopy();
   }
 }
 
@@ -894,50 +652,6 @@ function createSupabaseLicensePayload(license: EnterpriseLicense): Record<string
   return payload;
 }
 
-function getMissingColumnFromSupabaseError(error: any): string | null {
-  const text = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`;
-  return (
-    text.match(/'([a-zA-Z0-9_]+)' column/)?.[1] ||
-    text.match(/column ["']?([a-zA-Z0-9_]+)["']? does not exist/)?.[1] ||
-    null
-  );
-}
-
-async function upsertLicensePayloadWithSchemaFallback(
-  client: SupabaseClient,
-  payload: Record<string, any>
-): Promise<void> {
-  let candidate = { ...payload };
-  const removedColumns = new Set<string>();
-
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const { error } = await client
-      .from('enterprise_licenses')
-      .upsert(candidate, { onConflict: 'id' });
-
-    if (!error) {
-      if (removedColumns.size > 0) {
-        console.warn(
-          'Saved license after skipping Supabase columns missing from this schema:',
-          Array.from(removedColumns)
-        );
-      }
-      return;
-    }
-
-    const missingColumn = getMissingColumnFromSupabaseError(error);
-    if (!missingColumn || !(missingColumn in candidate)) {
-      throw error;
-    }
-
-    removedColumns.add(missingColumn);
-    const { [missingColumn]: _removed, ...nextCandidate } = candidate;
-    candidate = nextCandidate;
-  }
-
-  throw new Error('Could not save license after pruning schema-mismatched columns.');
-}
-
 /**
  * Save enterprise license to Supabase (Upsert pattern)
  */
@@ -975,28 +689,23 @@ export async function saveLicenseToSupabase(license: EnterpriseLicense): Promise
     }
   }
 
-  if (!client) return;
+  if (!isCloudBacked()) return;
 
+  // The server drops columns this database does not have, so the pruning that
+  // used to happen here is gone; only the UI-only fields are stripped.
   try {
-    await upsertLicensePayloadWithSchemaFallback(client, createSupabaseLicensePayload(license));
-    console.log('Saved license to Supabase successfully:', license.id);
+    await apiRequest('/api/licenses', {
+      method: 'POST',
+      body: { license: createSupabaseLicensePayload(license) },
+    });
   } catch (e) {
-    console.warn('Schema-safe license save to Supabase failed. Attempting fallback save with pruned standard columns...', e);
-    try {
-      const schemaPayload = createSupabaseLicensePayload(license);
-      const prunedLicense = Object.keys(schemaPayload).reduce((acc: any, key) => {
-        if (STANDARD_LICENSE_COLUMNS.has(key)) {
-          acc[key] = schemaPayload[key];
-        }
-        return acc;
-      }, {});
-
-      await upsertLicensePayloadWithSchemaFallback(client, prunedLicense);
-      console.log('Saved pruned license to Supabase successfully after column mismatch bypass:', license.id);
-    } catch (err) {
-      console.error('Failed to save license to Supabase (even after pruning):', err);
-      throw err;
-    }
+    console.warn('License save failed, retrying with only the standard columns...', e);
+    const schemaPayload = createSupabaseLicensePayload(license);
+    const pruned = Object.keys(schemaPayload).reduce((acc: any, key) => {
+      if (STANDARD_LICENSE_COLUMNS.has(key)) acc[key] = schemaPayload[key];
+      return acc;
+    }, {});
+    await apiRequest('/api/licenses', { method: 'POST', body: { license: pruned } });
   }
 }
 
@@ -1023,72 +732,38 @@ export async function deleteLicenseFromSupabase(licenseId: string): Promise<void
     }
   }
 
-  const client = getActiveSupabaseClient();
-  if (!client) return;
+  if (!isCloudBacked()) return;
 
-  try {
-    const { error } = await client
-      .from('enterprise_licenses')
-      .delete()
-      .eq('id', licenseId);
-
-    if (error) throw error;
-  } catch (e) {
-    console.error('Failed to delete license from Supabase:', e);
-    throw e;
-  }
+  await apiRequest(`/api/licenses/${encodeURIComponent(licenseId)}`, { method: 'DELETE' });
 }
 
 /**
  * Fetch reminder logs
  */
 export async function fetchReminderLogsFromSupabase(licenseId?: string, currentUser?: MetrologyUser): Promise<LicenseReminderLog[]> {
-  const client = getActiveSupabaseClient();
-  if (!client) {
+  const localCopy = () => {
     const local = localStorage.getItem('nmc_reminder_logs');
     let logs: LicenseReminderLog[] = local ? JSON.parse(local) : INITIAL_REMINDER_LOGS;
-    if (licenseId) {
-      logs = logs.filter(l => l.license_id === licenseId);
-    }
+    if (licenseId) logs = logs.filter(l => l.license_id === licenseId);
     if (currentUser && currentUser.role === 'company') {
-      const ownedLics = INITIAL_LICENSES.filter((l: any) => isLicenseOwnedByCurrentCompany(l, currentUser));
-      const ownedIds = ownedLics.map(o => o.id);
+      const ownedIds = INITIAL_LICENSES
+        .filter((l: any) => isLicenseOwnedByCurrentCompany(l, currentUser))
+        .map((o: any) => o.id);
       logs = logs.filter(l => ownedIds.includes(l.license_id));
     }
     return logs;
-  }
+  };
+
+  if (!isCloudBacked()) return localCopy();
 
   try {
-    let query = client.from('license_reminder_logs').select('*').order('sent_at', { ascending: false });
-    if (licenseId) {
-      query = query.eq('license_id', licenseId);
-    }
-
-    if (currentUser && currentUser.role === 'company') {
-      const ownedLics = await fetchLicensesFromSupabase(currentUser);
-      const ownedIds = ownedLics.map(l => l.id);
-      if (ownedIds.length === 0) {
-        return [];
-      }
-      query = query.in('license_id', ownedIds);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return data as LicenseReminderLog[];
+    // A company account is scoped to its own licences by the server.
+    const query = licenseId ? `?license_id=${encodeURIComponent(licenseId)}` : '';
+    const { logs } = await apiRequest<{ logs: LicenseReminderLog[] }>(`/api/reminder-logs${query}`);
+    return logs || [];
   } catch (e) {
-    console.warn('Failed to fetch reminder logs from Supabase, resorting to local storage.', e);
-    const local = localStorage.getItem('nmc_reminder_logs');
-    let logs: LicenseReminderLog[] = local ? JSON.parse(local) : INITIAL_REMINDER_LOGS;
-    if (licenseId) {
-      logs = logs.filter(l => l.license_id === licenseId);
-    }
-    if (currentUser && currentUser.role === 'company') {
-      const ownedLics = INITIAL_LICENSES.filter((l: any) => isLicenseOwnedByCurrentCompany(l, currentUser));
-      const ownedIds = ownedLics.map(o => o.id);
-      logs = logs.filter(l => ownedIds.includes(l.license_id));
-    }
-    return logs;
+    console.warn('Failed to fetch reminder logs, resorting to local storage.', e);
+    return localCopy();
   }
 }
 
@@ -1097,17 +772,16 @@ export async function fetchReminderLogsFromSupabase(licenseId?: string, currentU
  */
 export async function saveReminderLogToSupabase(log: LicenseReminderLog): Promise<void> {
   const local = localStorage.getItem('nmc_reminder_logs');
-  let list: LicenseReminderLog[] = local ? JSON.parse(local) : INITIAL_REMINDER_LOGS;
+  const list: LicenseReminderLog[] = local ? JSON.parse(local) : INITIAL_REMINDER_LOGS;
   list.unshift(log);
   localStorage.setItem('nmc_reminder_logs', JSON.stringify(list));
 
-  const client = getActiveSupabaseClient();
-  if (!client) return;
+  if (!isCloudBacked()) return;
 
   try {
-    await client.from('license_reminder_logs').insert(log);
+    await apiRequest('/api/reminder-logs', { method: 'POST', body: { log } });
   } catch (e) {
-    console.error('Failed to insert reminder log to Supabase:', e);
+    console.error('Failed to record the reminder log:', e);
   }
 }
 
@@ -1115,52 +789,28 @@ export async function saveReminderLogToSupabase(log: LicenseReminderLog): Promis
  * Fetch license renewal history
  */
 export async function fetchRenewalHistoryFromSupabase(licenseId?: string, currentUser?: MetrologyUser): Promise<LicenseRenewalHistory[]> {
-  const client = getActiveSupabaseClient();
-  if (!client) {
+  const localCopy = () => {
     const local = localStorage.getItem('nmc_renewal_history');
     let histories: LicenseRenewalHistory[] = local ? JSON.parse(local) : INITIAL_RENEWAL_HISTORIES;
-    if (licenseId) {
-      histories = histories.filter(h => h.license_id === licenseId);
-    }
+    if (licenseId) histories = histories.filter(h => h.license_id === licenseId);
     if (currentUser && currentUser.role === 'company') {
-      const ownedLics = INITIAL_LICENSES.filter((l: any) => isLicenseOwnedByCurrentCompany(l, currentUser));
-      const ownedIds = ownedLics.map(o => o.id);
+      const ownedIds = INITIAL_LICENSES
+        .filter((l: any) => isLicenseOwnedByCurrentCompany(l, currentUser))
+        .map((o: any) => o.id);
       histories = histories.filter(h => ownedIds.includes(h.license_id));
     }
     return histories;
-  }
+  };
+
+  if (!isCloudBacked()) return localCopy();
 
   try {
-    let query = client.from('license_renewal_history').select('*').order('renewed_at', { ascending: false });
-    if (licenseId) {
-      query = query.eq('license_id', licenseId);
-    }
-
-    if (currentUser && currentUser.role === 'company') {
-      const ownedLics = await fetchLicensesFromSupabase(currentUser);
-      const ownedIds = ownedLics.map(l => l.id);
-      if (ownedIds.length === 0) {
-        return [];
-      }
-      query = query.in('license_id', ownedIds);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return data as LicenseRenewalHistory[];
+    const query = licenseId ? `?license_id=${encodeURIComponent(licenseId)}` : '';
+    const { history } = await apiRequest<{ history: LicenseRenewalHistory[] }>(`/api/renewal-history${query}`);
+    return history || [];
   } catch (e) {
-    console.warn('Failed to fetch renewal history from Supabase, resorting to local storage.', e);
-    const local = localStorage.getItem('nmc_renewal_history');
-    let histories: LicenseRenewalHistory[] = local ? JSON.parse(local) : INITIAL_RENEWAL_HISTORIES;
-    if (licenseId) {
-      histories = histories.filter(h => h.license_id === licenseId);
-    }
-    if (currentUser && currentUser.role === 'company') {
-      const ownedLics = INITIAL_LICENSES.filter((l: any) => isLicenseOwnedByCurrentCompany(l, currentUser));
-      const ownedIds = ownedLics.map(o => o.id);
-      histories = histories.filter(h => ownedIds.includes(h.license_id));
-    }
-    return histories;
+    console.warn('Failed to fetch renewal history, resorting to local storage.', e);
+    return localCopy();
   }
 }
 
@@ -1169,17 +819,16 @@ export async function fetchRenewalHistoryFromSupabase(licenseId?: string, curren
  */
 export async function saveRenewalHistoryToSupabase(history: LicenseRenewalHistory): Promise<void> {
   const local = localStorage.getItem('nmc_renewal_history');
-  let list: LicenseRenewalHistory[] = local ? JSON.parse(local) : INITIAL_RENEWAL_HISTORIES;
+  const list: LicenseRenewalHistory[] = local ? JSON.parse(local) : INITIAL_RENEWAL_HISTORIES;
   list.unshift(history);
   localStorage.setItem('nmc_renewal_history', JSON.stringify(list));
 
-  const client = getActiveSupabaseClient();
-  if (!client) return;
+  if (!isCloudBacked()) return;
 
   try {
-    await client.from('license_renewal_history').insert(history);
+    await apiRequest('/api/renewal-history', { method: 'POST', body: { history } });
   } catch (e) {
-    console.error('Failed to insert renewal history record into Supabase:', e);
+    console.error('Failed to record the renewal history entry:', e);
   }
 }
 
@@ -1215,7 +864,6 @@ export async function fetchBotSettingsFromSupabase(): Promise<TelegramBotSetting
 }
 
 export async function fetchActiveReminderBotPublic(): Promise<TelegramBotSetting | null> {
-  const client = getActiveSupabaseClient();
   try {
     const response = await fetch('/api/active-telegram-bot?purpose=license_reminder', {
       headers: await getApiJsonHeaders(),
@@ -1225,10 +873,13 @@ export async function fetchActiveReminderBotPublic(): Promise<TelegramBotSetting
       return data.bot ? sanitizeBotSettingForBrowserStorage(data.bot) : null;
     }
   } catch (e) {
-    console.warn('Public active Telegram Bot API lookup failed; falling back to Supabase/local lookup:', e);
+    console.warn('Active Telegram bot lookup failed; using the local copy:', e);
   }
 
-  if (!client) {
+  // Only the demo copy as a fallback. The direct database query that used to
+  // live here read bot_token_encrypted into the browser, which the server
+  // endpoint never does — bot tokens belong on the server.
+  try {
     const local = localStorage.getItem('nmc_bot_settings');
     const records: TelegramBotSetting[] = local ? JSON.parse(local) : INITIAL_BOT_SETTINGS;
     const migrated = records.map(migrateLegacyDemoBotUsername);
@@ -1236,50 +887,8 @@ export async function fetchActiveReminderBotPublic(): Promise<TelegramBotSetting
     const activeReminder = migrated.find(b => b.is_active && ['license_reminder', 'both'].includes(b.bot_purpose || 'license_reminder'));
     const active = activeReminder || migrated.find(b => b.is_active && String(b.bot_username || '').trim());
     return active ? sanitizeBotSettingForBrowserStorage(active) : null;
-  }
-
-  try {
-    const { data, error } = await client
-      .from('telegram_bot_settings')
-      .select('*')
-      .eq('is_active', true)
-      .limit(10);
-
-    if (error) throw error;
-    const activeReminder = (data || []).find((bot: any) =>
-      ['license_reminder', 'both'].includes(bot.bot_purpose || 'license_reminder') &&
-      String(bot.bot_username || '').trim() &&
-      String(bot.bot_token_encrypted || '').trim()
-    ) as Partial<TelegramBotSetting> | undefined;
-    const activeFallback = (data || []).find((bot: any) =>
-      String(bot.bot_username || '').trim() &&
-      String(bot.bot_token_encrypted || '').trim()
-    ) as Partial<TelegramBotSetting> | undefined;
-    const active = activeReminder || activeFallback;
-    if (!active) return null;
-    return {
-      id: String(active.id || ''),
-      bot_name: active.bot_name || null,
-      bot_username: String(active.bot_username || ''),
-      bot_token_encrypted: '',
-      bot_purpose: active.bot_purpose || 'license_reminder',
-      default_chat_id: null,
-      webhook_url: null,
-      webhook_secret_encrypted: null,
-      is_active: active.is_active !== false,
-      description: active.description || null,
-      connection_status: active.connection_status || (active.last_test_status === 'Success' ? 'connected' : 'not_verified'),
-      last_test_status: active.last_test_status || null,
-      last_test_message: active.last_test_message || null,
-      last_error: active.last_error || null,
-      last_tested_at: active.last_tested_at || null,
-      webhook_status: active.webhook_status || (active.webhook_url ? 'configured' : 'not_configured'),
-      bot_display_name: active.bot_display_name || null,
-      created_at: active.created_at || new Date().toISOString(),
-      updated_at: active.updated_at || new Date().toISOString(),
-    };
   } catch (e) {
-    console.warn('Failed to fetch public active reminder bot metadata:', e);
+    console.warn('Failed to read the local Telegram bot copy:', e);
     return null;
   }
 }
@@ -1529,68 +1138,48 @@ export function isReportOwnedByCurrentCompany(report: any, currentUser: any): bo
  * Fetch attachments from Supabase for a specific license ID
  */
 export async function fetchAttachmentsFromSupabase(licenseId: string): Promise<EnterpriseLicenseAttachment[]> {
-  const client = getActiveSupabaseClient();
-  if (!client) {
+  const localCopy = () => {
     const local = localStorage.getItem('nmc_license_attachments');
     const all: EnterpriseLicenseAttachment[] = local ? JSON.parse(local) : [];
     return all.filter(a => a.license_id === licenseId);
-  }
+  };
+
+  if (!isCloudBacked()) return localCopy();
 
   try {
-    const { data, error } = await client
-      .from('enterprise_license_attachments')
-      .select('*')
-      .eq('license_id', licenseId)
-      .order('uploaded_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
+    const { attachments } = await apiRequest<{ attachments: EnterpriseLicenseAttachment[] }>(
+      `/api/license-attachments?license_id=${encodeURIComponent(licenseId)}`,
+    );
+    return attachments || [];
   } catch (e) {
-    console.error('Failed to fetch attachments from Supabase:', e);
-    // Fallback to local storage
-    const local = localStorage.getItem('nmc_license_attachments');
-    const all: EnterpriseLicenseAttachment[] = local ? JSON.parse(local) : [];
-    return all.filter(a => a.license_id === licenseId);
+    console.error('Failed to fetch attachments:', e);
+    return localCopy();
   }
 }
 
 /**
- * Save attachment metadata to Supabase
+ * Save attachment metadata
  */
 export async function saveAttachmentToSupabase(attachment: EnterpriseLicenseAttachment): Promise<void> {
   // Update local storage first
   const local = localStorage.getItem('nmc_license_attachments');
-  let list: EnterpriseLicenseAttachment[] = local ? JSON.parse(local) : [];
+  const list: EnterpriseLicenseAttachment[] = local ? JSON.parse(local) : [];
   const idx = list.findIndex(a => a.id === attachment.id);
-  if (idx !== -1) {
-    list[idx] = attachment;
-  } else {
-    list.unshift(attachment);
-  }
+  if (idx !== -1) list[idx] = attachment;
+  else list.unshift(attachment);
   try {
     localStorage.setItem('nmc_license_attachments', JSON.stringify(list));
   } catch (quotaError) {
     console.warn('LocalStorage save failed for attachments due to quota limit:', quotaError);
   }
 
-  const client = getActiveSupabaseClient();
-  if (!client) return;
+  if (!isCloudBacked()) return;
 
-  try {
-    const { error } = await client
-      .from('enterprise_license_attachments')
-      .upsert(attachment, { onConflict: 'id' });
-
-    if (error) throw error;
-    console.log('Saved attachment to Supabase successfully:', attachment.id);
-  } catch (e) {
-    console.error('Failed to save attachment metadata to Supabase:', e);
-    throw e;
-  }
+  await apiRequest('/api/license-attachments', { method: 'POST', body: { attachment } });
 }
 
 /**
- * Delete attachment from Supabase
+ * Delete attachment
  */
 export async function deleteAttachmentFromSupabase(attachmentId: string): Promise<void> {
   const local = localStorage.getItem('nmc_license_attachments');
@@ -1602,21 +1191,9 @@ export async function deleteAttachmentFromSupabase(attachmentId: string): Promis
     console.warn('LocalStorage delete failed for attachments:', quotaError);
   }
 
-  const client = getActiveSupabaseClient();
-  if (!client) return;
+  if (!isCloudBacked()) return;
 
-  try {
-    const { error } = await client
-      .from('enterprise_license_attachments')
-      .delete()
-      .eq('id', attachmentId);
-
-    if (error) throw error;
-    console.log('Deleted attachment from Supabase successfully:', attachmentId);
-  } catch (e) {
-    console.error('Failed to delete attachment from Supabase:', e);
-    throw e;
-  }
+  await apiRequest(`/api/license-attachments/${encodeURIComponent(attachmentId)}`, { method: 'DELETE' });
 }
 
 /**

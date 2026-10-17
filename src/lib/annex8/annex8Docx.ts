@@ -1,23 +1,34 @@
 /**
- * MLRS · Annex 8 – fill the official Word template with report data.
+ * MLRS · Annex 8 — official monthly report, generated IN THE BROWSER by
+ * filling public/templates/Annex8_template_v1.docx.
  *
- *   npm i docxtemplater@3.47.4 pizzip@3.1.7
- *   npx tsx lib/annex8/fill-annex8.ts templates/Annex8_template_v1.docx lib/annex8/sample-payload.json out.docx
+ * The template is the single source of truth for layout, fonts, font sizes,
+ * spacing, borders, page orientation and wording. This module only prepares
+ * values for its tags and never styles anything. If the printed document looks
+ * wrong, the tag or section in the template is what needs editing — do not fix
+ * it here.
  *
- * The template is the single source of truth for layout and formatting.
- * This file ONLY prepares values for the tags; it never styles anything.
- * Input = the JSON payload produced by the MLRS form (format_version A8-2026.2).
+ * TypeScript/ESM port of docs/annex8/fill-annex8.js. Every helper, tag and
+ * fallback is the one in that reference file; only the module syntax, the types
+ * and the browser template loading were added.
  *
- * TypeScript port of the reference fill-annex8.js. The logic is unchanged —
- * every helper, every tag and every fallback is the same; only type
- * annotations and the module syntax were added. If the printed document looks
- * wrong, the fix belongs in the template, not here.
+ *   const blob = await renderAnnex8Docx(payload, extra);   // Blob
+ *   await downloadAnnex8Docx(payload, extra);              // triggers download
  */
-
-import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
+import PizZip from 'pizzip';
 
-// ---------- formatting helpers ----------
+/** Template version a report was filled with; stored on the report row. */
+export const DEFAULT_TEMPLATE_VERSION = 'v1';
+
+/** Served from public/, so it is also in dist/templates/ after a build. */
+export const templateUrlFor = (version = DEFAULT_TEMPLATE_VERSION) =>
+  `/templates/Annex8_template_${version}.docx`;
+
+/* ------------------------------------------------------------------ *
+ * formatting helpers  (unchanged from fill-annex8.js)
+ * ------------------------------------------------------------------ */
+
 const KD = '០១២៣៤៥៦៧៨៩';
 const kh = (v: unknown) => String(v ?? '').replace(/\d/g, (d) => KD[Number(d)]);
 const KM = ['មករា', 'កុម្ភៈ', 'មីនា', 'មេសា', 'ឧសភា', 'មិថុនា', 'កក្កដា', 'សីហា', 'កញ្ញា', 'តុលា', 'វិច្ឆិកា', 'ធ្នូ'];
@@ -33,17 +44,41 @@ const or = (v: unknown, fallback: string) =>
 // Hand-fill fields keep their dotted line when the system has no value, so the printout still looks official.
 const DOTS = (n: number) => '.'.repeat(n);
 
+/** Cambodia is UTC+7 with no daylight saving. */
+const KH_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+/**
+ * Day/month/year of a timestamp as they read in Cambodia, falling back to the
+ * moment the document is generated. Using UTC getters on a shifted clock keeps
+ * the answer the same whether this runs in a Phnom Penh browser or on a UTC
+ * server.
+ */
+function khDateParts(iso?: string | null): { day: number; month: number; year: number } {
+  const base = iso ? new Date(iso) : new Date();
+  const d = new Date((Number.isNaN(base.getTime()) ? Date.now() : base.getTime()) + KH_OFFSET_MS);
+  return { day: d.getUTCDate(), month: d.getUTCMonth(), year: d.getUTCFullYear() };
+}
+
 const CAT_CODE: Record<string, string> = {
   NAWI: 'nawi', WEIGHBRIDGE: 'weighbridge', WEIGHTS: 'weights', FUEL_DISPENSER: 'fuel', LPG_DISPENSER: 'lpg',
   ELEC_METER: 'elec', WATER_METER: 'water', EV_CHARGER: 'ev', OTHER: 'other',
 };
+/**
+ * Verification wording for the Part 3 and Part 4 result cells.
+ *
+ * ជាប់ / ធ្លាក់, matching the template: its Part 2 column headers and the
+ * carry-over line already say ជាប់ / ធ្លាក់, so the rows must read the same —
+ * one official document cannot use two words for the same thing. The reference
+ * fill-annex8.js printed ឆ្លង / មិនឆ្លង here, which is the difference against
+ * docs/annex8/Annex8_sample_filled.docx.
+ */
 const VTXT = (st?: string, no?: string, date?: string) =>
-  (st === 'PENDING' || !st ? 'រង់ចាំ' : `${st === 'PASSED' ? 'ឆ្លង' : 'មិនឆ្លង'} ${or(no, '')} ${dmy(date)}`.trim());
+  (st === 'PENDING' || !st ? 'រង់ចាំ' : `${st === 'PASSED' ? 'ជាប់' : 'ធ្លាក់'} ${or(no, '')} ${dmy(date)}`.trim());
 const STD_KH: Record<string, string> = { VALID: 'មានសុពលភាព', EXPIRED: 'ផុតកំណត់', OUT_OF_SERVICE: 'ឈប់ប្រើ' };
 const loc = (x: any) =>
   [x.province, x.address, (x.lat && x.long) ? `(${x.lat}, ${x.long})` : ''].filter(Boolean).join(' ');
 
-/** Values the payload does not carry: taken from the licence record and the submission. */
+/** Values the report payload does not carry: from the licence record and the submission. */
 export interface Annex8Extra {
   decision_no?: string;
   decision_date?: string;
@@ -51,9 +86,12 @@ export interface Annex8Extra {
   preparer_name?: string;
   preparer_position?: string;
   legal_rep_name?: string;
-  /** Khmer lunar date text; left as the dotted line when absent. */
+  /** Khmer lunar date text; prints the template's dotted line when absent. */
   lunar_date_line?: string;
+  /** «ធ្វើនៅ» — the capital/province name only, e.g. រាជធានីភ្នំពេញ. */
   signed_place?: string;
+  /** Overrides the «ធ្វើនៅ … ថ្ងៃទី» date; defaults to submitted_at, then to now. */
+  signed_date?: string;
   submitted_at?: string;
   received_at?: string;
   report_id?: string;
@@ -61,6 +99,10 @@ export interface Annex8Extra {
 }
 
 type Counters = { m: number; i: number; r: number; passed: number; failed: number; pending: number };
+
+/* ------------------------------------------------------------------ *
+ * buildAnnex8Data  (logic identical to the reference file)
+ * ------------------------------------------------------------------ */
 
 /**
  * @param r      report payload (see MLRS_Annex8_field_spec.xlsx)
@@ -105,7 +147,14 @@ export function buildAnnex8Data(r: any, extra: Annex8Extra = {}): Record<string,
   const provinces = [...new Set(ins.concat(reps).map((x) => x.province).filter(Boolean))];
   const [vd, vm, vy] = parts(m.licence_valid_to);
   const [dd, dm, dy] = parts(extra.decision_date);
-  const signed = extra.submitted_at ? new Date(extra.submitted_at) : null;
+  /**
+   * «ធ្វើនៅ … ថ្ងៃទី … ខែ … ឆ្នាំ …» is the date the document is made. A
+   * submitted report is dated by its submission; anything else is dated the
+   * day it is generated, so the printout never comes out with blank dots for
+   * the licensee to fill in by hand. Read in Cambodia time, because the
+   * server that generates it runs in UTC.
+   */
+  const signed = khDateParts(extra.signed_date || extra.submitted_at);
   const ev = r.part6_events || {};
 
   return {
@@ -131,9 +180,9 @@ export function buildAnnex8Data(r: any, extra: Annex8Extra = {}): Record<string,
     chk_nil: BOX(isNil),
     lunar_date_line: or(extra.lunar_date_line, 'ថ្ងៃ.................. ខែ............... ឆ្នាំ............... ព.ស.............'),
     signed_place_kh: or(extra.signed_place, DOTS(20)),
-    signed_day_kh: signed ? kh(signed.getDate()) : DOTS(8),
-    signed_month_kh: signed ? KM[signed.getMonth()] : DOTS(15),
-    signed_year_kh: signed ? kh(signed.getFullYear()) : DOTS(15),
+    signed_day_kh: kh(signed.day),
+    signed_month_kh: KM[signed.month],
+    signed_year_kh: kh(signed.year),
 
     // Part 1
     registration_no: m.registration_no,
@@ -228,21 +277,126 @@ export function buildAnnex8Data(r: any, extra: Annex8Extra = {}): Record<string,
   };
 }
 
-export function renderAnnex8(templateBuf: Buffer, data: Record<string, any>): Buffer {
-  const doc = new Docxtemplater(new PizZip(templateBuf), {
-    paragraphLoop: true,
-    linebreaks: true,
-    nullGetter: () => '',               // unknown/missing value -> empty, never "undefined"
-  });
-  doc.render(data);                     // throws with the tag name if the template is broken
-  return doc.getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+/* ------------------------------------------------------------------ *
+ * Rendering
+ * ------------------------------------------------------------------ */
+
+export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/** Thrown when the template could not be loaded; carries a Khmer message for the UI. */
+export class Annex8TemplateError extends Error {
+  readonly kh = 'មិនអាចទាញយកទម្រង់ឯកសារផ្លូវការបានទេ';
 }
 
-/** Lists every tag in the template (use in CI to compare against buildAnnex8Data keys). */
-export function listTags(templateBuf: Buffer): string[] {
-  const zip = new PizZip(templateBuf);
-  const xml = (zip.file('word/document.xml') as any).asText().replace(/<[^>]+>/g, '');
-  return [...new Set([...xml.matchAll(/\{([#^/]?)([a-z0-9_]+)\}/gi)].map((mm: any) => mm[1] + mm[2]))];
+/** Thrown when docxtemplater rejected the data; its message names the tag. */
+export class Annex8RenderError extends Error {
+  readonly kh = 'មិនអាចបំពេញទម្រង់ឯកសារផ្លូវការបានទេ';
+}
+
+/** Loads the template from public/. Cached by the browser like any static asset. */
+export async function fetchAnnex8Template(
+  version = DEFAULT_TEMPLATE_VERSION,
+): Promise<ArrayBuffer> {
+  const url = templateUrlFor(version);
+  let res: Response;
+  try {
+    res = await fetch(url);
+  } catch (err: any) {
+    throw new Annex8TemplateError(`Could not fetch ${url}: ${err?.message || err}`);
+  }
+  if (!res.ok) throw new Annex8TemplateError(`${url} returned HTTP ${res.status}.`);
+
+  const buf = await res.arrayBuffer();
+  // A missing file under a SPA rewrite comes back as index.html, not a 404.
+  const sig = new Uint8Array(buf.slice(0, 2));
+  if (sig[0] !== 0x50 || sig[1] !== 0x4b) {
+    throw new Annex8TemplateError(
+      `${url} is not a .docx (ZIP) file — it returned ${buf.byteLength} bytes starting with `
+      + `0x${sig[0]?.toString(16)}${sig[1]?.toString(16)}. Check that public/templates/ is deployed.`,
+    );
+  }
+  return buf;
+}
+
+/**
+ * Fills the template and returns the docxtemplater document, so the caller can
+ * ask its zip for a Blob (browser) or a nodebuffer (the check scripts). One
+ * implementation, so a script can never render differently from the app.
+ */
+export function fillAnnex8Template(
+  template: ArrayBuffer | Uint8Array,
+  payload: any,
+  extra: Annex8Extra = {},
+): any {
+  const data = buildAnnex8Data(payload, extra);
+  try {
+    const doc = new Docxtemplater(new PizZip(template as any), {
+      paragraphLoop: true,
+      linebreaks: true,
+      nullGetter: () => '',           // unknown/missing value -> empty, never "undefined"
+    });
+    doc.render(data);                 // throws with the tag name if the template is broken
+    return doc;
+  } catch (err: any) {
+    // docxtemplater puts the offending tags in err.properties.errors.
+    const detail = (err?.properties?.errors || [])
+      .map((e: any) => e?.properties?.explanation || e?.message)
+      .filter(Boolean)
+      .join('; ');
+    throw new Annex8RenderError(detail || err?.message || String(err));
+  }
+}
+
+/** Fills the template and returns the .docx as a Blob. */
+export async function renderAnnex8Docx(
+  payload: any,
+  extra: Annex8Extra = {},
+  options: { version?: string; template?: ArrayBuffer } = {},
+): Promise<Blob> {
+  const version = options.version || DEFAULT_TEMPLATE_VERSION;
+  const template = options.template || (await fetchAnnex8Template(version));
+  const doc = fillAnnex8Template(template, payload, extra);
+  return doc.getZip().generate({ type: 'blob', mimeType: DOCX_MIME, compression: 'DEFLATE' });
+}
+
+/** Annex8_<licence_no>_<YYYY-MM>_<report_id or draft>.docx */
+export function annex8FileName(payload: any, extra: Annex8Extra = {}): string {
+  const safe = (v: unknown) => String(v ?? '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  const id = safe(extra.report_id || payload?.meta?.report_id) || 'draft';
+  return `Annex8_${safe(payload?.meta?.licence_no)}_${safe(payload?.meta?.period_month)}_${id}.docx`;
+}
+
+/** Fills the template and triggers a download. Returns the file name used. */
+export async function downloadAnnex8Docx(
+  payload: any,
+  extra: Annex8Extra = {},
+  options: { version?: string; fileName?: string } = {},
+): Promise<string> {
+  const blob = await renderAnnex8Docx(payload, extra, { version: options.version });
+  const fileName = options.fileName || annex8FileName(payload, extra);
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoked late: Safari needs the object URL alive until the download starts.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return fileName;
+}
+
+/* ------------------------------------------------------------------ *
+ * Tag inspection (used by the tag check in scripts/)
+ * ------------------------------------------------------------------ */
+
+/** Lists every tag in a template buffer. */
+export function listTags(template: ArrayBuffer | Uint8Array): string[] {
+  const xml = (new PizZip(template as any).file('word/document.xml') as any)
+    .asText().replace(/<[^>]+>/g, '');
+  return [...new Set([...xml.matchAll(/\{([#^/]?)([a-z0-9_]+)\}/gi)].map((m: any) => m[1] + m[2]))];
 }
 
 /**
@@ -257,9 +411,5 @@ export const LOOP_ITEM_KEYS = [
   'notification_no', 'technician', 'equipment', 'class_range', 'cal_cert_no', 'lab', 'due_date', 'status_kh',
 ];
 
-/*
- * The reference file's CLI lives in fill-cli.ts instead: this project is an ESM
- * package, so `require.main === module` never fires here, and `import.meta`
- * cannot survive the CJS server bundle. Keeping the library import-only means
- * it bundles cleanly into dist/server.cjs.
- */
+/** The loop arrays are consumed by {#…} sections rather than printed as a value. */
+export const LOOP_ARRAY_KEYS = ['instruments', 'modules', 'repairs', 'standards'];

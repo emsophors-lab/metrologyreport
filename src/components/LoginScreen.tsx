@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MetrologyUser } from '../types';
 import nmcLoginLogo from './NMClogo-standard.png';
-import { getActiveSupabaseClient } from '../supabaseSync';
+import { apiRequest, getActiveSupabaseClient } from '../supabaseSync';
 import { isDemoLoginAllowed, INITIAL_USERS } from '../demoData';
 import { verifyUserPassword } from '../utils/passwordUtils';
 import LoginMetrologyAnimation from './LoginMetrologyAnimation';
@@ -282,8 +282,8 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
                 created_at: localMatched.created_at || new Date().toISOString()
               };
 
-              // Insert directly into the registered users profile table
-              await client.from('users').upsert([newUserRecord]);
+              // Through our own API, like every other write.
+              await apiRequest('/api/users', { method: 'POST', body: { user: newUserRecord } });
 
               // Attempt login once more
               authResult = await client.auth.signInWithPassword({
@@ -315,12 +315,15 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
         }
 
         if (authResult.data.user) {
-          // Fetch authenticated profile details (using active 'users' table, NOT 'profiles')
-          const { data: profile, error: pErr } = await client
-            .from('users')
-            .select('*')
-            .eq('id', authResult.data.user.id)
-            .single();
+          // The account row comes from our own API, which returns only the
+          // caller's row and never any password material.
+          let profile: any = null;
+          let pErr: any = null;
+          try {
+            profile = (await apiRequest<{ user: any }>('/api/users/me')).user;
+          } catch (err) {
+            pErr = err;
+          }
 
           if (pErr || !profile) {
             logTechnicalIssue('Profile loading error:', pErr);

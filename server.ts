@@ -7,10 +7,15 @@ import { createClient } from '@supabase/supabase-js';
 // same code the form uses, rather than a second copy that drifts out of step.
 import { validateAnnex8, blockingIssues, warningIssues, hostPart } from './src/annex8/validation';
 import { computeSummary, isOnTime } from './src/annex8/summary';
-import { FORMAT_VERSION } from './src/annex8/constants';
+import { DEADLINE_DAY, FORMAT_VERSION } from './src/annex8/constants';
+import {
+  buildMonthlyDigest, digestFileName, normalizeLegacyPeriod, previousPeriod,
+  renderDigestCaption, renderDigestHtml, renderDigestMessages,
+} from './src/annex8/monthlyDigest';
 import type { Annex8State } from './src/annex8/types';
 import {
-  Annex8TemplateMissingError, DEFAULT_TEMPLATE_VERSION, OFFICIAL_BUCKET, convertDocxToPdf,
+  Annex8TemplateMissingError, DEFAULT_TEMPLATE_VERSION, OFFICIAL_BUCKET, STORAGE_DRIVER,
+  convertDocxToPdf, convertHtmlToPdf,
   getOfficialDocument, loadAnnex8RenderInput, officialAssetsStatus, officialFileName,
   putOfficialDocument, renderAndStoreOfficialDocuments, renderOfficialDocx,
 } from './src/annex8/officialDocument';
@@ -255,6 +260,39 @@ async function sendTelegramMessage(botToken: string, chatId: string, text: strin
   if (!response.ok || body?.ok === false) {
     const description = body?.description || body?.raw || `HTTP ${response.status}`;
     throw new Error(`Telegram sendMessage API error: ${sanitizeTelegramError(description, botToken)}`);
+  }
+  return body;
+}
+
+/**
+ * Send a file to Telegram (sendDocument, multipart).
+ *
+ * The caption is limited to 1024 characters, not the 4096 a message allows, so
+ * callers must shorten it themselves rather than have Telegram reject the whole
+ * upload.
+ */
+async function sendTelegramDocument(
+  botToken: string,
+  chatId: string,
+  file: { name: string; type: string; body: Buffer },
+  caption?: string,
+) {
+  const form = new FormData();
+  form.append('chat_id', chatId);
+  form.append('document', new Blob([new Uint8Array(file.body)], { type: file.type }), file.name);
+  if (caption) {
+    form.append('caption', caption);
+    form.append('parse_mode', 'HTML');
+  }
+
+  const response = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+    method: 'POST',
+    body: form as any,
+  });
+  const body = await readResponseBodySafely(response);
+  if (!response.ok || body?.ok === false) {
+    const description = body?.description || body?.raw || `HTTP ${response.status}`;
+    throw new Error(`Telegram sendDocument API error: ${sanitizeTelegramError(description, botToken)}`);
   }
   return body;
 }
@@ -934,6 +972,770 @@ app.get('/api/verify-report', async (req, res) => {
 
 // Public endpoint for license-certificate QR scans. Read with the service role so
 // anonymous phones are not blocked by RLS, then return only certificate-safe data.
+/* ====================================================================
+ *  LICENSING REGISTRY API
+ *
+ *  These endpoints exist so the browser never talks to the database
+ *  directly. Before this, the frontend reached enterprise_licenses,
+ *  enterprise_license_attachments, license_reminder_logs,
+ *  license_renewal_history and login_history through supabase-js with
+ *  the anon key, under RLS policies of `FOR ALL USING (true)` — which
+ *  put no real limit on who could read or write what.
+ *
+ *  Routing them here does two things: permissions become real and
+ *  server-enforced (a company account can only touch its own licence),
+ *  and the application stops depending on PostgREST, which is what
+ *  makes the planned move to MISTI's own PostgreSQL server possible.
+ *  See docs/database-portability.md.
+ * ==================================================================== */
+
+/** The caller, plus what their role lets them see. */
+async function requireRegistryAccess(req: any, res: any) {
+  if (!supabaseAdmin) {
+    apiError(res, 503, 'Server database provider is not configured.');
+    return null;
+  }
+  const resolved = await resolveApiUser(req);
+  if (!resolved) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return null;
+  }
+  if (!['superadmin', 'admin', 'company'].includes(resolved.role)) {
+    res.status(403).json({ error: 'Insufficient permission.' });
+    return null;
+  }
+  return { ...resolved, isStaff: resolved.role !== 'company' };
+}
+
+/** Licence numbers a company account owns. Staff get null, meaning "everything". */
+function ownLicenceNumbers(access: { isStaff: boolean; userRow: any }): string[] | null {
+  if (access.isStaff) return null;
+  const n = String(access.userRow?.license_number || '').trim();
+  return n ? [n] : [];
+}
+
+/**
+ * Upserts a row, dropping columns this database does not have.
+ *
+ * The licence table has grown over time and deployments are not always on the
+ * same migration, so a payload from a newer frontend can name a column the
+ * database has not got yet. This used to be handled in the browser; it belongs
+ * here now, next to the database.
+ */
+async function upsertWithSchemaFallback(
+  table: string,
+  payload: Record<string, any>,
+  onConflict = 'id',
+): Promise<{ skipped: string[] }> {
+  let candidate = { ...payload };
+  const skipped: string[] = [];
+
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const { error } = await supabaseAdmin.from(table).upsert(candidate, { onConflict });
+    if (!error) return { skipped };
+
+    const text = `${error.message || ''} ${error.details || ''} ${error.hint || ''}`;
+    const missing = text.match(/'([a-zA-Z0-9_]+)' column/)?.[1]
+      || text.match(/column ["']?([a-zA-Z0-9_]+)["']? does not exist/)?.[1]
+      || null;
+    if (!missing || !(missing in candidate)) throw error;
+
+    skipped.push(missing);
+    const { [missing]: _drop, ...rest } = candidate;
+    candidate = rest;
+  }
+  throw new Error(`Could not save to ${table} after pruning schema-mismatched columns.`);
+}
+
+/** Reads a table in pages, so a result over 1000 rows is not silently cut off. */
+async function selectAllRows(table: string, apply: (q: any) => any): Promise<any[]> {
+  const out: any[] = [];
+  const pageSize = 1000;
+  for (let page = 0; page < 50; page++) {
+    const from = page * pageSize;
+    const { data, error } = await apply(supabaseAdmin.from(table).select('*'))
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+  }
+  return out;
+}
+
+/* ----------------------------- licences ---------------------------- */
+
+/* ====================================================================
+ *  USER REGISTRY API
+ *
+ *  The browser used to read the whole users table with the anon key,
+ *  under an RLS policy of `FOR SELECT USING (true)` — which meant every
+ *  visitor could read every account row, PASSWORD HASHES INCLUDED, and
+ *  a company account could read every other enterprise's details.
+ *
+ *  Now: secrets never leave the server, and a company account sees only
+ *  its own row.
+ * ==================================================================== */
+
+/** Columns that must never reach the browser. */
+const USER_SECRET_COLUMNS = ['password', 'password_hash'];
+
+function publicUserRow(row: any) {
+  const safe = { ...row };
+  for (const column of USER_SECRET_COLUMNS) delete safe[column];
+  // Tells the UI an account has a password set, without revealing anything.
+  safe.has_password = !!(row?.password_hash || row?.password);
+  return safe;
+}
+
+/**
+ * GET /api/users
+ *
+ * Staff get the full registry; a company account gets exactly one row — its
+ * own. Password material is stripped either way.
+ */
+app.get('/api/users', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const resolved = await resolveApiUser(req);
+    if (!resolved) return res.status(401).json({ error: 'Authentication required.' });
+    const { role, userRow } = resolved;
+    if (!['superadmin', 'admin', 'company'].includes(role)) {
+      return res.status(403).json({ error: 'Insufficient permission.' });
+    }
+
+    if (role === 'company') {
+      // Its own account and nothing else. Without a resolvable row there is
+      // nothing safe to return, so return nothing.
+      if (!userRow?.id) return apiSuccess(res, { users: [] });
+      const { data, error } = await supabaseAdmin
+        .from('users').select('*').eq('id', String(userRow.id)).limit(1);
+      if (error) throw error;
+      return apiSuccess(res, { users: (data || []).map(publicUserRow) });
+    }
+
+    const users: any[] = [];
+    const pageSize = 1000;
+    for (let page = 0; page < 50; page++) {
+      const from = page * pageSize;
+      const { data, error } = await supabaseAdmin
+        .from('users').select('*')
+        .order('created_at', { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      users.push(...(data || []));
+      if (!data || data.length < pageSize) break;
+    }
+    return apiSuccess(res, { users: users.map(publicUserRow) });
+  } catch (err: any) {
+    console.error('Users fetch failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to load the user registry.');
+  }
+});
+
+/**
+ * GET /api/users/me
+ *
+ * The signed-in account's own row, with password material stripped. Used right
+ * after sign-in, so the browser never has to read the users table to find out
+ * who it is.
+ */
+app.get('/api/users/me', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const resolved = await resolveApiUser(req);
+    if (!resolved) return res.status(401).json({ error: 'Authentication required.' });
+    if (!resolved.userRow?.id) return apiError(res, 404, 'No account row for this session.');
+
+    const { data, error } = await supabaseAdmin
+      .from('users').select('*').eq('id', String(resolved.userRow.id)).maybeSingle();
+    if (error) throw error;
+    if (!data) return apiError(res, 404, 'Account not found.');
+
+    return apiSuccess(res, { user: publicUserRow(data) });
+  } catch (err: any) {
+    console.error('Own account fetch failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to load the account.');
+  }
+});
+
+/**
+ * POST /api/users
+ *
+ * Creates or updates an account. Staff may write any account; a company
+ * account may update only its own, and may not change its role, its licence
+ * or any permission flag — otherwise an enterprise could promote itself.
+ */
+app.post('/api/users', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const resolved = await resolveApiUser(req);
+    if (!resolved) return res.status(401).json({ error: 'Authentication required.' });
+    const { role, userRow } = resolved;
+
+    const user = req.body?.user;
+    if (!user || typeof user !== 'object' || !user.id) {
+      return apiError(res, 400, 'A user object with an id is required.');
+    }
+
+    const isStaff = role === 'superadmin' || role === 'admin';
+    let payload: Record<string, any> = { ...user };
+
+    if (!isStaff) {
+      if (role !== 'company' || String(userRow?.id || '') !== String(user.id)) {
+        return res.status(403).json({ error: 'You may only update your own account.' });
+      }
+      // Contact details only. Everything that grants access is dropped rather
+      // than rejected, so an older client cannot fail in a confusing way.
+      const SELF_EDITABLE = [
+        'company_name_kh', 'company_name_en', 'address', 'phone', 'email',
+        'legal_representative', 'representative_position',
+      ];
+      payload = { id: String(user.id) };
+      for (const field of SELF_EDITABLE) {
+        if (field in user) payload[field] = user[field];
+      }
+    }
+
+    const { skipped } = await upsertWithSchemaFallback('users', payload);
+    return apiSuccess(res, { id: user.id, skipped_columns: skipped });
+  } catch (err: any) {
+    console.error('User save failed:', err?.message || err);
+    return apiError(res, 500, err?.message || 'Failed to save the user.');
+  }
+});
+
+/** Deleting an account is staff-only, and nobody may delete themselves. */
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const resolved = await resolveApiUser(req);
+    if (!resolved) return res.status(401).json({ error: 'Authentication required.' });
+    if (!['superadmin', 'admin'].includes(resolved.role)) {
+      return res.status(403).json({ error: 'Insufficient permission.' });
+    }
+
+    const id = String(req.params.id);
+    if (String(resolved.userRow?.id || '') === id) {
+      return apiError(res, 400, 'You cannot delete the account you are signed in with.');
+    }
+
+    const { error } = await supabaseAdmin.from('users').delete().eq('id', id);
+    if (error) throw error;
+    return apiSuccess(res, { id });
+  } catch (err: any) {
+    console.error('User delete failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to delete the user.');
+  }
+});
+
+/**
+ * POST /api/users/change-password
+ *
+ * Only ever the caller's own password. The hash is computed in the browser
+ * with the existing PBKDF2 helper, so the format is unchanged; what this adds
+ * is that the row being written is the caller's, checked on the server.
+ */
+app.post('/api/users/change-password', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const resolved = await resolveApiUser(req);
+    if (!resolved) return res.status(401).json({ error: 'Authentication required.' });
+
+    const userId = String(req.body?.user_id || '').trim();
+    const passwordHash = String(req.body?.password_hash || '').trim();
+    if (!userId || !passwordHash) {
+      return apiError(res, 400, 'user_id and password_hash are required.');
+    }
+    if (!passwordHash.startsWith('pbkdf2_sha256$')) {
+      return apiError(res, 400, 'password_hash is not in the expected format.');
+    }
+    if (String(resolved.userRow?.id || '') !== userId) {
+      return res.status(403).json({ error: 'You may only change your own password.' });
+    }
+
+    const changedAt = new Date().toISOString();
+    const { error } = await supabaseAdmin.from('users').update({
+      password_hash: passwordHash,
+      password_updated_at: changedAt,
+      must_change_password: false,
+      last_password_change_by: userId,
+    }).eq('id', userId);
+
+    if (error) {
+      const text = `${error.message || ''} ${error.details || ''}`.toLowerCase();
+      if (text.includes('password_hash') || text.includes('password_updated_at')) {
+        return apiError(res, 500,
+          'Password hash columns are missing. Please run supabase_change_password_migration.sql first.');
+      }
+      throw error;
+    }
+
+    return apiSuccess(res, { user_id: userId, password_updated_at: changedAt });
+  } catch (err: any) {
+    console.error('Change password failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to change the password.');
+  }
+});
+
+app.get('/api/licenses', async (req, res) => {
+  try {
+    const access = await requireRegistryAccess(req, res);
+    if (!access) return;
+
+    const own = ownLicenceNumbers(access);
+    if (own && own.length === 0) return apiSuccess(res, { licenses: [] });
+
+    const licenses = await selectAllRows('enterprise_licenses', (q) => {
+      const scoped = own ? q.in('license_number', own) : q;
+      return scoped.order('created_at', { ascending: false });
+    });
+    return apiSuccess(res, { licenses });
+  } catch (err: any) {
+    console.error('Licenses fetch failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to load licenses from the database.');
+  }
+});
+
+app.post('/api/licenses', async (req, res) => {
+  try {
+    const access = await requireRegistryAccess(req, res);
+    if (!access) return;
+
+    const license = req.body?.license;
+    if (!license || typeof license !== 'object' || !license.id) {
+      return apiError(res, 400, 'A license object with an id is required.');
+    }
+
+    // A company account may only write its own licence, and may not move it
+    // to a different licence number.
+    const own = ownLicenceNumbers(access);
+    if (own) {
+      const { data: existing } = await supabaseAdmin
+        .from('enterprise_licenses').select('license_number').eq('id', license.id).maybeSingle();
+      const target = String(license.license_number || existing?.license_number || '');
+      if (!own.includes(target) || (existing && !own.includes(String(existing.license_number)))) {
+        return res.status(403).json({ error: 'This license belongs to another enterprise.' });
+      }
+    }
+
+    const { skipped } = await upsertWithSchemaFallback('enterprise_licenses', license);
+    return apiSuccess(res, { id: license.id, skipped_columns: skipped });
+  } catch (err: any) {
+    console.error('License save failed:', err?.message || err);
+    return apiError(res, 500, err?.message || 'Failed to save the license.');
+  }
+});
+
+app.delete('/api/licenses/:id', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    if (!(await requireApiRole(req, res, ['superadmin', 'admin']))) return;
+    const { error } = await supabaseAdmin
+      .from('enterprise_licenses').delete().eq('id', String(req.params.id));
+    if (error) throw error;
+    return apiSuccess(res, { id: req.params.id });
+  } catch (err: any) {
+    console.error('License delete failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to delete the license.');
+  }
+});
+
+/* ---------------------------- attachments -------------------------- */
+
+/** True when the licence row belongs to a company account. */
+async function licenceIdIsOwn(access: any, licenseId: string): Promise<boolean> {
+  const own = ownLicenceNumbers(access);
+  if (!own) return true;
+  if (!own.length) return false;
+  const { data } = await supabaseAdmin
+    .from('enterprise_licenses').select('license_number').eq('id', licenseId).maybeSingle();
+  return !!data && own.includes(String(data.license_number));
+}
+
+app.get('/api/license-attachments', async (req, res) => {
+  try {
+    const access = await requireRegistryAccess(req, res);
+    if (!access) return;
+
+    const licenseId = String(req.query.license_id || '').trim();
+    if (!licenseId) return apiError(res, 400, 'license_id is required.');
+    if (!(await licenceIdIsOwn(access, licenseId))) {
+      return res.status(403).json({ error: 'This license belongs to another enterprise.' });
+    }
+
+    const attachments = await selectAllRows('enterprise_license_attachments', (q) =>
+      q.eq('license_id', licenseId).order('uploaded_at', { ascending: false }));
+    return apiSuccess(res, { attachments });
+  } catch (err: any) {
+    console.error('Attachments fetch failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to load attachments.');
+  }
+});
+
+app.post('/api/license-attachments', async (req, res) => {
+  try {
+    const access = await requireRegistryAccess(req, res);
+    if (!access) return;
+
+    const attachment = req.body?.attachment;
+    if (!attachment?.id || !attachment?.license_id) {
+      return apiError(res, 400, 'An attachment with id and license_id is required.');
+    }
+    if (!(await licenceIdIsOwn(access, String(attachment.license_id)))) {
+      return res.status(403).json({ error: 'This license belongs to another enterprise.' });
+    }
+
+    const { skipped } = await upsertWithSchemaFallback('enterprise_license_attachments', attachment);
+    return apiSuccess(res, { id: attachment.id, skipped_columns: skipped });
+  } catch (err: any) {
+    console.error('Attachment save failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to save the attachment.');
+  }
+});
+
+app.delete('/api/license-attachments/:id', async (req, res) => {
+  try {
+    const access = await requireRegistryAccess(req, res);
+    if (!access) return;
+
+    const id = String(req.params.id);
+    const { data: row } = await supabaseAdmin
+      .from('enterprise_license_attachments').select('license_id').eq('id', id).maybeSingle();
+    if (row && !(await licenceIdIsOwn(access, String(row.license_id)))) {
+      return res.status(403).json({ error: 'This license belongs to another enterprise.' });
+    }
+
+    const { error } = await supabaseAdmin.from('enterprise_license_attachments').delete().eq('id', id);
+    if (error) throw error;
+    return apiSuccess(res, { id });
+  } catch (err: any) {
+    console.error('Attachment delete failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to delete the attachment.');
+  }
+});
+
+/* -------------------- reminder logs / renewal history -------------- */
+
+/** Licence row ids a company account owns, for scoping child tables. */
+async function ownLicenceIds(access: any): Promise<string[] | null> {
+  const own = ownLicenceNumbers(access);
+  if (!own) return null;
+  if (!own.length) return [];
+  const { data } = await supabaseAdmin
+    .from('enterprise_licenses').select('id').in('license_number', own);
+  return (data || []).map((r: any) => String(r.id));
+}
+
+app.get('/api/reminder-logs', async (req, res) => {
+  try {
+    const access = await requireRegistryAccess(req, res);
+    if (!access) return;
+
+    const licenseId = String(req.query.license_id || '').trim();
+    if (licenseId && !(await licenceIdIsOwn(access, licenseId))) {
+      return res.status(403).json({ error: 'This license belongs to another enterprise.' });
+    }
+    // Without a licence id a company account would otherwise see every
+    // enterprise's reminder history, so it is scoped to its own licences.
+    let ids: string[] | null = null;
+    if (!licenseId) {
+      ids = await ownLicenceIds(access);
+      if (ids && !ids.length) return apiSuccess(res, { logs: [] });
+    }
+
+    const logs = await selectAllRows('license_reminder_logs', (q) => {
+      let scoped = q;
+      if (licenseId) scoped = scoped.eq('license_id', licenseId);
+      else if (ids) scoped = scoped.in('license_id', ids);
+      return scoped.order('created_at', { ascending: false });
+    });
+    return apiSuccess(res, { logs });
+  } catch (err: any) {
+    console.error('Reminder logs fetch failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to load reminder logs.');
+  }
+});
+
+app.post('/api/reminder-logs', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    if (!(await requireApiRole(req, res, ['superadmin', 'admin']))) return;
+    const log = req.body?.log;
+    if (!log?.id) return apiError(res, 400, 'A log with an id is required.');
+    const { skipped } = await upsertWithSchemaFallback('license_reminder_logs', log);
+    return apiSuccess(res, { id: log.id, skipped_columns: skipped });
+  } catch (err: any) {
+    console.error('Reminder log save failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to save the reminder log.');
+  }
+});
+
+app.get('/api/renewal-history', async (req, res) => {
+  try {
+    const access = await requireRegistryAccess(req, res);
+    if (!access) return;
+
+    const licenseId = String(req.query.license_id || '').trim();
+    if (licenseId && !(await licenceIdIsOwn(access, licenseId))) {
+      return res.status(403).json({ error: 'This license belongs to another enterprise.' });
+    }
+    let ids: string[] | null = null;
+    if (!licenseId) {
+      ids = await ownLicenceIds(access);
+      if (ids && !ids.length) return apiSuccess(res, { history: [] });
+    }
+
+    const history = await selectAllRows('license_renewal_history', (q) => {
+      let scoped = q;
+      if (licenseId) scoped = scoped.eq('license_id', licenseId);
+      else if (ids) scoped = scoped.in('license_id', ids);
+      return scoped.order('renewed_at', { ascending: false });
+    });
+    return apiSuccess(res, { history });
+  } catch (err: any) {
+    console.error('Renewal history fetch failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to load renewal history.');
+  }
+});
+
+app.post('/api/renewal-history', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    if (!(await requireApiRole(req, res, ['superadmin', 'admin']))) return;
+    const history = req.body?.history;
+    if (!history?.id) return apiError(res, 400, 'A history record with an id is required.');
+    const { skipped } = await upsertWithSchemaFallback('license_renewal_history', history);
+    return apiSuccess(res, { id: history.id, skipped_columns: skipped });
+  } catch (err: any) {
+    console.error('Renewal history save failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to save the renewal history record.');
+  }
+});
+
+/* ---------------------------- login history ------------------------ */
+
+app.get('/api/login-history', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    if (!(await requireApiRole(req, res, ['superadmin', 'admin']))) return;
+    const limit = Math.min(Number(req.query.limit) || 1000, 5000);
+    const { data, error } = await supabaseAdmin
+      .from('login_history').select('*').order('login_at', { ascending: false }).limit(limit);
+    if (error) throw error;
+    return apiSuccess(res, { history: data || [] });
+  } catch (err: any) {
+    console.error('Login history fetch failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to load login history.');
+  }
+});
+
+/**
+ * Recording a sign-in attempt happens before anyone is signed in, so this one
+ * cannot require a session. It only ever inserts, never reads, and the stored
+ * fields are fixed here rather than taken wholesale from the caller.
+ */
+app.post('/api/login-history', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    const entry = req.body?.entry;
+    if (!entry || typeof entry !== 'object') return apiError(res, 400, 'An entry is required.');
+
+    const row = {
+      id: String(entry.id || crypto.randomUUID()),
+      user_id: String(entry.user_id || ''),
+      user_email: String(entry.user_email || ''),
+      user_role: String(entry.user_role || ''),
+      company_id: String(entry.company_id || ''),
+      company_name: String(entry.company_name || ''),
+      login_status: String(entry.login_status || ''),
+      // Read from the connection, not from the caller, so it cannot be spoofed.
+      ip_address: String(
+        (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim()
+        || req.socket?.remoteAddress || '',
+      ).slice(0, 64),
+      user_agent: String(req.headers['user-agent'] || '').slice(0, 512),
+      device_info: String(entry.device_info || '').slice(0, 512),
+      login_at: entry.login_at || new Date().toISOString(),
+    };
+
+    const { skipped } = await upsertWithSchemaFallback('login_history', row);
+
+    // audit_logs is optional in the active schema, so a failure here must not
+    // fail the sign-in record it accompanies.
+    const audit = req.body?.audit;
+    if (audit && typeof audit === 'object') {
+      try {
+        await supabaseAdmin.from('audit_logs').insert([{
+          actor_email: String(audit.actor_email || ''),
+          actor_role: String(audit.actor_role || ''),
+          action_type: String(audit.action_type || ''),
+          details: String(audit.details || ''),
+          ip_address: row.ip_address,
+          target_user_id: audit.target_user_id ? String(audit.target_user_id) : null,
+          created_at: new Date().toISOString(),
+        }]);
+      } catch {
+        // No audit_logs table on this deployment.
+      }
+    }
+
+    return apiSuccess(res, { id: row.id, skipped_columns: skipped });
+  } catch (err: any) {
+    console.error('Login history save failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to record the login.');
+  }
+});
+
+
+/**
+ * GET /api/annex8/search
+ *
+ * Searching the monthly reports by month, year, service type and verification
+ * result. It reads annex8_activity_union, so one search covers both the Annex 8
+ * reports and the frozen legacy ones — a 2025 instrument is found the same way
+ * as a 2026 one.
+ *
+ * Filters (all optional, combined with AND):
+ *   year            2026
+ *   month           09  (also matches a legacy "9" or "September")
+ *   op_code         M manufacture · I installation · R repair
+ *   verification    PASSED · FAILED · PENDING
+ *   q               free text over serial, instrument, customer, enterprise
+ *   licence         exact licence number
+ *
+ * A company account only ever sees its own licence, enforced here.
+ */
+app.get('/api/annex8/search', async (req, res) => {
+  try {
+    const access = await requireRegistryAccess(req, res);
+    if (!access) return;
+
+    const year = String(req.query.year || '').trim();
+    const month = String(req.query.month || '').trim();
+    const opCode = String(req.query.op_code || '').trim().toUpperCase();
+    const verification = String(req.query.verification || '').trim().toUpperCase();
+    const q = String(req.query.q || '').trim();
+    const licence = String(req.query.licence || '').trim();
+    const limit = Math.min(Number(req.query.limit) || 500, 5000);
+
+    if (opCode && !['M', 'I', 'R'].includes(opCode)) {
+      return apiError(res, 400, 'op_code must be M, I or R.');
+    }
+    if (verification && !['PASSED', 'FAILED', 'PENDING'].includes(verification)) {
+      return apiError(res, 400, 'verification must be PASSED, FAILED or PENDING.');
+    }
+
+    const own = ownLicenceNumbers(access);
+    if (own && own.length === 0) return apiSuccess(res, { rows: [], counts: emptySearchCounts(), truncated: false });
+
+    let query = supabaseAdmin.from('annex8_activity_union').select('*');
+
+    if (own) query = query.in('licence_no', own);
+    else if (licence) query = query.eq('licence_no', licence);
+
+    if (year) query = query.eq('report_year', year);
+    if (opCode) query = query.eq('op_code', opCode);
+    if (verification) query = query.eq('verification_status', verification);
+
+    if (q) {
+      // Escape the PostgREST wildcards so a search for "%" is a literal "%".
+      const safe = q.replace(/[%_,()]/g, (c) => `\\${c}`);
+      query = query.or(
+        ['serial_no', 'instrument_name', 'customer_name', 'company_name_kh']
+          .map((col) => `${col}.ilike.%${safe}%`).join(','),
+      );
+    }
+
+    // Over-fetch a little so the month filter below still fills the page.
+    const { data, error } = await query.limit(month ? Math.min(limit * 4, 20000) : limit);
+    if (error) throw error;
+
+    let rows = data || [];
+
+    // The legacy rows store the month as a loose string ("9", "September"),
+    // so it is normalised here rather than matched in SQL.
+    if (month) {
+      const want = String(Number(month));
+      rows = rows.filter((r: any) => {
+        const normalised = normalizeLegacyPeriod(r.report_month, r.report_year);
+        return normalised ? String(Number(normalised.slice(5))) === want : false;
+      });
+    }
+
+    const truncated = rows.length > limit;
+    if (truncated) rows = rows.slice(0, limit);
+
+    return apiSuccess(res, { rows, counts: countSearchRows(rows), truncated });
+  } catch (err: any) {
+    console.error('Annex 8 search failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to search the reports.');
+  }
+});
+
+function emptySearchCounts() {
+  return {
+    total: 0,
+    manufactured: 0, installed: 0, repaired: 0,
+    passed: 0, failed: 0, pending: 0,
+    enterprises: 0,
+  };
+}
+
+/** Totals for the result set, so the screen can show them above the table. */
+function countSearchRows(rows: any[]) {
+  const counts = emptySearchCounts();
+  const enterprises = new Set<string>();
+  for (const r of rows) {
+    counts.total++;
+    if (r.op_code === 'M') counts.manufactured++;
+    else if (r.op_code === 'I') counts.installed++;
+    else counts.repaired++;
+    if (r.verification_status === 'PASSED') counts.passed++;
+    else if (r.verification_status === 'FAILED') counts.failed++;
+    else counts.pending++;
+    if (r.licence_no) enterprises.add(String(r.licence_no));
+  }
+  counts.enterprises = enterprises.size;
+  return counts;
+}
+
+/** The years that actually have data, for the year dropdown. */
+app.get('/api/annex8/search-facets', async (req, res) => {
+  try {
+    const access = await requireRegistryAccess(req, res);
+    if (!access) return;
+
+    const own = ownLicenceNumbers(access);
+    if (own && own.length === 0) return apiSuccess(res, { years: [], licences: [] });
+
+    let query = supabaseAdmin.from('annex8_activity_union').select('report_year, licence_no, company_name_kh');
+    if (own) query = query.in('licence_no', own);
+    const { data, error } = await query.limit(20000);
+    if (error) throw error;
+
+    const years = [...new Set((data || []).map((r: any) => String(r.report_year || '')).filter(Boolean))]
+      .sort((a, b) => b.localeCompare(a));
+    const seen = new Map<string, string>();
+    for (const r of data || []) {
+      const no = String(r.licence_no || '');
+      if (no && !seen.has(no)) seen.set(no, String(r.company_name_kh || no));
+    }
+    const licences = [...seen.entries()].map(([licence_no, name]) => ({ licence_no, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'km'));
+
+    return apiSuccess(res, { years, licences });
+  } catch (err: any) {
+    console.error('Annex 8 search facets failed:', err?.message || err);
+    return apiError(res, 500, 'Failed to load the search options.');
+  }
+});
+
+
 app.get('/api/verify-license', async (req, res) => {
   try {
     if (!supabaseAdmin) {
@@ -1518,6 +2320,219 @@ app.post('/api/license-reminders', async (req, res) => {
 });
 
 /**
+ * POST /api/monthly-report-digest
+ *
+ * Monthly compliance digest to the NMC Telegram group: which licensed
+ * enterprises filed their Annex 8 report for the month that just ended, which
+ * were late, and which are still missing.
+ *
+ * Runs from the Vercel cron on day 8, i.e. the morning after the ប្រការ២១
+ * deadline on day 7, so the first number NMC sees is the final one. Superadmins
+ * and admins may also call it by hand; `?period=YYYY-MM` re-runs an older month
+ * and `?dry_run=1` returns the message without sending anything.
+ *
+ * Sending is recorded in monthly_report_digest_logs, and a period already sent
+ * is not sent again unless `?force=1` — a cron that fires twice must not post
+ * the roll call twice.
+ */
+app.post('/api/monthly-report-digest', async (req, res) => {
+  try {
+    // Either the cron secret, or a signed-in superadmin/admin.
+    const cronSecret = process.env.CRON_SECRET;
+    const authHeader = req.headers.authorization || '';
+    const reqSecret = authHeader ? authHeader.replace(/^Bearer\s+/i, '') : req.query.secret;
+    const secretOk = !!cronSecret && reqSecret === cronSecret;
+
+    if (!secretOk) {
+      const role = await resolveApiRole(req);
+      if (!role || !['superadmin', 'admin'].includes(role)) {
+        if (supabaseAdmin && !cronSecret) {
+          return res.status(500).json({ error: 'CRON_SECRET is required before the monthly digest can run in production.' });
+        }
+        return res.status(401).json({ error: 'Unauthorized: cron secret or NMC staff sign-in required.' });
+      }
+    }
+
+    if (!supabaseAdmin) {
+      return res.status(400).json({ status: 'Skipped', message: 'Offline mode: no database connection.' });
+    }
+
+    const dryRun = String(req.query.dry_run || '') === '1';
+    const force = String(req.query.force || '') === '1';
+    const requested = String(req.query.period || '').trim();
+    if (requested && !/^\d{4}-\d{2}$/.test(requested)) {
+      return apiError(res, 400, 'period must be YYYY-MM.');
+    }
+    const period = requested || previousPeriod();
+
+    // Already sent? A cron retry must not repost the roll call.
+    if (!dryRun && !force) {
+      const { data: already } = await supabaseAdmin
+        .from('monthly_report_digest_logs')
+        .select('id, sent_at, send_status')
+        .eq('period_month', period)
+        .eq('send_status', 'Sent')
+        .limit(1);
+      if (already && already.length) {
+        return res.json({
+          status: 'Skipped',
+          message: `The digest for ${period} was already sent on ${already[0].sent_at}. Use force=1 to send it again.`,
+          period,
+        });
+      }
+    }
+
+    const [licenceRes, annex8Res, legacyRes] = await Promise.all([
+      supabaseAdmin
+        .from('enterprise_licenses')
+        .select('license_number, company_name, company_name_kh')
+        .in('license_status', ['Active', 'Expiring Soon']),
+      supabaseAdmin
+        .from('annex8_reports')
+        .select('licence_no, report_id, status, on_time, report_type, submitted_at, part2_summary')
+        .eq('period_month', period),
+      // The frozen legacy form still counts as having reported. report_month is
+      // a loose string so it cannot be filtered here; the year narrows it and
+      // normalizeLegacyPeriod does the rest.
+      supabaseAdmin
+        .from('reports')
+        .select('license_number, report_month, report_year')
+        .eq('report_year', period.slice(0, 4)),
+    ]);
+
+    if (licenceRes.error) throw licenceRes.error;
+    if (annex8Res.error) throw annex8Res.error;
+
+    const digest = buildMonthlyDigest({
+      period,
+      licences: licenceRes.data || [],
+      annex8Reports: annex8Res.data || [],
+      // A missing legacy table is not fatal: the digest is about Annex 8.
+      legacyReports: legacyRes.error ? [] : (legacyRes.data || []),
+    });
+
+    const messages = renderDigestMessages(digest);
+
+    // The group gets the digest as a PDF. If Gotenberg is unreachable the
+    // numbers still have to arrive, so the text messages are the fallback
+    // rather than the whole run failing.
+    let pdf: Buffer | null = null;
+    let pdfError: string | null = null;
+    try {
+      pdf = await convertHtmlToPdf(renderDigestHtml(digest), digestFileName(period));
+    } catch (err: any) {
+      pdfError = err?.message || String(err);
+      console.warn('Monthly digest PDF not produced, sending text only:', pdfError);
+    }
+
+    if (dryRun) {
+      return res.json({
+        status: 'DryRun',
+        period,
+        ...digestCounts(digest),
+        pdf_bytes: pdf?.length ?? 0,
+        pdf_error: pdfError,
+        messages,
+      });
+    }
+
+    const activeBot = await getActiveBot('report_group');
+    if (!activeBot) {
+      return res.status(400).json({ status: 'Skipped', message: getPurposeMissingMessage('report_group'), period });
+    }
+    const chatId = getBotGroupChatId(activeBot);
+    if (!chatId) {
+      return res.status(400).json({
+        status: 'Skipped',
+        message: 'No Telegram group chat id is configured for the report group bot.',
+        period,
+      });
+    }
+
+    let sent = 0;
+    let failure: string | null = null;
+
+    if (pdf) {
+      // One document carrying the whole roll call, captioned with the
+      // headline numbers so the group sees them without opening the file.
+      try {
+        await sendTelegramDocument(
+          activeBot.bot_token_encrypted,
+          chatId,
+          { name: digestFileName(period), type: 'application/pdf', body: pdf },
+          renderDigestCaption(digest),
+        );
+        sent++;
+      } catch (err: any) {
+        failure = err?.message || String(err);
+        console.error('Monthly digest document send failed:', failure);
+      }
+    } else {
+      // No PDF: fall back to the text messages so the numbers still arrive.
+      for (const text of messages) {
+        try {
+          await sendTelegramMessage(activeBot.bot_token_encrypted, chatId, text);
+          sent++;
+        } catch (err: any) {
+          failure = err?.message || String(err);
+          console.error('Monthly digest send failed:', failure);
+          break;    // stop at the first failure rather than spraying partial output
+        }
+      }
+    }
+
+    await supabaseAdmin.from('monthly_report_digest_logs').insert({
+      period_month: period,
+      telegram_bot_setting_id: activeBot.id !== 'env-fallback' ? activeBot.id : null,
+      telegram_chat_id: chatId,
+      licensee_count: digest.licensees,
+      submitted_count: digest.submitted.length,
+      on_time_count: digest.onTime.length,
+      late_count: digest.late.length,
+      missing_count: digest.missing.length,
+      compliance_rate: digest.complianceRate,
+      message_count: messages.length,
+      message_text: messages.join('\n\n———\n\n').slice(0, 20000),
+      send_status: failure ? 'Failed' : 'Sent',
+      error_message: failure,
+      sent_at: new Date().toISOString(),
+    });
+
+    if (failure) {
+      return res.status(502).json({
+        status: 'Failed', period, sent_messages: sent, total_messages: messages.length, error: failure,
+      });
+    }
+
+    return res.json({
+      status: 'Success',
+      period,
+      sent_messages: sent,
+      delivered_as: pdf ? 'pdf' : 'text',
+      pdf_bytes: pdf?.length ?? 0,
+      pdf_error: pdfError,
+      ...digestCounts(digest),
+    });
+  } catch (err: any) {
+    console.error('Monthly digest failed:', err);
+    return res.status(500).json({ error: err?.message || 'Monthly digest failed.' });
+  }
+});
+
+/** The headline numbers, for the API response and the logs. */
+function digestCounts(d: ReturnType<typeof buildMonthlyDigest>) {
+  return {
+    licensees: d.licensees,
+    submitted: d.submitted.length,
+    on_time: d.onTime.length,
+    late: d.late.length,
+    missing: d.missing.length,
+    compliance_rate: d.complianceRate,
+    totals: d.totals,
+  };
+}
+
+/**
  * Webhook Setup and Status proxy endpoints for Superadmins
  */
 app.post('/api/test-telegram-bot-connection', async (req, res) => {
@@ -2056,6 +3071,104 @@ app.get('/api/annex8/pending', async (req, res) => {
 });
 
 /** Server-side draft, so a report can be continued on another device. */
+/**
+ * GET /api/annex8/my-reports?licence_no=&months=13
+ *
+ * The licence's reporting calendar: one entry per recent month, saying whether
+ * that month has been submitted, is still a draft, or has not been started.
+ *
+ * This is what the form uses to let an enterprise open a NEW monthly report
+ * when a new month comes round, instead of only ever seeing one period. A
+ * licence may have exactly one report per month (uniq_a8_report_period), so
+ * the calendar is the natural way to present it.
+ */
+app.get('/api/annex8/my-reports', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const resolved = await resolveApiUser(req);
+    if (!resolved) return res.status(401).json({ error: 'Authentication required.' });
+    if (!['superadmin', 'admin', 'company'].includes(resolved.role)) {
+      return res.status(403).json({ error: 'Insufficient permission.' });
+    }
+
+    const licenceNo = String(req.query?.licence_no || '').trim();
+    if (!licenceNo) return apiError(res, 400, 'licence_no is required.');
+
+    // A company account may only look at its own licence.
+    if (resolved.role === 'company') {
+      const own = String(resolved.userRow?.license_number || '').trim();
+      if (!own || own !== licenceNo) {
+        return res.status(403).json({ error: 'This licence belongs to another enterprise.' });
+      }
+    }
+
+    const months = Math.min(Math.max(Number(req.query?.months) || 13, 1), 36);
+
+    const [reportsRes, draftsRes] = await Promise.all([
+      supabaseAdmin
+        .from('annex8_reports')
+        .select('period_month, report_id, status, on_time, submitted_at, report_type')
+        .eq('licence_no', licenceNo),
+      supabaseAdmin
+        .from('annex8_report_drafts')
+        .select('period_month, updated_at')
+        .eq('licence_no', licenceNo),
+    ]);
+    if (reportsRes.error) throw reportsRes.error;
+
+    const byPeriod = new Map<string, any>();
+    for (const r of reportsRes.data || []) {
+      const key = String(r.period_month);
+      const prev = byPeriod.get(key);
+      // An amendment supersedes the original for calendar purposes.
+      if (!prev || String(r.submitted_at || '') > String(prev.submitted_at || '')) byPeriod.set(key, r);
+    }
+    const draftAt = new Map<string, string>();
+    for (const d of draftsRes.data || []) {
+      draftAt.set(String(d.period_month), String(d.updated_at || ''));
+    }
+
+    // Walk back from the month that is currently reportable: the one that just
+    // ended. The current month is not reportable until it is over.
+    const periods: any[] = [];
+    const start = previousPeriod();
+    const [sy, sm] = start.split('-').map(Number);
+    for (let i = 0; i < months; i++) {
+      const d = new Date(Date.UTC(sy, sm - 1 - i, 1));
+      const period = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      const report = byPeriod.get(period) || null;
+      periods.push({
+        period_month: period,
+        status: report ? String(report.status || 'SUBMITTED')
+          : draftAt.has(period) ? 'DRAFT' : 'NOT_STARTED',
+        report_id: report?.report_id || null,
+        report_type: report?.report_type || null,
+        on_time: report?.on_time ?? null,
+        submitted_at: report?.submitted_at || null,
+        draft_updated_at: draftAt.get(period) || null,
+        deadline: `${period}-${String(DEADLINE_DAY).padStart(2, '0')}`,
+      });
+    }
+
+    // Months still owed, soonest first — what the form nudges about.
+    const outstanding = periods
+      .filter((p) => p.status === 'NOT_STARTED' || p.status === 'DRAFT')
+      .map((p) => p.period_month);
+
+    return apiSuccess(res, {
+      licence_no: licenceNo,
+      current_period: start,
+      periods,
+      outstanding,
+      submitted_count: periods.filter((p) => p.status !== 'NOT_STARTED' && p.status !== 'DRAFT').length,
+    });
+  } catch (err: any) {
+    console.error('Annex 8 my-reports failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to load the reporting calendar.');
+  }
+});
+
 app.get('/api/annex8/draft', async (req, res) => {
   try {
     if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
@@ -2474,6 +3587,7 @@ app.get('/api/annex8/render-status', async (req, res) => {
     template_ready: status.ready,
     missing: status.missing,
     gotenberg_configured: !!process.env.GOTENBERG_URL,
+    storage_driver: STORAGE_DRIVER,
     storage_bucket: OFFICIAL_BUCKET,
   });
 });

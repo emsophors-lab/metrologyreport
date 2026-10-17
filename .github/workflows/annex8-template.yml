@@ -1,5 +1,5 @@
 # The official Annex 8 document is produced by filling
-# templates/Annex8_template_v1.docx. If a tag is renamed or deleted in Word,
+# public/templates/Annex8_template_v1.docx. If a tag is renamed or deleted in Word,
 # the printed annex silently loses a field, so the tag contract is checked on
 # every change to the template or the fill module.
 name: Annex 8 template
@@ -7,18 +7,16 @@ name: Annex 8 template
 on:
   push:
     paths:
-      - 'templates/**'
-      - 'lib/annex8/**'
-      - 'scripts/annex8-check-template.ts'
+      - 'public/templates/**'
+      - 'src/lib/annex8/**'
       - 'src/annex8/officialDocument.ts'
-      - 'scripts/annex8-check-db-mapping.ts'
+      - 'scripts/annex8-check-*.ts'
   pull_request:
     paths:
-      - 'templates/**'
-      - 'lib/annex8/**'
-      - 'scripts/annex8-check-template.ts'
+      - 'public/templates/**'
+      - 'src/lib/annex8/**'
       - 'src/annex8/officialDocument.ts'
-      - 'scripts/annex8-check-db-mapping.ts'
+      - 'scripts/annex8-check-*.ts'
   workflow_dispatch:
 
 jobs:

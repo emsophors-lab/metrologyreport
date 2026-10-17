@@ -3,20 +3,22 @@
 ## Files
 | File | Purpose |
 |---|---|
-| `templates/Annex8_template_v1.docx` | **Your official template with tags.** Layout, fonts and sizes are exactly yours. |
-| `lib/annex8/fill-annex8.ts` | Prepares the data (`buildAnnex8Data`) and fills the template (`renderAnnex8`). Contains no styling. TypeScript port of the reference `fill-annex8.js`; the logic is unchanged. |
-| `lib/annex8/sample-payload.json` | Test data: 1 weighbridge with 2 modules, 1 electronic scale, 1 repair with a broken seal. |
-| `docs/Annex8_sample_filled.docx` | The result of the test data, for checking. |
+| `public/templates/Annex8_template_v1.docx` | **Your official template with tags.** Layout, fonts and sizes are exactly yours. |
+| `src/lib/annex8/annex8Docx.ts` | Prepares the data (`buildAnnex8Data`) and fills the template **in the browser** (`renderAnnex8Docx`, `downloadAnnex8Docx`). Contains no styling. TypeScript/ESM port of the reference `fill-annex8.js`; the logic is unchanged. |
+| `src/lib/annex8/mapReportToAnnex8.ts` | Our report record / wizard state + licence record → `(payload, extra)`. |
+| `src/lib/annex8/__fixtures__/sample-payload.json` | Test data: 1 weighbridge with 2 modules, 1 electronic scale, 1 repair with a broken seal. |
+| `docs/annex8/fill-annex8.js` | The original reference file. Kept for comparison; **not imported by the app**. |
+| `docs/annex8/Annex8_sample_filled.docx` | The result of the test data, for checking. |
 
 ## How it runs in MLRS
 
 | | |
 |---|---|
-| Fill one document by hand | `npm run annex8:fill templates/Annex8_template_v1.docx lib/annex8/sample-payload.json out.docx` |
 | Check the template and render the fixtures | `npm run annex8:check` → `test-output/` |
-| Download a submitted report | `GET /api/reports/:id/annex8.docx` · `GET /api/reports/:id/annex8.pdf` (owner licensee or NMC staff) |
-| Where the files are kept | private Supabase Storage bucket `annex8-reports`, generated once at submission |
-| PDF conversion | Gotenberg at `$GOTENBERG_URL`, built from `docker/gotenberg.Dockerfile` with the Khmer fonts in `fonts/` |
+| Download the official annex | the «ទាញយក Word (ឧបសម្ព័ន្ធទី៨)» button — generated in the browser, no server call |
+| File name | `Annex8_<licence_no>_<YYYY-MM>_<report_id or draft>.docx` |
+| Where the template is served from | `public/templates/` in dev, `dist/templates/` after a build |
+| PDF | out of scope for now — Word → Save as PDF |
 
 `npm run annex8:check` runs two checks. The tag contract compares every tag in
 the template against the keys `buildAnnex8Data` produces, failing on a tag with

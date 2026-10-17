@@ -1,4 +1,4 @@
-import { getActiveSupabaseClient } from '../supabaseSync';
+import { apiRequest, getActiveSupabaseClient } from '../supabaseSync';
 import { MetrologyUser, LoginHistory } from '../types';
 
 async function fetchIpAddressSafe(): Promise<string> {
@@ -73,16 +73,9 @@ export async function logLoginHistory(user: MetrologyUser): Promise<void> {
       login_at: new Date().toISOString()
     };
 
-    const { error } = await client.from('login_history').insert([supabasePayload]);
-    if (error) {
-      console.warn('Failed to insert login history row into Supabase:', error);
-      console.error('Detailed Insert Error Msg:', error.message);
-      console.error('Detailed Insert Error Details:', error.details);
-      console.error('Detailed Insert Error Hint:', error.hint);
-      console.error('Detailed Insert Error Code:', error.code);
-    } else {
-      console.log('Login history recorded successfully in Supabase.');
-    }
+    // Recorded through our own API; the server stamps the real IP and user
+    // agent from the connection rather than trusting what the page sends.
+    await apiRequest('/api/login-history', { method: 'POST', body: { entry: supabasePayload } });
   } catch (err) {
     console.warn('Error in logLoginHistory logger:', err);
   }
@@ -149,26 +142,22 @@ export async function logAuditEvent(
       login_at: new Date().toISOString()
     };
 
-    const { error } = await client.from('login_history').insert([supabasePayload]);
-    if (error) {
-      console.warn('Failed to insert audit log to Supabase:', error.message);
-    }
-
-    if (actionType === 'CHANGE_OWN_PASSWORD') {
-      try {
-        await client.from('audit_logs').insert([{
-          actor_email: actorUser.email || actorUser.username || 'unknown',
-          actor_role: actorUser.role || 'unknown',
-          action_type: actionType,
-          details,
-          ip_address: ipAddress || null,
-          target_user_id: targetUserId || actorUser.id || null,
-          created_at: new Date().toISOString()
-        }]);
-      } catch {
-        // audit_logs is optional in the active custom schema.
-      }
-    }
+    await apiRequest('/api/login-history', {
+      method: 'POST',
+      body: {
+        entry: supabasePayload,
+        // The server writes this to audit_logs when that table exists.
+        ...(actionType === 'CHANGE_OWN_PASSWORD' ? {
+          audit: {
+            actor_email: actorUser.email || actorUser.username || 'unknown',
+            actor_role: actorUser.role || 'unknown',
+            action_type: actionType,
+            details,
+            target_user_id: targetUserId || actorUser.id || null,
+          },
+        } : {}),
+      },
+    });
   } catch (err) {
     console.warn('Error inside logAuditEvent:', err);
   }
@@ -176,19 +165,14 @@ export async function logAuditEvent(
 
 export async function fetchLoginHistory(): Promise<LoginHistory[]> {
   try {
-    const client = getActiveSupabaseClient();
-    
-    // 1. Fetch from Supabase if connected
-    if (client) {
-      const { data, error } = await client
-        .from('login_history')
-        .select('*')
-        .order('login_at', { ascending: false });
-
-      if (!error && data) {
-        return data as LoginHistory[];
+    // 1. Fetch through our own API if this deployment has a backend
+    if (getActiveSupabaseClient()) {
+      try {
+        const { history } = await apiRequest<{ history: LoginHistory[] }>('/api/login-history');
+        if (history) return history;
+      } catch (error) {
+        console.warn('Login history fetch failed, falling back to local storage:', error);
       }
-      console.warn('Supabase fetch failed, falling back to local history storage:', error);
     }
 
     // 2. Fallback to localStorage backup

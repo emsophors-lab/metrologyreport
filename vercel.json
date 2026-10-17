@@ -36,11 +36,15 @@
     {
       "path": "/api/license-reminders",
       "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/monthly-report-digest",
+      "schedule": "0 1 8 * *"
     }
   ],
   "functions": {
     "api/[...path].ts": {
-      "includeFiles": "{dist/server.cjs,templates/**}"
+      "includeFiles": "{dist/server.cjs,dist/templates/**}"
     }
   }
 }

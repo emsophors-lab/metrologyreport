@@ -13,7 +13,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Download, FileSpreadsheet,
-  FileText, Loader2, LocateFixed, Plus, Printer, Save, Send, Trash2,
+  FileText, Loader2, LocateFixed, Plus, Save, Send, Trash2,
 } from 'lucide-react';
 import { EnterpriseLicense, MetrologyUser } from '../types';
 import {
@@ -27,7 +27,9 @@ import {
 } from '../annex8/types';
 import { computeSummary, deadlineFor, isOnTime, khmerMonthLabel, previousMonth } from '../annex8/summary';
 import { blockingIssues, hostOptions, hostPart, STEP_INDEX, validateAnnex8 } from '../annex8/validation';
-import { exportAnnex8Excel, exportAnnex8Word, printAnnex8 } from '../annex8/exports';
+import { exportAnnex8Excel } from '../annex8/exports';
+import { downloadAnnex8Docx } from '../lib/annex8/annex8Docx';
+import { mapStateToAnnex8 } from '../lib/annex8/mapReportToAnnex8';
 import { getApiAuthHeaders } from '../apiAuth';
 import Annex8ReportOverview from './Annex8ReportOverview';
 
@@ -201,6 +203,18 @@ const EmptyHint = ({ text }: { text: string }) => (
   </div>
 );
 
+/** One month in the licence's reporting calendar. */
+interface Annex8PeriodRow {
+  period_month: string;
+  status: 'SUBMITTED' | 'DRAFT' | 'NOT_STARTED' | string;
+  report_id: string | null;
+  report_type: string | null;
+  on_time: boolean | null;
+  submitted_at: string | null;
+  draft_updated_at: string | null;
+  deadline: string;
+}
+
 /* ------------------------------------------------------------------ */
 
 export default function Annex8ReportForm({
@@ -208,11 +222,20 @@ export default function Annex8ReportForm({
 }: Annex8ReportFormProps) {
   const fallbackLicensee = useMemo(() => deriveLicensee(currentUser, licence), [currentUser, licence]);
   const [licensee, setLicensee] = useState<Annex8Licensee>(fallbackLicensee);
-  const draftKey = `mlrs_a8_draft_${fallbackLicensee.licence_no || currentUser.id}`;
+  const licenceKey = fallbackLicensee.licence_no || currentUser.id;
+  /**
+   * One draft per month. The key used to be per licence only, so opening a new
+   * month overwrote the previous month's unsent draft — the server side has
+   * always been keyed by (licence_no, period_month).
+   */
+  const draftKeyFor = (period: string) => `mlrs_a8_draft_${licenceKey}_${period}`;
 
   const [state, setState] = useState<Annex8State>(() => {
+    const period = previousMonth();
     try {
-      const raw = localStorage.getItem(draftKey);
+      const raw = localStorage.getItem(draftKeyFor(period))
+        // A draft saved before per-month keys existed.
+        || localStorage.getItem(`mlrs_a8_draft_${licenceKey}`);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed?.format_version === FORMAT_VERSION) return parsed as Annex8State;
@@ -220,10 +243,17 @@ export default function Annex8ReportForm({
     } catch { /* fall through to a blank report */ }
     return blankState(fallbackLicensee);
   });
+
+  const draftKey = draftKeyFor(state.meta.period_month);
   const [step, setStep] = useState(0);
   const [showJson, setShowJson] = useState(false);
   const [busy, setBusy] = useState<'' | 'saving' | 'submitting' | 'word' | 'excel'>('');
   const [receipt, setReceipt] = useState<{ report_id: string; submitted_at: string; on_time: boolean } | null>(null);
+  /** Official-document failures stay on screen, with the technical cause. */
+  const [docxError, setDocxError] = useState<{ kh: string; detail: string } | null>(null);
+  /** The licence's reporting calendar — which months are filed, drafted or owed. */
+  const [periods, setPeriods] = useState<Annex8PeriodRow[]>([]);
+  const [switching, setSwitching] = useState(false);
 
   /* Pull the real licence record, server draft and carry-over items. All three
      degrade quietly: if the API is unavailable the form still works offline
@@ -318,6 +348,71 @@ export default function Annex8ReportForm({
     });
   }, []);
 
+  /** Loads the reporting calendar, so the form can offer a new month. */
+  const loadPeriods = useCallback(async () => {
+    const licenceNo = fallbackLicensee.licence_no;
+    if (!licenceNo) return;
+    try {
+      const headers = await getApiAuthHeaders();
+      const res = await fetch(`/api/annex8/my-reports?licence_no=${encodeURIComponent(licenceNo)}`, { headers });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (Array.isArray(data?.periods)) setPeriods(data.periods);
+    } catch {
+      // Offline: the calendar simply is not shown.
+    }
+  }, [fallbackLicensee.licence_no]);
+
+  useEffect(() => { void loadPeriods(); }, [loadPeriods]);
+
+  /**
+   * Opens another month: a new blank report, or that month's saved draft.
+   * This is how an enterprise files again once a new month comes round —
+   * one report per licence per month, so each month starts fresh rather than
+   * editing the last one.
+   */
+  const openPeriod = useCallback(async (period: string) => {
+    if (period === state.meta.period_month) return;
+    setSwitching(true);
+    setReceipt(null);
+    setDocxError(null);
+    setStep(0);
+
+    const row = periods.find((p) => p.period_month === period);
+    if (row && row.status !== 'DRAFT' && row.status !== 'NOT_STARTED') {
+      toastMsg(`របាយការណ៍ខែ${khmerMonthLabel(period)} បានដាក់ជូនរួចហើយ (${row.report_id})`, 'success');
+    }
+
+    // The month's own draft: the server's copy first, then this browser's.
+    let next: Annex8State | null = null;
+    try {
+      const headers = await getApiAuthHeaders();
+      const qs = `licence_no=${encodeURIComponent(fallbackLicensee.licence_no)}&month=${encodeURIComponent(period)}`;
+      const res = await fetch(`/api/annex8/draft?${qs}`, { headers });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data?.draft?.format_version === FORMAT_VERSION) next = data.draft as Annex8State;
+      }
+    } catch { /* fall through to the local draft */ }
+
+    if (!next) {
+      try {
+        const raw = localStorage.getItem(draftKeyFor(period));
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (parsed?.format_version === FORMAT_VERSION) next = parsed as Annex8State;
+      } catch { /* start blank */ }
+    }
+
+    if (next) {
+      setState({ ...next, meta: { ...next.meta, period_month: period } });
+    } else {
+      // A fresh month keeps the licence details and starts the rows empty.
+      const blank = blankState(licensee);
+      setState({ ...blank, meta: { ...blank.meta, period_month: period } });
+    }
+    setSwitching(false);
+  }, [state.meta.period_month, periods, fallbackLicensee.licence_no, licensee, toastMsg]);
+
   /** Draft goes to the server so it can be continued on another device, with
       localStorage as the offline fallback. */
   const saveDraft = async () => {
@@ -363,6 +458,7 @@ export default function Annex8ReportForm({
       setState((prev) => ({ ...prev, submitted_at: data.submitted_at, meta: { ...prev.meta, report_id: data.report_id } }));
       try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
       toastMsg(`បានដាក់ជូនរបាយការណ៍ ${data.report_id}`, 'success');
+      void loadPeriods();
     } catch {
       toastMsg('មិនអាចតភ្ជាប់ម៉ាស៊ីនមេបានទេ / Cannot reach the server', 'error');
     } finally {
@@ -370,14 +466,40 @@ export default function Annex8ReportForm({
     }
   };
 
-  const doExport = async (kind: 'word' | 'excel') => {
+  /**
+   * The official annex. The layout comes entirely from
+   * public/templates/Annex8_template_v1.docx — this only supplies the tag
+   * values, in the browser, with no server round trip.
+   */
+  const downloadOfficialWord = async () => {
+    setBusy('annex8');
+    setDocxError(null);
+    try {
+      const { payload, extra } = mapStateToAnnex8(state, licensee, {
+        report_id: receipt?.report_id ?? state.meta.report_id,
+        submitted_at: receipt?.submitted_at ?? state.submitted_at,
+        on_time: receipt ? receipt.on_time : null,
+      });
+      const fileName = await downloadAnnex8Docx(payload, extra);
+      toastMsg(`បានទាញយក ${fileName}`, 'success');
+    } catch (err: any) {
+      // Khmer for the user, the technical message so the cause is never hidden.
+      const kh = err?.kh || 'មិនអាចបង្កើតឯកសារផ្លូវការបានទេ';
+      const detail = err?.message || String(err);
+      setDocxError({ kh, detail });
+      toastMsg(`${kh} / ${detail}`, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const doExport = async (kind: 'excel') => {
     setBusy(kind);
     try {
-      if (kind === 'word') await exportAnnex8Word(state);
-      else await exportAnnex8Excel(state);
-      toastMsg(kind === 'word' ? 'បានទាញយកឯកសារ Word' : 'បានទាញយកឯកសារ Excel', 'success');
-    } catch {
-      toastMsg('មិនអាចបង្កើតឯកសារបានទេ / Export failed', 'error');
+      await exportAnnex8Excel(state);
+      toastMsg('បានទាញយកឯកសារ Excel', 'success');
+    } catch (err: any) {
+      toastMsg(`មិនអាចបង្កើតឯកសារបានទេ / ${err?.message || 'Export failed'}`, 'error');
     } finally {
       setBusy('');
     }
@@ -441,14 +563,13 @@ export default function Annex8ReportForm({
 
             {/* Document actions */}
             <div className="flex flex-wrap gap-1.5">
-              <button type="button" onClick={() => printAnnex8(state)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-white/25 bg-white/10 px-3 py-2 text-[11px] font-black text-white backdrop-blur hover:bg-white/20">
-                <Printer className="h-4 w-4" /> Print / PDF
+              {/* The official annex, filled from the Word template. */}
+              <button type="button" onClick={downloadOfficialWord} disabled={busy === 'annex8'}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#C9A227]/60 bg-[#C9A227]/20 px-3 py-2 text-[11px] font-black text-white backdrop-blur hover:bg-[#C9A227]/30 disabled:opacity-50">
+                {busy === 'annex8' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                ទាញយក Word (ឧបសម្ព័ន្ធទី៨)
               </button>
-              <button type="button" onClick={() => doExport('word')} disabled={busy === 'word'}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-white/25 bg-white/10 px-3 py-2 text-[11px] font-black text-white backdrop-blur hover:bg-white/20 disabled:opacity-50">
-                {busy === 'word' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} Word
-              </button>
+              {/* Working data export, not the official annex. */}
               <button type="button" onClick={() => doExport('excel')} disabled={busy === 'excel'}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-white/25 bg-white/10 px-3 py-2 text-[11px] font-black text-white backdrop-blur hover:bg-white/20 disabled:opacity-50">
                 {busy === 'excel' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />} Excel
@@ -472,6 +593,68 @@ export default function Annex8ReportForm({
         </div>
 
         <div className="p-4 sm:px-6">
+
+          {/* Reporting calendar — file a new month once it comes round. */}
+          {periods.length > 0 && (
+            <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-[12px] font-black text-slate-800">
+                    របាយការណ៍ប្រចាំខែរបស់ខ្ញុំ
+                    <span className="ml-1 font-bold text-slate-400">· My monthly reports</span>
+                  </h4>
+                  <p className="text-[10px] text-slate-400">
+                    ជ្រើសខែដើម្បីបន្ត ឬបង្កើតរបាយការណ៍ថ្មី · one report per month
+                  </p>
+                </div>
+                {(() => {
+                  const next = periods.find((p) => p.status === 'NOT_STARTED');
+                  return next ? (
+                    <button type="button" disabled={switching}
+                      onClick={() => void openPeriod(next.period_month)}
+                      className="px-3 py-1.5 bg-[#C9A227] hover:bg-[#E6C45A] text-[#0B1A35] text-[10px] font-black rounded-lg flex items-center gap-1.5 cursor-pointer disabled:opacity-50">
+                      {switching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                      បង្កើតរបាយការណ៍ខែ {khmerMonthLabel(next.period_month)}
+                    </button>
+                  ) : null;
+                })()}
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {periods.map((p) => {
+                  const active = p.period_month === state.meta.period_month;
+                  const filed = p.status !== 'NOT_STARTED' && p.status !== 'DRAFT';
+                  const tone = filed
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : p.status === 'DRAFT'
+                      ? 'border-amber-200 bg-amber-50 text-amber-700'
+                      : 'border-slate-200 bg-slate-50 text-slate-500';
+                  return (
+                    <button
+                      key={p.period_month}
+                      type="button"
+                      disabled={switching}
+                      onClick={() => void openPeriod(p.period_month)}
+                      title={filed
+                        ? `បានដាក់ជូន ${p.report_id || ''}${p.on_time === false ? ' · យឺត' : ''}`
+                        : p.status === 'DRAFT' ? 'ព្រាង / draft saved' : 'មិនទាន់ចាប់ផ្ដើម / not started'}
+                      className={`rounded-lg border px-2.5 py-1.5 text-left text-[10px] font-bold transition-colors disabled:opacity-50 ${tone} ${
+                        active ? 'ring-2 ring-[#0B1A35] ring-offset-1' : 'hover:brightness-95'
+                      }`}
+                    >
+                      <span className="block font-black">{khmerMonthLabel(p.period_month)}</span>
+                      <span className="block text-[9px] font-bold opacity-80">
+                        {filed
+                          ? (p.on_time === false ? 'ដាក់ជូនយឺត' : 'បានដាក់ជូន')
+                          : p.status === 'DRAFT' ? 'ព្រាង' : 'មិនទាន់ចាប់ផ្ដើម'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {receipt && (
             <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[11px] font-bold text-emerald-800">
               <CheckCircle2 className="h-4 w-4 shrink-0" />
@@ -479,6 +662,28 @@ export default function Annex8ReportForm({
                 បានដាក់ជូនជោគជ័យ · លេខ <b>{receipt.report_id}</b> · {new Date(receipt.submitted_at).toLocaleString('en-CA')}
                 {receipt.on_time ? ' · ទាន់ពេល' : ' · យឺត (ប្រការ២១)'}
               </span>
+              <button type="button" onClick={downloadOfficialWord} disabled={busy === 'annex8'}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-[#0B1A35] px-3 py-2 text-[11px] font-black text-white hover:bg-[#15284d] disabled:opacity-50">
+                {busy === 'annex8' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                ទាញយក Word (ឧបសម្ព័ន្ធទី៨)
+              </button>
+            </div>
+          )}
+
+          {/* Never fail silently: Khmer for the user, the cause for whoever fixes it. */}
+          {docxError && (
+            <div className="mb-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-[11px] font-bold text-red-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                {docxError.kh}
+                <span className="mt-1 block break-all font-mono text-[10px] font-semibold text-red-600">
+                  {docxError.detail}
+                </span>
+              </span>
+              <button type="button" onClick={() => setDocxError(null)}
+                className="ml-auto shrink-0 rounded px-2 py-0.5 text-[10px] font-black text-red-700 hover:bg-red-100">
+                ✕
+              </button>
             </div>
           )}
 

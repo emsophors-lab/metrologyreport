@@ -25,16 +25,24 @@ import path from 'path';
 
 import {
   Annex8Extra,
-  buildAnnex8Data,
+  fillAnnex8Template,
   listTags,
-  renderAnnex8,
-} from '../../lib/annex8/fill-annex8';
+} from '../lib/annex8/annex8Docx';
+import { mapRecordToAnnex8 } from '../lib/annex8/mapReportToAnnex8';
 
 export const DEFAULT_TEMPLATE_VERSION = 'v1';
 
-/** Where the template lives, relative to the repo root. */
+/**
+ * The template is served to the browser from public/, so on disk it is either
+ * public/templates (dev, and in the repo) or dist/templates (after a build,
+ * which is what Vercel ships).
+ */
+export const templateCandidatesFor = (version: string) => [
+  path.join(process.cwd(), 'dist', 'templates', `Annex8_template_${version}.docx`),
+  path.join(process.cwd(), 'public', 'templates', `Annex8_template_${version}.docx`),
+];
 export const templatePathFor = (version: string) =>
-  path.join(process.cwd(), 'templates', `Annex8_template_${version}.docx`);
+  templateCandidatesFor(version).find((p) => fs.existsSync(p)) || templateCandidatesFor(version)[0];
 
 export class Annex8TemplateMissingError extends Error {
   constructor(public readonly missing: string[]) {
@@ -47,8 +55,10 @@ export function officialAssetsStatus(version = DEFAULT_TEMPLATE_VERSION) {
   const templateFile = templatePathFor(version);
   const missing: string[] = [];
   // The fill module is bundled with the server; only the .docx is read from
-  // disk at runtime, which is why vercel.json ships templates/**.
-  if (!fs.existsSync(templateFile)) missing.push(`templates/Annex8_template_${version}.docx`);
+  // disk, which is why vercel.json ships dist/templates/**.
+  if (!fs.existsSync(templateFile)) {
+    missing.push(`dist/templates/Annex8_template_${version}.docx (or public/templates/)`);
+  }
   return { ready: missing.length === 0, missing, templateFile };
 }
 
@@ -71,16 +81,13 @@ export interface Annex8RenderInput {
   extra: Annex8Extra;
 }
 
-const str = (v: unknown) => (v === null || v === undefined ? '' : String(v));
-
 /**
- * Rebuilds the submitted payload from the stored rows. The column names differ
- * from the payload field names in a few places (max_capacity / min_capacity /
- * e_value, latitude / longitude, host_part, new_status), so the mapping is
- * written out rather than spread.
+ * Reads the stored report and hands it to the shared mapper, which is the same
+ * one the browser download uses — so a document rendered server-side can never
+ * differ from the one a licensee downloads.
  *
- * Part 2 totals are deliberately NOT included: buildAnnex8Data recomputes them
- * from the rows, and nothing client-computed is passed through.
+ * Part 2 totals are deliberately not carried over: buildAnnex8Data recomputes
+ * them from the rows, and nothing client-computed is passed through.
  */
 export async function loadAnnex8RenderInput(
   supabaseAdmin: any,
@@ -100,119 +107,22 @@ export async function loadAnnex8RenderInput(
     supabaseAdmin.from('enterprise_licenses').select('*').eq('license_number', report.licence_no).maybeSingle(),
   ]);
 
-  const payload = {
-    format_version: report.format_version,
-    meta: {
-      licence_no: report.licence_no,
-      licence_type: report.licence_type,
-      enterprise_name_kh: report.enterprise_name_kh,
-      enterprise_name_en: report.enterprise_name_en,
-      registration_no: report.registration_no,
-      licence_valid_to: str(report.licence_valid_to),
-      operating_address: report.operating_address,
-      period_month: report.period_month,
-      report_type: report.report_type,
-      original_report_id: str(report.original_report_id),
-      contact: {
-        name: str(report.contact_name),
-        position: str(report.contact_position),
-        phone: str(report.contact_phone),
-        email: str(report.contact_email),
-      },
+  const { payload, extra } = mapRecordToAnnex8(
+    report,
+    {
+      instruments: instruments.data || [],
+      modules: modules.data || [],
+      repairs: repairs.data || [],
+      standards: standards.data || [],
+      carryOver: carryOver.data || [],
     },
-    part3_instruments: (instruments.data || []).map((x: any) => ({
-      op_code: x.op_code,
-      category: x.category,
-      category_other: str(x.category_other),
-      instrument_name: x.instrument_name,
-      model: str(x.model),
-      serial_no: x.serial_no,
-      manufacturer: str(x.manufacturer),
-      country: str(x.country),
-      max: str(x.max_capacity),
-      min: str(x.min_capacity),
-      e: str(x.e_value),
-      unit: str(x.unit),
-      accuracy_class: str(x.accuracy_class),
-      type_approval_no: str(x.type_approval_no),
-      completion_date: str(x.completion_date),
-      customer_name: str(x.customer_name),
-      province: str(x.province),
-      address: str(x.address),
-      lat: str(x.latitude),
-      long: str(x.longitude),
-      label_qr_no: str(x.label_qr_no),
-      verification_status: x.verification_status,
-      verification_cert_no: str(x.verification_cert_no),
-      verification_date: str(x.verification_date),
-    })),
-    part3a_modules: (modules.data || []).map((x: any) => ({
-      host_serial_no: x.host_serial_no,
-      part: x.host_part || 'P3',
-      module_name: x.module_name,
-      model: str(x.model),
-      serial_no: str(x.serial_no),
-      range_e: str(x.range_e),
-      manufacturer: str(x.manufacturer),
-      country: str(x.country),
-      cert_no: str(x.cert_no),
-      new_or_replacement: x.new_or_replacement,
-    })),
-    part4_repairs: (repairs.data || []).map((x: any) => ({
-      category: x.category,
-      instrument_name: x.instrument_name,
-      model: str(x.model),
-      serial_no: x.serial_no,
-      customer_name: str(x.customer_name),
-      province: str(x.province),
-      address: str(x.address),
-      lat: str(x.latitude),
-      long: str(x.longitude),
-      repair_from: str(x.repair_from),
-      repair_to: str(x.repair_to),
-      repair_description: str(x.repair_description),
-      seal_broken: !!x.seal_broken,
-      seal_removed_no: str(x.seal_removed_no),
-      notification_no: str(x.notification_no),
-      technician: str(x.technician),
-      verification_status: x.verification_status,
-      verification_cert_no: str(x.verification_cert_no),
-      verification_date: str(x.verification_date),
-    })),
-    part5_standards: (standards.data || []).map((x: any) => ({
-      equipment: x.equipment,
-      serial_no: str(x.serial_no),
-      class_range: str(x.class_range),
-      cal_cert_no: str(x.cal_cert_no),
-      lab: str(x.lab),
-      cal_date: str(x.cal_date),
-      due_date: str(x.due_date),
-      status: x.status,
-    })),
-    // The column is new_status; the field the fill module reads is status.
-    carry_over_updates: (carryOver.data || []).map((x: any) => ({
-      ref: x.source_part,
-      serial_no: str(x.serial_no),
-      status: x.new_status,
-      cert_no: str(x.cert_no),
-      date: str(x.verification_date),
-    })),
-    part6_events: report.events || {},
-    declaration_accepted: !!report.declaration_accepted,
-  };
-
-  const extra: Annex8Extra = {
-    // Named in the spec as coming from the licence record.
-    decision_no: str(profile.data?.decision_no),
-    decision_date: str(profile.data?.decision_date),
-    legal_rep_name: str(profile.data?.legal_rep_name || licence.data?.license_owner_name),
-    preparer_name: str(report.contact_name),
-    preparer_position: str(report.contact_position),
-    submitted_at: str(report.submitted_at),
-    received_at: str(report.received_at || report.submitted_at),
-    report_id: str(report.report_id),
-    on_time: report.on_time === null || report.on_time === undefined ? undefined : !!report.on_time,
-  };
+    {
+      decision_no: profile.data?.decision_no,
+      decision_date: profile.data?.decision_date,
+      legal_rep_name: profile.data?.legal_rep_name,
+      license_owner_name: licence.data?.license_owner_name,
+    },
+  );
 
   return { report, payload, extra };
 }
@@ -227,8 +137,8 @@ export function renderOfficialDocx(
 ): Buffer {
   const template = readTemplate(version);
   // Part 2 totals are recomputed inside buildAnnex8Data.
-  const data = buildAnnex8Data(input.payload, input.extra);
-  return renderAnnex8(template, data);
+  const doc = fillAnnex8Template(template, input.payload, input.extra);
+  return doc.getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
 /** Tag list of a template, for the CI check against buildAnnex8Data's keys. */
@@ -267,6 +177,36 @@ export async function convertDocxToPdf(docx: Buffer, fileName: string): Promise<
   return Buffer.from(await res.arrayBuffer());
 }
 
+/**
+ * HTML -> PDF with Gotenberg's Chromium.
+ *
+ * Used for the monthly compliance digest, which is an internal NMC summary and
+ * not the official annex — the annex is only ever produced by filling the Word
+ * template. Chromium shapes Khmer correctly provided the image carries the
+ * Khmer fonts (docker/gotenberg.Dockerfile), the same requirement as the
+ * LibreOffice route above.
+ */
+export async function convertHtmlToPdf(html: string, fileName = 'index.html'): Promise<Buffer> {
+  const base = process.env.GOTENBERG_URL;
+  if (!base) throw new PdfConversionError('GOTENBERG_URL is not configured.');
+
+  const form = new FormData();
+  // Gotenberg requires the entry file to be named index.html.
+  form.append('files', new Blob([html], { type: 'text/html' }), 'index.html');
+  form.append('printBackground', 'true');
+  form.append('preferCssPageSize', 'true');
+
+  const res = await fetch(`${base.replace(/\/$/, '')}/forms/chromium/convert/html`, {
+    method: 'POST',
+    body: form as any,
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new PdfConversionError(`Gotenberg returned ${res.status} for ${fileName}. ${detail.slice(0, 300)}`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
 /* ------------------------------------------------------------------ *
  * 4. Naming and checksums
  * ------------------------------------------------------------------ */
@@ -293,6 +233,31 @@ export const sha256 = (buf: Buffer) => crypto.createHash('sha256').update(buf).d
  * owner licensee or NMC staff first.
  */
 export const OFFICIAL_BUCKET = process.env.ANNEX8_BUCKET || 'annex8-reports';
+
+/**
+ * Where official documents are kept.
+ *
+ *   supabase  Supabase Storage (default, how it runs today)
+ *   fs        a directory on the server — for a self-hosted Postgres on
+ *             MISTI's internal network, where storage.* does not exist
+ *
+ * The rest of the module does not know which is in use: both drivers take and
+ * return the same object path, so moving off Supabase changes this setting and
+ * nothing else. ANNEX8_STORAGE_DIR sets the directory for the fs driver.
+ */
+export const STORAGE_DRIVER = (process.env.ANNEX8_STORAGE_DRIVER || 'supabase').toLowerCase();
+const STORAGE_DIR = process.env.ANNEX8_STORAGE_DIR
+  || path.join(process.cwd(), 'var', 'annex8-reports');
+
+/** Rejects any path that would escape the storage root. */
+function resolveStoredPath(storagePath: string): string {
+  const full = path.resolve(STORAGE_DIR, storagePath);
+  const root = path.resolve(STORAGE_DIR);
+  if (full !== root && !full.startsWith(root + path.sep)) {
+    throw new Error(`Refusing to use a storage path outside the store: ${storagePath}`);
+  }
+  return full;
+}
 
 /** <licence_no>/<YYYY-MM>/<report_id>/<file name> — stable, so a re-render overwrites. */
 export function officialStoragePath(
@@ -321,6 +286,14 @@ export async function putOfficialDocument(
   body: Buffer,
 ): Promise<{ path: string; sha256: string }> {
   const storagePath = officialStoragePath(report, ext);
+
+  if (STORAGE_DRIVER === 'fs') {
+    const full = resolveStoredPath(storagePath);
+    await fs.promises.mkdir(path.dirname(full), { recursive: true });
+    await fs.promises.writeFile(full, body);
+    return { path: storagePath, sha256: sha256(body) };
+  }
+
   const { error } = await supabaseAdmin.storage
     .from(OFFICIAL_BUCKET)
     .upload(storagePath, body, { contentType: CONTENT_TYPE[ext], upsert: true });
@@ -332,6 +305,17 @@ export async function getOfficialDocument(
   supabaseAdmin: any,
   storagePath: string,
 ): Promise<Buffer | null> {
+  if (STORAGE_DRIVER === 'fs') {
+    // Resolved outside the try: a path escaping the store is a hard error, not
+    // a quiet "not found" that the caller would paper over by re-rendering.
+    const full = resolveStoredPath(storagePath);
+    try {
+      return await fs.promises.readFile(full);
+    } catch {
+      return null;      // missing file: the caller re-renders and backfills
+    }
+  }
+
   const { data, error } = await supabaseAdmin.storage.from(OFFICIAL_BUCKET).download(storagePath);
   if (error || !data) return null;
   return Buffer.from(await data.arrayBuffer());

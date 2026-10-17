@@ -1,5 +1,5 @@
 import { EnterpriseLicense, LicenseRenewalHistory, MetrologyUser } from '../types';
-import { getActiveSupabaseClient } from '../supabaseSync';
+import { apiRequest, getActiveSupabaseClient } from '../supabaseSync';
 
 const LICENSES_KEY = 'nmc_enterprise_licenses';
 const HISTORY_KEY = 'nmc_license_renewal_history';
@@ -56,9 +56,10 @@ export async function fetchEnterpriseLicenses(user: MetrologyUser): Promise<Ente
   const client = getActiveSupabaseClient();
   let data: EnterpriseLicense[] = [];
   if (client) {
-    const result = await client.from('enterprise_licenses').select('*').order('license_expiry_date');
-    if (result.error) throw result.error;
-    data = (result.data || []) as EnterpriseLicense[];
+    // Through our own API, never the database directly: the server enforces
+    // the per-role scoping and holds the credentials.
+    const { licenses } = await apiRequest<{ licenses: EnterpriseLicense[] }>('/api/licenses');
+    data = licenses || [];
     writeLocal(LICENSES_KEY, data);
   } else data = readLocal<EnterpriseLicense>(LICENSES_KEY);
   const visible = user.role === 'company'
@@ -78,8 +79,7 @@ export async function saveEnterpriseLicense(user: MetrologyUser, license: Enterp
   if (local.some(x => x.license_number.toLowerCase() === payload.license_number.toLowerCase() && x.id !== payload.id)) throw new Error('License number already exists.');
   const client = getActiveSupabaseClient();
   if (client) {
-    const { error } = await client.from('enterprise_licenses').upsert(payload, { onConflict: 'id' });
-    if (error) throw error;
+    await apiRequest('/api/licenses', { method: 'POST', body: { license: payload } });
   }
   writeLocal(LICENSES_KEY, isNew ? [payload, ...local] : local.map(x => x.id === payload.id ? payload : x));
 }
@@ -88,8 +88,7 @@ export async function deleteEnterpriseLicense(user: MetrologyUser, license: Ente
   requirePermission(user, 'delete');
   const client = getActiveSupabaseClient();
   if (client) {
-    const { error } = await client.from('enterprise_licenses').delete().eq('id', license.id);
-    if (error) throw error;
+    await apiRequest(`/api/licenses/${encodeURIComponent(license.id)}`, { method: 'DELETE' });
     if (license.license_owner_photo_path) await client.storage.from(LICENSE_PHOTO_BUCKET).remove([license.license_owner_photo_path]);
   }
   writeLocal(LICENSES_KEY, readLocal<EnterpriseLicense>(LICENSES_KEY).filter(x => x.id !== license.id));
@@ -118,9 +117,10 @@ export async function fetchRenewalHistory(user: MetrologyUser, licenseId: string
   requirePermission(user, 'view');
   const client = getActiveSupabaseClient();
   if (client) {
-    const { data, error } = await client.from('license_renewal_history').select('*').eq('license_id', licenseId).order('renewed_at', { ascending: false });
-    if (error) throw error;
-    return (data || []) as LicenseRenewalHistory[];
+    const { history } = await apiRequest<{ history: LicenseRenewalHistory[] }>(
+      `/api/renewal-history?license_id=${encodeURIComponent(licenseId)}`,
+    );
+    return history || [];
   }
   return readLocal<LicenseRenewalHistory>(HISTORY_KEY).filter(x => x.license_id === licenseId);
 }

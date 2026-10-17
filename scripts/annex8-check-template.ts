@@ -22,23 +22,24 @@ import fs from 'fs';
 import path from 'path';
 
 import {
+  LOOP_ARRAY_KEYS,
   LOOP_ITEM_KEYS,
   buildAnnex8Data,
+  fillAnnex8Template,
   listTags,
-  renderAnnex8,
-} from '../lib/annex8/fill-annex8';
+} from '../src/lib/annex8/annex8Docx';
 
 const ROOT = process.cwd();
 const VERSION = process.env.ANNEX8_TEMPLATE_VERSION || 'v1';
-const TEMPLATE = path.join(ROOT, 'templates', `Annex8_template_${VERSION}.docx`);
-const PAYLOAD = path.join(ROOT, 'lib', 'annex8', 'sample-payload.json');
+const TEMPLATE = path.join(ROOT, 'public', 'templates', `Annex8_template_${VERSION}.docx`);
+const PAYLOAD = path.join(ROOT, 'src', 'lib', 'annex8', '__fixtures__', 'sample-payload.json');
 const OUT_DIR = path.join(ROOT, 'test-output');
 
 /**
  * The loop arrays are consumed by {#…} sections rather than printed as a
  * value, so they are not expected among the plain tags.
  */
-const NOT_PRINTED = new Set(['instruments', 'modules', 'repairs', 'standards']);
+const NOT_PRINTED = new Set(LOOP_ARRAY_KEYS);
 
 function fail(lines: string[]): never {
   console.error(`\n✗ Annex 8 template check failed (${path.relative(ROOT, TEMPLATE)})\n`);
@@ -60,7 +61,7 @@ const sample = JSON.parse(fs.readFileSync(PAYLOAD, 'utf8'));
 const data = buildAnnex8Data(sample.report, sample.extra);
 const rawTags = listTags(template);
 // {#x} / {/x} / {^x} are section markers for the same name as the loop array.
-const tagNames = new Set(rawTags.map((t) => t.replace(/^[#^/]/, '')));
+const tagNames = new Set(rawTags.map((t: string) => t.replace(/^[#^/]/, '')));
 const dataKeys = new Set(Object.keys(data));
 const loopKeys = new Set(LOOP_ITEM_KEYS);
 
@@ -140,7 +141,8 @@ const fixtures: Array<[string, any]> = [
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 for (const [name, fixture] of fixtures) {
-  const buf = renderAnnex8(template, buildAnnex8Data(fixture.report, fixture.extra));
+  const buf: Buffer = fillAnnex8Template(template, fixture.report, fixture.extra)
+    .getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' });
   const target = path.join(OUT_DIR, name);
   fs.writeFileSync(target, buf);
   console.log(`✓ ${path.relative(ROOT, target)} (${(buf.length / 1024).toFixed(1)} kB)`);

@@ -19,11 +19,13 @@ import path from 'path';
 
 import PizZip from 'pizzip';
 
-import { buildAnnex8Data, renderAnnex8 } from '../lib/annex8/fill-annex8';
+import { fillAnnex8Template } from '../src/lib/annex8/annex8Docx';
+import { deriveSignedPlace } from '../src/lib/annex8/mapReportToAnnex8';
 import { loadAnnex8RenderInput, readTemplate } from '../src/annex8/officialDocument';
 
 const ROOT = process.cwd();
-const sample = JSON.parse(fs.readFileSync(path.join(ROOT, 'lib', 'annex8', 'sample-payload.json'), 'utf8'));
+const sample = JSON.parse(fs.readFileSync(
+  path.join(ROOT, 'src', 'lib', 'annex8', '__fixtures__', 'sample-payload.json'), 'utf8'));
 const r = sample.report;
 const extra = sample.extra;
 
@@ -179,7 +181,11 @@ const text = (buf: Buffer) =>
   // extra.submitted_at decides the signature date, and extra.letter_no /
   // signed_place / lunar_date_line are hand-filled fields the loader does not
   // supply, so the direct render is given the same subset the loader produces.
-  const direct = renderAnnex8(template, buildAnnex8Data(r, {
+  const render = (payload: any, extra: any): Buffer =>
+    fillAnnex8Template(template, payload, extra)
+      .getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+
+  const direct = render(r, {
     decision_no: extra.decision_no,
     decision_date: extra.decision_date,
     legal_rep_name: extra.legal_rep_name,
@@ -189,14 +195,20 @@ const text = (buf: Buffer) =>
     received_at: extra.received_at,
     report_id: extra.report_id,
     on_time: extra.on_time,
-  }));
+    // The loader derives this from the operating address; the control render
+    // is given the same value so the comparison stays about column mapping.
+    signed_place: deriveSignedPlace(
+      r.meta.operating_address,
+      [...r.part3_instruments.map((x: any) => x.province), ...r.part4_repairs.map((x: any) => x.province)],
+    ),
+  });
 
   const input = await loadAnnex8RenderInput(fakeSupabase(), 'test-uuid');
   if (!input) {
     console.error('✗ loadAnnex8RenderInput returned null for the fake report.');
     process.exit(1);
   }
-  const fromDb = renderAnnex8(template, buildAnnex8Data(input.payload, input.extra));
+  const fromDb = render(input.payload, input.extra);
 
   const a = text(direct);
   const b = text(fromDb);
