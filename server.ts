@@ -10,8 +10,9 @@ import { computeSummary, isOnTime } from './src/annex8/summary';
 import { FORMAT_VERSION } from './src/annex8/constants';
 import type { Annex8State } from './src/annex8/types';
 import {
-  Annex8TemplateMissingError, DEFAULT_TEMPLATE_VERSION, convertDocxToPdf,
-  loadAnnex8RenderInput, officialAssetsStatus, officialFileName, renderOfficialDocx,
+  Annex8TemplateMissingError, DEFAULT_TEMPLATE_VERSION, OFFICIAL_BUCKET, convertDocxToPdf,
+  getOfficialDocument, loadAnnex8RenderInput, officialAssetsStatus, officialFileName,
+  putOfficialDocument, renderAndStoreOfficialDocuments, renderOfficialDocx,
 } from './src/annex8/officialDocument';
 
 // Load environment variables
@@ -2311,10 +2312,31 @@ app.post('/api/annex8/reports', async (req, res) => {
       }
     }
 
+    // The official DOCX/PDF are produced once, here, and stored in the private
+    // bucket. The report is already accepted at this point, so a render failure
+    // is recorded on the row rather than returned as a submission failure — the
+    // download route renders on demand and backfills storage.
+    let officialReady = false;
+    try {
+      const columns = await renderAndStoreOfficialDocuments(
+        supabaseAdmin, reportUuid, DEFAULT_TEMPLATE_VERSION,
+      );
+      await supabaseAdmin.from('annex8_reports').update(columns).eq('id', reportUuid);
+      officialReady = !!columns.official_pdf_path;
+    } catch (err: any) {
+      const message = err instanceof Annex8TemplateMissingError
+        ? err.message
+        : `Render: ${err?.message || err}`;
+      console.warn('Annex 8 official document not produced at submit:', message);
+      await supabaseAdmin.from('annex8_reports')
+        .update({ official_render_error: message }).eq('id', reportUuid);
+    }
+
     return apiSuccess(res, {
       report_id: reportId,
       submitted_at: submittedAt,
       on_time: onTime,
+      official_document_ready: officialReady,
       warnings: warningIssues(issues).map((i) => ({ code: i.code, message: i.message })),
     });
   } catch (err: any) {
@@ -2367,17 +2389,15 @@ async function serveOfficialAnnex8(req: any, res: any, ext: 'docx' | 'pdf') {
     // Prefer the stored official file.
     const storedPath = ext === 'pdf' ? report.official_pdf_path : report.official_docx_path;
     if (storedPath) {
-      const { data: stored, error: storeErr } = await supabaseAdmin
-        .storage.from('annex8-official').download(storedPath);
-      if (!storeErr && stored) {
-        const buf = Buffer.from(await stored.arrayBuffer());
+      const buf = await getOfficialDocument(supabaseAdmin, storedPath);
+      if (buf) {
         res.setHeader('Content-Type', ext === 'pdf'
           ? 'application/pdf'
           : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
         res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
         return res.end(buf);
       }
-      console.warn('Stored Annex 8 document unavailable, re-rendering:', storeErr?.message || storeErr);
+      console.warn(`Stored Annex 8 ${ext} missing from ${OFFICIAL_BUCKET}, re-rendering: ${storedPath}`);
     }
 
     const input = await loadAnnex8RenderInput(supabaseAdmin, reportUuid);
@@ -2394,16 +2414,28 @@ async function serveOfficialAnnex8(req: any, res: any, ext: 'docx' | 'pdf') {
       throw err;
     }
 
-    if (ext === 'docx') {
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-      return res.end(docx);
+    const body = ext === 'docx'
+      ? docx
+      : await convertDocxToPdf(docx, officialFileName(report, 'docx'));
+
+    // Backfill storage so the next download is served from the stored file.
+    try {
+      const stored = await putOfficialDocument(supabaseAdmin, report, ext, body);
+      await supabaseAdmin.from('annex8_reports').update({
+        [`official_${ext}_path`]: stored.path,
+        [`official_${ext}_sha256`]: stored.sha256,
+        official_rendered_at: report.official_rendered_at || new Date().toISOString(),
+        official_render_error: null,
+      }).eq('id', reportUuid);
+    } catch (err: any) {
+      console.warn('Annex 8 storage backfill failed:', err?.message || err);
     }
 
-    const pdf = await convertDocxToPdf(docx, officialFileName(report, 'docx'));
-    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Type', ext === 'pdf'
+      ? 'application/pdf'
+      : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    return res.end(pdf);
+    return res.end(body);
   } catch (err: any) {
     console.error(`Annex 8 ${ext} render failed:`, err?.message || err);
     return apiError(res, 500, `Unable to produce the Annex 8 ${ext.toUpperCase()}.`);
@@ -2442,6 +2474,7 @@ app.get('/api/annex8/render-status', async (req, res) => {
     template_ready: status.ready,
     missing: status.missing,
     gotenberg_configured: !!process.env.GOTENBERG_URL,
+    storage_bucket: OFFICIAL_BUCKET,
   });
 });
 

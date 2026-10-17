@@ -40,8 +40,8 @@ export class Annex8TemplateMissingError extends Error {
  * may legitimately be absent from a checkout that never renders documents.
  */
 function loadFillModule(): any {
-  // eslint-disable-next-line no-eval
-  const runtimeRequire = eval('require') as NodeRequire;
+  // Indirect, so the bundler leaves it alone instead of warning about eval.
+  const runtimeRequire = new Function('return require')() as NodeRequire;
   return runtimeRequire(FILL_MODULE_PATH);
 }
 
@@ -192,3 +192,98 @@ export function officialFileName(
 }
 
 export const sha256 = (buf: Buffer) => crypto.createHash('sha256').update(buf).digest('hex');
+
+/* ------------------------------------------------------------------ *
+ * 5. Private storage bucket
+ * ------------------------------------------------------------------ */
+
+/**
+ * Official documents live in a PRIVATE Supabase Storage bucket. Nothing is
+ * served from a public URL: every download goes through
+ * GET /api/reports/:id/annex8.(docx|pdf), which checks that the caller is the
+ * owner licensee or NMC staff first.
+ */
+export const OFFICIAL_BUCKET = process.env.ANNEX8_BUCKET || 'annex8-reports';
+
+/** <licence_no>/<YYYY-MM>/<report_id>/<file name> — stable, so a re-render overwrites. */
+export function officialStoragePath(
+  report: { licence_no?: string; period_month?: string; report_id?: string },
+  ext: 'docx' | 'pdf',
+): string {
+  const safe = (v: unknown) => String(v ?? 'unknown').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  return [
+    safe(report.licence_no),
+    safe(report.period_month),
+    safe(report.report_id),
+    officialFileName(report, ext),
+  ].join('/');
+}
+
+const CONTENT_TYPE: Record<'docx' | 'pdf', string> = {
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  pdf: 'application/pdf',
+};
+
+/** Uploads one official document and returns the path it was stored at. */
+export async function putOfficialDocument(
+  supabaseAdmin: any,
+  report: { licence_no?: string; period_month?: string; report_id?: string },
+  ext: 'docx' | 'pdf',
+  body: Buffer,
+): Promise<{ path: string; sha256: string }> {
+  const storagePath = officialStoragePath(report, ext);
+  const { error } = await supabaseAdmin.storage
+    .from(OFFICIAL_BUCKET)
+    .upload(storagePath, body, { contentType: CONTENT_TYPE[ext], upsert: true });
+  if (error) throw new Error(`Storage upload failed (${storagePath}): ${error.message || error}`);
+  return { path: storagePath, sha256: sha256(body) };
+}
+
+export async function getOfficialDocument(
+  supabaseAdmin: any,
+  storagePath: string,
+): Promise<Buffer | null> {
+  const { data, error } = await supabaseAdmin.storage.from(OFFICIAL_BUCKET).download(storagePath);
+  if (error || !data) return null;
+  return Buffer.from(await data.arrayBuffer());
+}
+
+/**
+ * Renders the official DOCX and PDF for a submitted report and stores both in
+ * the private bucket. Returns the columns to write onto the report row.
+ *
+ * Called once at submission. A failure here must never fail the submission —
+ * the report is already accepted — so the caller records official_render_error
+ * and the download route re-renders on demand.
+ */
+export async function renderAndStoreOfficialDocuments(
+  supabaseAdmin: any,
+  reportUuid: string,
+  version = DEFAULT_TEMPLATE_VERSION,
+): Promise<Record<string, any>> {
+  const input = await loadAnnex8RenderInput(supabaseAdmin, reportUuid);
+  if (!input) throw new Error('Report not found.');
+
+  const docx = renderOfficialDocx(input, version);
+  const stored = await putOfficialDocument(supabaseAdmin, input.report, 'docx', docx);
+
+  const out: Record<string, any> = {
+    official_docx_path: stored.path,
+    official_docx_sha256: stored.sha256,
+    official_rendered_at: new Date().toISOString(),
+    official_render_error: null,
+  };
+
+  // The PDF needs Gotenberg. If it is not reachable the DOCX still stands as
+  // the official record, and the error is kept so a retry can find the report.
+  try {
+    const pdf = await convertDocxToPdf(docx, officialFileName(input.report, 'docx'));
+    const storedPdf = await putOfficialDocument(supabaseAdmin, input.report, 'pdf', pdf);
+    out.official_pdf_path = storedPdf.path;
+    out.official_pdf_sha256 = storedPdf.sha256;
+  } catch (err: any) {
+    out.official_render_error = `PDF: ${err?.message || err}`;
+  }
+
+  return out;
+}
