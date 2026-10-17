@@ -63,6 +63,7 @@ import {
 import LoginScreen from './components/LoginScreen';
 const UserManagement = lazy(() => import('./components/UserManagement'));
 const ReportForm = lazy(() => import('./components/ReportForm'));
+const Annex8ReportForm = lazy(() => import('./components/Annex8ReportForm'));
 const ExcelReportUpload = lazy(() => import('./components/ExcelReportUpload'));
 const DashboardStats = lazy(() => import('./components/DashboardStats'));
 const SuperadminDashboard = lazy(() => import('./components/SuperadminDashboard'));
@@ -462,7 +463,9 @@ export default function App() {
 
   // Active items state
   const [selectedEditReport, setSelectedEditReport] = useState<MetrologyReport | null>(null);
-  const [addReportMethod, setAddReportMethod] = useState<'manual' | 'excel'>('manual');
+  // 'annex8' is the new Annex 8 (A8-2026.2) wizard. It runs alongside the legacy
+  // 'manual' form until the new one is signed off; neither replaces the other yet.
+  const [addReportMethod, setAddReportMethod] = useState<'manual' | 'annex8' | 'excel'>('manual');
   const [selectedPrintReport, setSelectedPrintReport] = useState<MetrologyReport | null>(null);
   const [isPrintAllPreview, setIsPrintAllPreview] = useState(false);
 
@@ -2282,6 +2285,16 @@ export default function App() {
                       បញ្ចូលម្តងមួយ / Add One by One
                     </button>
                     <button
+                      onClick={() => setAddReportMethod('annex8')}
+                      className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                        addReportMethod === 'annex8'
+                          ? 'bg-white text-[#0B2A66] shadow-xs border border-slate-200/50'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      ឧបសម្ព័ន្ធទី៨ / Annex 8 <span className="text-[9px] text-[#C9A227]">ថ្មី</span>
+                    </button>
+                    <button
                       onClick={() => setAddReportMethod('excel')}
                       className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
                         addReportMethod === 'excel'
@@ -2312,6 +2325,13 @@ export default function App() {
                       existingReports={reports}
                       onImportSuccess={handleImportExcelSuccess}
                       toastMsg={showToast}
+                    />
+                  ) : addReportMethod === 'annex8' ? (
+                    <Annex8ReportForm
+                      currentUser={sessionUser}
+                      licence={dashboardLicenses.find(l => l.license_number === sessionUser.license_number) || null}
+                      toastMsg={showToast}
+                      language={language}
                     />
                   ) : (
                     <ReportForm 
