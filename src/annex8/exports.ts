@@ -12,6 +12,11 @@
  * PDF is produced by the browser's own print pipeline rather than jsPDF,
  * because jsPDF cannot shape Khmer script without an embedded font; printing
  * uses Khmer OS Siemreap / Khmer OS Muol Light exactly like the paper form.
+ *
+ * WORDING: these exports deliberately print the OFFICIAL Prakas terminology
+ * ឆ្លង / មិនឆ្លង for verification results, even though the on-screen form uses
+ * NMC's house wording ជាប់ / ធ្លាក់. A submitted report has to read the same as
+ * the paper annex, so do not "fix" this to match the UI.
  */
 
 import { CATEGORIES, CATEGORY_CODES, EVENTS } from './constants';
@@ -121,13 +126,13 @@ function part12Html(state: Annex8State, summary: Annex8Summary): string {
     </table>
 
     <h3>ផ្នែកទី២៖ សង្ខេបសកម្មភាពប្រចាំខែ | Part 2: Monthly Summary</h3>
-    <p style="font-size:8pt">គិតជាគ្រឿង។ សមីការជួរនីមួយៗ៖ ផលិត + ដំឡើង + ជួសជុល = ជាប់ + ធ្លាក់ + រង់ចាំ។</p>
+    <p style="font-size:8pt">គិតជាគ្រឿង។ សមីការជួរនីមួយៗ៖ ផលិត + ដំឡើង + ជួសជុល = ឆ្លង + មិនឆ្លង + រង់ចាំ។</p>
     <table>
       <tr>
         <th style="width:26pt">ល.រ<small>No.</small></th>
         <th class="lt">ប្រភេទឧបករណ៍<small>Instrument Category</small></th>
         <th>ផលិត<small>Manuf.</small></th><th>ដំឡើង<small>Install</small></th><th>ជួសជុល<small>Repair</small></th>
-        <th>ជាប់<small>Passed</small></th><th>ធ្លាក់<small>Failed</small></th><th>រង់ចាំ<small>Pending</small></th>
+        <th>ឆ្លង<small>Passed</small></th><th>មិនឆ្លង<small>Failed</small></th><th>រង់ចាំ<small>Pending</small></th>
       </tr>
       ${CATEGORY_CODES.map((code, i) => {
         const r = summary.rows[code];
@@ -142,8 +147,8 @@ function part12Html(state: Annex8State, summary: Annex8Summary): string {
     </table>
     <p style="font-size:8.5pt">ឧបករណ៍រង់ចាំពីខែមុន ដែលបានផ្ទៀងផ្ទាត់ក្នុងខែនេះ | Pending from previous month:
       ចំនួន ${toKhmerDigits(summary.carryOver.count)} គ្រឿង៖
-      ជាប់ ${toKhmerDigits(summary.carryOver.passed)}
-      ធ្លាក់ ${toKhmerDigits(summary.carryOver.failed)}
+      ឆ្លង ${toKhmerDigits(summary.carryOver.passed)}
+      មិនឆ្លង ${toKhmerDigits(summary.carryOver.failed)}
       នៅតែរង់ចាំ ${toKhmerDigits(summary.carryOver.pending)}</p>
   </section>`;
 }
@@ -342,7 +347,7 @@ export async function exportAnnex8Excel(state: Annex8State) {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(part1), 'Part 1');
 
   const part2 = [
-    ['ល.រ', 'ប្រភេទឧបករណ៍ | Category', 'ផលិត | Manuf.', 'ដំឡើង | Install', 'ជួសជុល | Repair', 'ជាប់ | Passed', 'ធ្លាក់ | Failed', 'រង់ចាំ | Pending'],
+    ['ល.រ', 'ប្រភេទឧបករណ៍ | Category', 'ផលិត | Manuf.', 'ដំឡើង | Install', 'ជួសជុល | Repair', 'ឆ្លង | Passed', 'មិនឆ្លង | Failed', 'រង់ចាំ | Pending'],
     ...CATEGORY_CODES.map((code, i) => {
       const r = summary.rows[code];
       return [i + 1, CATEGORIES[code].kh, r.manufactured, r.installed, r.repaired, r.passed, r.failed, r.pending];
@@ -464,7 +469,7 @@ export async function exportAnnex8Word(state: Annex8State) {
     text(''),
     heading('ផ្នែកទី២៖ សង្ខេបសកម្មភាពប្រចាំខែ | Part 2: Monthly Summary'),
     table([
-      ['ល.រ', 'ប្រភេទឧបករណ៍', 'ផលិត', 'ដំឡើង', 'ជួសជុល', 'ជាប់', 'ធ្លាក់', 'រង់ចាំ'].map((h) => cell(h, { bold: true })),
+      ['ល.រ', 'ប្រភេទឧបករណ៍', 'ផលិត', 'ដំឡើង', 'ជួសជុល', 'ឆ្លង', 'មិនឆ្លង', 'រង់ចាំ'].map((h) => cell(h, { bold: true })),
       ...CATEGORY_CODES.map((code, i) => {
         const r = summary.rows[code];
         return [cell(String(i + 1)), cell(CATEGORIES[code].kh, { left: true }), cell(String(r.manufactured)),
@@ -476,7 +481,7 @@ export async function exportAnnex8Word(state: Annex8State) {
         cell(String(summary.total.passed), { bold: true }), cell(String(summary.total.failed), { bold: true }),
         cell(String(summary.total.pending), { bold: true })],
     ]),
-    text(`ឧបករណ៍រង់ចាំពីខែមុន៖ ចំនួន ${summary.carryOver.count} គ្រឿង · ជាប់ ${summary.carryOver.passed} · ធ្លាក់ ${summary.carryOver.failed} · នៅតែរង់ចាំ ${summary.carryOver.pending}`),
+    text(`ឧបករណ៍រង់ចាំពីខែមុន៖ ចំនួន ${summary.carryOver.count} គ្រឿង · ឆ្លង ${summary.carryOver.passed} · មិនឆ្លង ${summary.carryOver.failed} · នៅតែរង់ចាំ ${summary.carryOver.pending}`),
   ];
 
   // Page 3: Parts 3, 3A, 4 (landscape)

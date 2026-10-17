@@ -498,55 +498,61 @@ export default function Annex8ReportForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[260px_minmax(0,1fr)]">
-        {/* Step rail */}
-        <nav className="h-fit rounded-2xl border border-[#0B1A35]/20 bg-gradient-to-b from-[#0B1A35] to-[#16294F] p-2.5 text-white shadow-sm xl:sticky xl:top-4">
-          <ol className="flex gap-1 overflow-x-auto xl:block xl:space-y-1 xl:overflow-visible">
-            {steps.map((s, i) => {
-              const bad = stepHasBlocker(s.idx);
-              return (
-                <li key={s.k} className="shrink-0 xl:shrink">
-                  <button
-                    type="button" onClick={() => setStep(i)}
-                    className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors ${
-                      i === step ? 'bg-white/10 ring-1 ring-[#C9A227]' : 'hover:bg-white/5'
-                    }`}
-                  >
-                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-black ${
-                      i === step ? 'bg-[#C9A227] text-[#0B1A35]'
-                        : bad ? 'bg-red-500/20 text-red-300 ring-1 ring-red-400/50'
-                        : 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/40'
-                    }`}>{s.no}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5 text-[11px] font-bold">
-                        <span className="truncate">{s.kh}</span>
-                        <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${bad ? 'bg-red-400' : 'bg-emerald-400'}`} />
+      <div className="space-y-4">
+        {/* Step rail — a horizontal stepper directly under the report header, so
+            the form itself gets the full width of the page. */}
+        <nav className="rounded-2xl border border-[#0B1A35]/20 bg-gradient-to-r from-[#0B1A35] to-[#16294F] p-2.5 text-white shadow-sm">
+          <div className="flex flex-col gap-2.5 lg:flex-row lg:items-stretch">
+            <ol className="flex flex-1 gap-1.5 overflow-x-auto pb-1 lg:pb-0">
+              {steps.map((s, i) => {
+                const bad = stepHasBlocker(s.idx);
+                return (
+                  <li key={s.k} className="shrink-0 lg:min-w-0 lg:flex-1">
+                    <button
+                      type="button" onClick={() => setStep(i)}
+                      title={`${s.kh} · ${s.en}`}
+                      className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
+                        i === step ? 'bg-white/12 ring-1 ring-[#C9A227]' : 'hover:bg-white/5'
+                      }`}
+                    >
+                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-black ${
+                        i === step ? 'bg-[#C9A227] text-[#0B1A35]'
+                          : bad ? 'bg-red-500/20 text-red-300 ring-1 ring-red-400/50'
+                          : 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/40'
+                      }`}>{s.no}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5 text-[11px] font-bold">
+                          <span className="truncate">{s.kh}</span>
+                          <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${bad ? 'bg-red-400' : 'bg-emerald-400'}`} />
+                        </span>
+                        <span className="hidden truncate text-[10px] text-slate-400 xl:block">{s.en}</span>
                       </span>
-                      <span className="hidden truncate text-[10px] text-slate-400 xl:block">{s.en}</span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
 
-          {/* Live activity = results balance */}
-          <div className="mt-2 rounded-lg bg-white/5 p-3 text-[11px]">
-            <div className="flex justify-between font-bold">
-              <span className="text-slate-300">សកម្មភាព / Activity</span>
-              <span className="text-white">{summary.activity}</span>
-            </div>
-            <div className="flex justify-between font-bold">
-              <span className="text-slate-300">លទ្ធផល / Results</span>
-              <span className="text-white">{summary.results}</span>
-            </div>
-            <div className={`mt-1.5 rounded px-2 py-1 text-center text-[10px] font-black ${
-              summary.balanced ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'
-            }`}>
-              {summary.balanced ? 'តុល្យភាព ✓ balanced' : 'មិនតុល្យភាព ✗'}
-            </div>
-            <div className="mt-2 text-[10px] font-semibold text-slate-400">
-              ថិរវេលា / Due: {deadlineFor(state.meta.period_month).toLocaleDateString('en-CA')}
+            {/* Live activity = results balance */}
+            <div className="flex shrink-0 items-center gap-3 rounded-xl bg-white/5 px-3 py-2 text-[11px] lg:w-64">
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <div className="flex justify-between font-bold">
+                  <span className="text-slate-300">សកម្មភាព</span>
+                  <span className="text-white">{summary.activity}</span>
+                </div>
+                <div className="flex justify-between font-bold">
+                  <span className="text-slate-300">លទ្ធផល</span>
+                  <span className="text-white">{summary.results}</span>
+                </div>
+                <div className="text-[10px] font-semibold text-slate-400">
+                  ថិរវេលា: {deadlineFor(state.meta.period_month).toLocaleDateString('en-CA')}
+                </div>
+              </div>
+              <div className={`shrink-0 rounded-lg px-2 py-1.5 text-center text-[10px] font-black ${
+                summary.balanced ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'
+              }`}>
+                {summary.balanced ? 'តុល្យភាព ✓' : 'មិនតុល្យ ✗'}
+              </div>
             </div>
           </div>
         </nav>
