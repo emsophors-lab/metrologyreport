@@ -2237,7 +2237,12 @@ export default function App() {
             )}
 
             {/* B. REPORT PORTAL: Submission & tables */}
-            {activeTab === 'reports' && (
+            {activeTab === 'reports' && (() => {
+              // While the Annex 8 wizard is open it owns the whole page: the
+              // legacy header actions, summary cards and detail table belong to
+              // the old flat report shape and would only confuse the two.
+              const isAnnex8Mode = addReportMethod === 'annex8' && !selectedEditReport && sessionUser.can_save;
+              return (
               <div className="space-y-6 animate-fade-in duration-300">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
@@ -2245,8 +2250,10 @@ export default function App() {
                     <p className="text-xs text-slate-400 mt-0.5">បញ្ចូលថ្មី ឬកែប្រែទិន្នន័យសេវាកម្មមាត្រាសាស្ត្រ</p>
                   </div>
                   
-                  {/* Quick toggle list printable */}
-                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                  {/* Quick toggle list printable — Annex 8 carries its own
+                      Print/Word/Excel actions in its header, so the legacy
+                      export buttons are hidden while that form is open. */}
+                  <div className={`items-center gap-2 w-full sm:w-auto ${isAnnex8Mode ? 'hidden' : 'flex'}`}>
                     <button
                       onClick={handleExportExcel}
                       className="flex-1 sm:flex-none px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-200 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
@@ -2349,6 +2356,8 @@ export default function App() {
                   </div>
                 )}
 
+                {/* Legacy report views. Annex 8 mode shows only its own content. */}
+                {!isAnnex8Mode && (<>
                 {/* Report Summary Cards - superadmin only */}
                 {sessionUser.role === 'superadmin' && (() => {
                   const submittedReports = reports.filter(r => {
@@ -2883,8 +2892,9 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+                </>)}
               </div>
-            )}
+            ); })()}
 
             {/* C. USER ACCOUNTS MANAGER */}
             {activeTab === 'users' && (sessionUser.role === 'superadmin' || sessionUser.role === 'admin') && (

@@ -29,6 +29,7 @@ import { computeSummary, deadlineFor, isOnTime, khmerMonthLabel, previousMonth }
 import { blockingIssues, hostOptions, hostPart, STEP_INDEX, validateAnnex8 } from '../annex8/validation';
 import { exportAnnex8Excel, exportAnnex8Word, printAnnex8 } from '../annex8/exports';
 import { getApiAuthHeaders } from '../apiAuth';
+import Annex8ReportOverview from './Annex8ReportOverview';
 
 interface Annex8ReportFormProps {
   currentUser: MetrologyUser;
@@ -979,6 +980,9 @@ export default function Annex8ReportForm({
           )}
         </section>
       </div>
+
+      {/* Live overview of the report being prepared: cards, charts, detail table */}
+      <Annex8ReportOverview state={state} />
     </div>
   );
 }
