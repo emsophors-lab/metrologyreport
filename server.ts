@@ -9,6 +9,10 @@ import { validateAnnex8, blockingIssues, warningIssues, hostPart } from './src/a
 import { computeSummary, isOnTime } from './src/annex8/summary';
 import { FORMAT_VERSION } from './src/annex8/constants';
 import type { Annex8State } from './src/annex8/types';
+import {
+  Annex8TemplateMissingError, DEFAULT_TEMPLATE_VERSION, convertDocxToPdf,
+  loadAnnex8RenderInput, officialAssetsStatus, officialFileName, renderOfficialDocx,
+} from './src/annex8/officialDocument';
 
 // Load environment variables
 dotenv.config();
@@ -2317,6 +2321,128 @@ app.post('/api/annex8/reports', async (req, res) => {
     console.error('Annex 8 submit exception:', err?.message || err);
     return apiError(res, 500, 'Unable to submit the report.');
   }
+});
+
+/**
+ * Official Annex 8 documents.
+ *
+ * GET /api/reports/:id/annex8.docx
+ * GET /api/reports/:id/annex8.pdf
+ *
+ * Readable by the licensee that owns the report, or by NMC staff. The PDF is
+ * generated once at submission and served from storage afterwards, so the file
+ * a licensee downloads is byte-for-byte the one NMC received.
+ */
+async function serveOfficialAnnex8(req: any, res: any, ext: 'docx' | 'pdf') {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const role = await resolveApiRole(req);
+    if (!role) return res.status(401).json({ error: 'Authentication required.' });
+
+    const reportUuid = String(req.params?.id || '').trim();
+    if (!reportUuid) return apiError(res, 400, 'Report id is required.');
+
+    const { data: report } = await supabaseAdmin
+      .from('annex8_reports')
+      .select('*')
+      .eq('id', reportUuid)
+      .maybeSingle();
+    if (!report) return apiError(res, 404, 'Report not found.');
+    if (report.status === 'DRAFT') {
+      return apiError(res, 409, 'A draft has no official document yet.');
+    }
+
+    // Owner licensee or NMC staff only.
+    const isStaff = ['superadmin', 'admin'].includes(role);
+    if (!isStaff) {
+      const ownsIt = await licenceBelongsToRequester(req, report.licence_no);
+      if (!ownsIt) return res.status(403).json({ error: 'This report belongs to another licensee.' });
+    }
+
+    const fileName = officialFileName(report, ext);
+    // Render with the template the report was submitted under, never the latest.
+    const version = report.template_version || DEFAULT_TEMPLATE_VERSION;
+
+    // Prefer the stored official file.
+    const storedPath = ext === 'pdf' ? report.official_pdf_path : report.official_docx_path;
+    if (storedPath) {
+      const { data: stored, error: storeErr } = await supabaseAdmin
+        .storage.from('annex8-official').download(storedPath);
+      if (!storeErr && stored) {
+        const buf = Buffer.from(await stored.arrayBuffer());
+        res.setHeader('Content-Type', ext === 'pdf'
+          ? 'application/pdf'
+          : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        return res.end(buf);
+      }
+      console.warn('Stored Annex 8 document unavailable, re-rendering:', storeErr?.message || storeErr);
+    }
+
+    const input = await loadAnnex8RenderInput(supabaseAdmin, reportUuid);
+    if (!input) return apiError(res, 404, 'Report not found.');
+
+    let docx: Buffer;
+    try {
+      docx = renderOfficialDocx(input, version);
+    } catch (err: any) {
+      if (err instanceof Annex8TemplateMissingError) {
+        return apiError(res, 503,
+          `Annex 8 template assets are not installed on the server: ${err.missing.join(', ')}`);
+      }
+      throw err;
+    }
+
+    if (ext === 'docx') {
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      return res.end(docx);
+    }
+
+    const pdf = await convertDocxToPdf(docx, officialFileName(report, 'docx'));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    return res.end(pdf);
+  } catch (err: any) {
+    console.error(`Annex 8 ${ext} render failed:`, err?.message || err);
+    return apiError(res, 500, `Unable to produce the Annex 8 ${ext.toUpperCase()}.`);
+  }
+}
+
+/** True when the requesting account holds the licence the report belongs to. */
+async function licenceBelongsToRequester(req: any, licenceNo: string): Promise<boolean> {
+  if (!supabaseAdmin) return false;
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!token) return false;
+
+  const { data: authData } = await supabaseAdmin.auth.getUser(token);
+  const email = String(authData?.user?.email || '').trim();
+  const userId = authData?.user?.id;
+  if (!email && !userId) return false;
+
+  const { data: rows } = await supabaseAdmin
+    .from('users').select('id,email,license_number')
+    .eq('license_number', licenceNo);
+
+  return (rows || []).some((u: any) =>
+    (userId && String(u.id) === String(userId)) ||
+    (email && String(u.email || '').toLowerCase() === email.toLowerCase()));
+}
+
+app.get('/api/reports/:id/annex8.docx', (req, res) => serveOfficialAnnex8(req, res, 'docx'));
+app.get('/api/reports/:id/annex8.pdf', (req, res) => serveOfficialAnnex8(req, res, 'pdf'));
+
+/** Whether the server can currently produce official documents. */
+app.get('/api/annex8/render-status', async (req, res) => {
+  if (!(await requireApiRole(req, res, ['superadmin', 'admin']))) return;
+  const status = officialAssetsStatus();
+  return apiSuccess(res, {
+    template_ready: status.ready,
+    missing: status.missing,
+    gotenberg_configured: !!process.env.GOTENBERG_URL,
+  });
 });
 
 app.use('/api', (req, res) => {
