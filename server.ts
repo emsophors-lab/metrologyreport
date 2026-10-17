@@ -3,6 +3,12 @@ import path from 'path';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+// Annex 8 rules live in one isomorphic module so the server validates with the
+// same code the form uses, rather than a second copy that drifts out of step.
+import { validateAnnex8, blockingIssues, warningIssues, hostPart } from './src/annex8/validation';
+import { computeSummary, isOnTime } from './src/annex8/summary';
+import { FORMAT_VERSION } from './src/annex8/constants';
+import type { Annex8State } from './src/annex8/types';
 
 // Load environment variables
 dotenv.config();
@@ -1943,6 +1949,373 @@ app.post('/api/test-telegram-reminder', async (req, res) => {
         .eq('id', botId);
     }
     return apiError(res, 500, safeMessage);
+  }
+});
+
+/* =====================================================================
+   ANNEX 8 (A8-2026.2) MONTHLY REPORT
+   ===================================================================== */
+
+/** Licence pre-fill for Part 1, plus the lists that drive V06 and Parts 4–5. */
+app.get('/api/annex8/licence', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    if (!(await requireApiRole(req, res, ['superadmin', 'admin', 'company']))) return;
+
+    const licenceNo = String(req.query?.licence_no || '').trim();
+    if (!licenceNo) return apiError(res, 400, 'licence_no is required.');
+
+    const [profile, scope, technicians, standards, licence] = await Promise.all([
+      supabaseAdmin.from('annex8_licence_profiles').select('*').eq('license_number', licenceNo).maybeSingle(),
+      supabaseAdmin.from('annex8_licence_scope').select('category_code').eq('license_number', licenceNo),
+      supabaseAdmin.from('annex8_licence_technicians').select('full_name,position').eq('license_number', licenceNo).eq('is_active', true),
+      supabaseAdmin.from('annex8_licence_standards').select('*').eq('license_number', licenceNo).eq('is_active', true),
+      supabaseAdmin.from('enterprise_licenses').select('*').eq('license_number', licenceNo).maybeSingle(),
+    ]);
+
+    return apiSuccess(res, {
+      licence: {
+        licence_no: licenceNo,
+        licence_type: profile.data?.licence_type || 'MANUF_INSTALL',
+        licence_valid_to: licence.data?.license_expiry_date || '',
+        decision_no: profile.data?.decision_no || '',
+        decision_date: profile.data?.decision_date || '',
+        enterprise_name_kh: licence.data?.company_name_kh || '',
+        enterprise_name_en: licence.data?.company_name || '',
+        registration_no: profile.data?.registration_no || '',
+        operating_address: profile.data?.operating_address || licence.data?.company_address || '',
+        scope: (scope.data || []).map((r: any) => r.category_code),
+        staff: (technicians.data || []).map((r: any) => r.full_name),
+        standards: (standards.data || []).map((r: any) => ({
+          equipment: r.equipment, serial_no: r.serial_no, class_range: r.class_range,
+        })),
+        contact: {
+          name: profile.data?.contact_name || '',
+          position: profile.data?.contact_position || '',
+          phone: profile.data?.contact_phone || '',
+          email: profile.data?.contact_email || '',
+        },
+      },
+    });
+  } catch (err: any) {
+    console.error('Annex 8 licence lookup failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to load licence information.');
+  }
+});
+
+/** Items still PENDING from earlier months (Art. 17) — the carry-over list. */
+app.get('/api/annex8/pending', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    if (!(await requireApiRole(req, res, ['superadmin', 'admin', 'company']))) return;
+
+    const licenceNo = String(req.query?.licence_no || '').trim();
+    const beforeMonth = String(req.query?.before || '').trim();
+    if (!licenceNo) return apiError(res, 400, 'licence_no is required.');
+
+    const { data: reports } = await supabaseAdmin
+      .from('annex8_reports')
+      .select('id, report_id, period_month')
+      .eq('licence_no', licenceNo)
+      .neq('status', 'DRAFT');
+
+    const relevant = (reports || []).filter((r: any) => !beforeMonth || r.period_month < beforeMonth);
+    if (relevant.length === 0) return apiSuccess(res, { items: [] });
+
+    const ids = relevant.map((r: any) => r.id);
+    const byId = new Map(relevant.map((r: any) => [r.id, r]));
+
+    const [instruments, repairs] = await Promise.all([
+      supabaseAdmin.from('annex8_report_instruments').select('*').in('report_uuid', ids).eq('verification_status', 'PENDING'),
+      supabaseAdmin.from('annex8_report_repairs').select('*').in('report_uuid', ids).eq('verification_status', 'PENDING'),
+    ]);
+
+    const items = [
+      ...(instruments.data || []).map((r: any) => ({
+        ref: 'P3', source_row_id: r.id, source_report_id: byId.get(r.report_uuid)?.report_id,
+        serial_no: r.serial_no, instrument_name: r.instrument_name, category: r.category,
+        since: byId.get(r.report_uuid)?.period_month || '', status: 'PENDING', cert_no: '', date: '',
+      })),
+      ...(repairs.data || []).map((r: any) => ({
+        ref: 'P4', source_row_id: r.id, source_report_id: byId.get(r.report_uuid)?.report_id,
+        serial_no: r.serial_no, instrument_name: r.instrument_name, category: r.category,
+        since: byId.get(r.report_uuid)?.period_month || '', status: 'PENDING', cert_no: '', date: '',
+      })),
+    ];
+
+    return apiSuccess(res, { items });
+  } catch (err: any) {
+    console.error('Annex 8 pending lookup failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to load pending items.');
+  }
+});
+
+/** Server-side draft, so a report can be continued on another device. */
+app.get('/api/annex8/draft', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    if (!(await requireApiRole(req, res, ['superadmin', 'admin', 'company']))) return;
+
+    const licenceNo = String(req.query?.licence_no || '').trim();
+    const month = String(req.query?.month || '').trim();
+    if (!licenceNo || !month) return apiError(res, 400, 'licence_no and month are required.');
+
+    const { data } = await supabaseAdmin
+      .from('annex8_report_drafts').select('payload, updated_at')
+      .eq('licence_no', licenceNo).eq('period_month', month).maybeSingle();
+
+    return apiSuccess(res, { draft: data?.payload || null, updated_at: data?.updated_at || null });
+  } catch (err: any) {
+    console.error('Annex 8 draft load failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to load the draft.');
+  }
+});
+
+app.put('/api/annex8/draft', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    if (!(await requireApiRole(req, res, ['superadmin', 'admin', 'company']))) return;
+
+    const payload = req.body?.payload as Annex8State | undefined;
+    if (!payload?.meta?.licence_no || !payload?.meta?.period_month) {
+      return apiError(res, 400, 'A draft payload with licence_no and period_month is required.');
+    }
+
+    const { error } = await supabaseAdmin.from('annex8_report_drafts').upsert({
+      licence_no: payload.meta.licence_no,
+      period_month: payload.meta.period_month,
+      payload,
+      updated_by: String(req.body?.updated_by || ''),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'licence_no,period_month' });
+
+    if (error) {
+      console.error('Annex 8 draft save failed:', error.message || error);
+      return apiError(res, 500, 'Unable to save the draft.');
+    }
+    return apiSuccess(res, { saved_at: new Date().toISOString() });
+  } catch (err: any) {
+    console.error('Annex 8 draft save exception:', err?.message || err);
+    return apiError(res, 500, 'Unable to save the draft.');
+  }
+});
+
+/**
+ * Submit. The server is the authority: it re-runs validation, recomputes
+ * Part 2 from the submitted rows, decides on_time itself, and allocates the
+ * receipt number. Nothing computed by the client is trusted.
+ */
+app.post('/api/annex8/reports', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const role = await resolveApiRole(req);
+    if (!role) return res.status(401).json({ error: 'Authentication required.' });
+    if (!['superadmin', 'admin', 'company'].includes(role)) {
+      return res.status(403).json({ error: 'Insufficient permission to submit a report.' });
+    }
+
+    const state = req.body?.report as Annex8State | undefined;
+    if (!state?.meta?.licence_no || !state?.meta?.period_month) {
+      return apiError(res, 400, 'A report with licence_no and period_month is required.');
+    }
+
+    const licenceNo = state.meta.licence_no;
+    const period = state.meta.period_month;
+
+    // Licence facts the client cannot be trusted to supply.
+    const [scopeRes, techRes, licenceRes] = await Promise.all([
+      supabaseAdmin.from('annex8_licence_scope').select('category_code').eq('license_number', licenceNo),
+      supabaseAdmin.from('annex8_licence_technicians').select('full_name').eq('license_number', licenceNo).eq('is_active', true),
+      supabaseAdmin.from('enterprise_licenses').select('license_expiry_date').eq('license_number', licenceNo).maybeSingle(),
+    ]);
+
+    // V07 — serials and labels already recorded elsewhere in the system.
+    const serials = [
+      ...state.instruments.map((x) => x.serial_no),
+      ...state.repairs.map((x) => x.serial_no),
+    ].filter(Boolean);
+    const labels = state.instruments.map((x) => x.label_qr_no).filter(Boolean);
+
+    const [dupSerials, dupLabels] = await Promise.all([
+      serials.length
+        ? supabaseAdmin.from('annex8_report_instruments').select('serial_no').in('serial_no', serials)
+        : Promise.resolve({ data: [] as any[] }),
+      labels.length
+        ? supabaseAdmin.from('annex8_report_instruments').select('label_qr_no').in('label_qr_no', labels)
+        : Promise.resolve({ data: [] as any[] }),
+    ]);
+
+    const issues = validateAnnex8(state, {
+      licence: {
+        scope: (scopeRes.data || []).map((r: any) => r.category_code),
+        licence_valid_to: licenceRes.data?.license_expiry_date || '',
+        staff: (techRes.data || []).map((r: any) => r.full_name),
+      },
+      knownDuplicateSerials: (dupSerials.data || []).map((r: any) => r.serial_no),
+      knownDuplicateLabels: (dupLabels.data || []).map((r: any) => r.label_qr_no),
+    });
+
+    const blocking = blockingIssues(issues);
+    if (blocking.length > 0) {
+      return res.status(422).json({
+        success: false,
+        message: 'Report rejected by validation.',
+        issues: blocking.map((i) => ({ code: i.code, path: i.path, message: i.message })),
+      });
+    }
+
+    // Part 2 is recomputed here; a client-sent summary is ignored.
+    const summary = computeSummary(state);
+    const onTime = isOnTime(period);
+
+    const { data: idRow, error: idError } = await supabaseAdmin.rpc('annex8_next_report_id', { p_period: period });
+    if (idError) {
+      console.error('Annex 8 report id allocation failed:', idError.message || idError);
+      return apiError(res, 500, 'Unable to allocate a report number.');
+    }
+    const reportId = String(idRow);
+    const submittedAt = new Date().toISOString();
+
+    const { data: inserted, error: headerError } = await supabaseAdmin
+      .from('annex8_reports')
+      .insert({
+        report_id: reportId,
+        format_version: FORMAT_VERSION,
+        licence_no: licenceNo,
+        user_id: String(req.body?.user_id || ''),
+        licence_type: state.meta.licence_type,
+        enterprise_name_kh: state.meta.enterprise_name_kh,
+        enterprise_name_en: state.meta.enterprise_name_en,
+        registration_no: state.meta.registration_no,
+        licence_valid_to: state.meta.licence_valid_to || null,
+        operating_address: state.meta.operating_address,
+        period_month: period,
+        report_type: state.meta.report_type,
+        original_report_id: state.meta.original_report_id || null,
+        contact_name: state.meta.contact.name,
+        contact_position: state.meta.contact.position,
+        contact_phone: state.meta.contact.phone,
+        contact_email: state.meta.contact.email,
+        part2_summary: summary,
+        events: state.events,
+        warnings: warningIssues(issues),
+        declaration_accepted: state.declaration,
+        status: 'SUBMITTED',
+        on_time: onTime,
+        submitted_at: submittedAt,
+        submitted_by: String(req.body?.user_id || ''),
+      })
+      .select('id')
+      .single();
+
+    if (headerError || !inserted) {
+      console.error('Annex 8 report insert failed:', headerError?.message || headerError);
+      const duplicate = String(headerError?.message || '').includes('uniq_a8_report_period');
+      return apiError(res, duplicate ? 409 : 500,
+        duplicate
+          ? 'របាយការណ៍សម្រាប់ខែនេះ ត្រូវបានដាក់ជូនរួចហើយ / A report for this month has already been submitted.'
+          : 'Unable to save the report.');
+    }
+
+    const reportUuid = inserted.id;
+    const isNil = state.meta.report_type === 'NIL';
+
+    if (!isNil) {
+      if (state.instruments.length) {
+        await supabaseAdmin.from('annex8_report_instruments').insert(
+          state.instruments.map((x, i) => ({
+            report_uuid: reportUuid, row_no: i + 1,
+            op_code: x.op_code, category: x.category, category_other: x.category_other,
+            instrument_name: x.instrument_name, model: x.model, serial_no: x.serial_no,
+            manufacturer: x.manufacturer, country: x.country,
+            max_capacity: x.max, min_capacity: x.min, e_value: x.e, unit: x.unit,
+            accuracy_class: x.accuracy_class, type_approval_no: x.type_approval_no,
+            completion_date: x.completion_date || null,
+            customer_name: x.customer_name, province: x.province, address: x.address,
+            latitude: x.lat === '' ? null : Number(x.lat),
+            longitude: x.long === '' ? null : Number(x.long),
+            label_qr_no: x.label_qr_no,
+            verification_status: x.verification_status,
+            verification_cert_no: x.verification_cert_no,
+            verification_date: x.verification_date || null,
+          })),
+        );
+      }
+      if (state.modules.length) {
+        await supabaseAdmin.from('annex8_report_modules').insert(
+          state.modules.map((x, i) => ({
+            report_uuid: reportUuid, row_no: i + 1,
+            host_serial_no: x.host_serial_no, host_part: hostPart(state, x.host_serial_no) || null,
+            module_name: x.module_name, model: x.model, serial_no: x.serial_no,
+            range_e: x.range_e, manufacturer: x.manufacturer, country: x.country,
+            cert_no: x.cert_no, new_or_replacement: x.new_or_replacement,
+          })),
+        );
+      }
+      if (state.repairs.length) {
+        await supabaseAdmin.from('annex8_report_repairs').insert(
+          state.repairs.map((x, i) => ({
+            report_uuid: reportUuid, row_no: i + 1,
+            category: x.category, instrument_name: x.instrument_name, model: x.model,
+            serial_no: x.serial_no, customer_name: x.customer_name, province: x.province,
+            address: x.address,
+            latitude: x.lat === '' ? null : Number(x.lat),
+            longitude: x.long === '' ? null : Number(x.long),
+            repair_from: x.repair_from || null, repair_to: x.repair_to || null,
+            repair_description: x.repair_description,
+            seal_broken: x.seal_broken, seal_removed_no: x.seal_removed_no,
+            notification_no: x.notification_no, technician: x.technician,
+            verification_status: x.verification_status,
+            verification_cert_no: x.verification_cert_no,
+            verification_date: x.verification_date || null,
+          })),
+        );
+      }
+      if (state.standards.length) {
+        await supabaseAdmin.from('annex8_report_standards').insert(
+          state.standards.map((x, i) => ({
+            report_uuid: reportUuid, row_no: i + 1,
+            equipment: x.equipment, serial_no: x.serial_no, class_range: x.class_range,
+            cal_cert_no: x.cal_cert_no, lab: x.lab,
+            cal_date: x.cal_date || null, due_date: x.due_date || null, status: x.status,
+          })),
+        );
+      }
+    }
+
+    // Carry-over: record the update AND close out the originating row, so the
+    // item stops resurfacing next month.
+    const resolved = state.carry_over.filter((c) => c.status !== 'PENDING');
+    if (resolved.length) {
+      await supabaseAdmin.from('annex8_carry_over_updates').insert(
+        resolved.map((c) => ({
+          report_uuid: reportUuid, source_part: c.ref, source_row_id: c.source_row_id || null,
+          source_report_id: c.source_report_id || null, serial_no: c.serial_no,
+          new_status: c.status, cert_no: c.cert_no, verification_date: c.date || null,
+        })),
+      );
+
+      for (const c of resolved) {
+        if (!c.source_row_id) continue;
+        const table = c.ref === 'P4' ? 'annex8_report_repairs' : 'annex8_report_instruments';
+        await supabaseAdmin.from(table).update({
+          verification_status: c.status,
+          verification_cert_no: c.cert_no,
+          verification_date: c.date || null,
+        }).eq('id', c.source_row_id);
+      }
+    }
+
+    return apiSuccess(res, {
+      report_id: reportId,
+      submitted_at: submittedAt,
+      on_time: onTime,
+      warnings: warningIssues(issues).map((i) => ({ code: i.code, message: i.message })),
+    });
+  } catch (err: any) {
+    console.error('Annex 8 submit exception:', err?.message || err);
+    return apiError(res, 500, 'Unable to submit the report.');
   }
 });
 
