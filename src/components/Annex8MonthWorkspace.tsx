@@ -22,6 +22,7 @@ import {
 
 import { CATEGORIES, PROVINCES, UNITS } from '../annex8/constants';
 import { khmerMonthLabel, toKhmerDigits } from '../annex8/summary';
+import Annex8MonthReview from './Annex8MonthReview';
 import { apiRequest } from '../supabaseSync';
 import { MetrologyUser } from '../types';
 
@@ -217,6 +218,8 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
   const periods = useMemo(() => recentPeriods(), []);
   const [period, setPeriod] = useState(periods[0]);
   const [part, setPart] = useState<Part>('instrument');
+  /** The four entry parts, or the month-end check. */
+  const [view, setView] = useState<'entries' | 'review'>('entries');
 
   const [report, setReport] = useState<any>(null);
   const [entries, setEntries] = useState<Record<string, any[]>>({
@@ -479,19 +482,29 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
           <div className="flex flex-wrap gap-1">
             {PARTS.map((p) => {
               const count = (entries[listKey[p.key]] || []).length;
+              const active = view === 'entries' && part === p.key;
               return (
-                <button key={p.key} type="button" onClick={() => { setPart(p.key); setQuery(''); }}
+                <button key={p.key} type="button"
+                  onClick={() => { setView('entries'); setPart(p.key); setQuery(''); }}
                   className={`rounded-lg px-2.5 py-1.5 text-[11px] font-black transition-colors ${
-                    part === p.key ? 'bg-[#0B1A35] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    active ? 'bg-[#0B1A35] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}>
                   ផ្នែក{p.no} {p.kh}
-                  <span className={`ml-1 ${part === p.key ? 'text-[#E6C45A]' : 'text-slate-400'}`}>{kh(count)}</span>
+                  <span className={`ml-1 ${active ? 'text-[#E6C45A]' : 'text-slate-400'}`}>{kh(count)}</span>
                 </button>
               );
             })}
+            {report && (
+              <button type="button" onClick={() => setView('review')}
+                className={`rounded-lg px-2.5 py-1.5 text-[11px] font-black transition-colors ${
+                  view === 'review' ? 'bg-[#C9A227] text-[#0B1A35]' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}>
+                ពិនិត្យ និងដាក់ជូន
+              </button>
+            )}
           </div>
 
-          <div className="relative w-full sm:max-w-xs">
+          <div className={`relative w-full sm:max-w-xs ${view === 'review' ? 'hidden' : ''}`}>
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-2 text-[11px] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0B1A35]"
               placeholder="ស្វែងរក លេខស៊េរី / QR / អតិថិជន"
@@ -499,7 +512,32 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
           </div>
         </div>
 
-        {loading ? (
+        {view === 'review' && report ? (
+          <div className="p-3">
+            <Annex8MonthReview
+              reportUuid={report.id}
+              toastMsg={toastMsg}
+              onSubmitted={() => void loadMonth(period)}
+              onFixIssue={(issue) => {
+                // Issue paths look like "instruments.2.serial_no"; the first
+                // segment names the list the offending entry lives in.
+                const list = String(issue.path || '').split('.')[0];
+                const target: Part | null =
+                  list === 'instruments' ? 'instrument'
+                    : list === 'modules' ? 'module'
+                      : list === 'repairs' ? 'repair'
+                        : list === 'standards' ? 'standard' : null;
+                setView('entries');
+                if (target) {
+                  setPart(target);
+                  const index = Number(String(issue.path).split('.')[1]);
+                  const row = (entries[listKey[target]] || [])[index];
+                  if (row) openForm(target, row, row.id);
+                }
+              }}
+            />
+          </div>
+        ) : loading ? (
           <div className="p-10 text-center text-slate-400"><Loader2 className="mx-auto h-6 w-6 animate-spin" /></div>
         ) : !filtered.length ? (
           <div className="p-10 text-center text-slate-400">
