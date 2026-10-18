@@ -300,10 +300,19 @@ const kh = (n: number | string) => toKhmerDigits(String(n));
 const dash = (v: unknown) => (String(v ?? '').trim() === '' ? '—' : String(v));
 
 /** The last 13 months that can be reported on, newest first. */
+/**
+ * The months a licensee may work in: this one, and the twelve before it.
+ *
+ * This used to start at the PREVIOUS month, which left no way to record work
+ * done today — an instrument installed on the 18th could not be entered until
+ * November. That defeats the whole point of recording as you go, and it is
+ * what the licensee noticed first. A month is submitted after it ends; it is
+ * filled in while it is running.
+ */
 function recentPeriods(count = 13): string[] {
   const now = new Date(Date.now() + 7 * 60 * 60 * 1000);   // Phnom Penh
   const out: string[] = [];
-  for (let i = 1; i <= count; i++) {
+  for (let i = 0; i < count; i++) {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
     out.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
   }
@@ -328,7 +337,7 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
   const [period, setPeriod] = useState(periods[0]);
   const [part, setPart] = useState<Part>('instrument');
   /** The four entry parts, or the month-end check. */
-  const [view, setView] = useState<'entries' | 'review'>('entries');
+  const [view, setView] = useState<'licensee' | 'entries' | 'review'>('entries');
 
   const [report, setReport] = useState<any>(null);
   const [entries, setEntries] = useState<Record<string, any[]>>({
@@ -376,7 +385,11 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
     }
   }, [licenceNo]);
 
-  useEffect(() => { void loadMonth(period); }, [period, loadMonth]);
+  // Browsing the month list must not CREATE anything. It used to, so simply
+  // looking at six months left six empty OPEN reports behind — and a month
+  // the licensee only glanced at then counted as started. Creation is now an
+  // explicit act: the "បង្កើតរបាយការណ៍ថ្មី" button below, or saving an entry.
+  useEffect(() => { void loadMonth(period, false); }, [period, loadMonth]);
   useEffect(() => () => { if (undoTimer.current) window.clearTimeout(undoTimer.current); }, []);
 
   const rows: any[] = entries[listKey[part]] || [];
@@ -552,6 +565,31 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
           ))}
         </div>
 
+        {/* Starting a month is an explicit act, and the place to do it has to
+            be obvious: a licensee opening a new month should not have to
+            discover that adding an entry is what creates the report. */}
+        {!report && !loading && (
+          <div className="mt-3 rounded-xl border border-dashed border-[#C9A227]/60 bg-[#C9A227]/5 p-4 text-center">
+            <p className="text-[13px] font-black text-[#0B1A35]">
+              មិនទាន់មានរបាយការណ៍សម្រាប់ {khmerMonthLabel(period)}
+            </p>
+            <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
+              No report started for this month yet.
+            </p>
+            <button
+              type="button"
+              onClick={() => void loadMonth(period, true)}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#0B1A35] px-4 py-2.5 text-[12px] font-black text-white hover:bg-[#15284d]"
+            >
+              <Plus className="h-4 w-4 text-[#E6C45A]" />
+              បង្កើតរបាយការណ៍ថ្មី · Start this month
+            </button>
+            <p className="mt-2 text-[10px] font-semibold text-slate-400">
+              អ្នកអាចបន្ថែមការងារបានច្រើនដងពេញមួយខែ រួចដាក់ជូននៅពេលខែបញ្ចប់។
+            </p>
+          </div>
+        )}
+
         {/* Add buttons */}
         {editable && (
           <div className="mt-3 flex flex-wrap gap-1.5">
@@ -588,32 +626,53 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
       {/* Part tabs + list */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-2 border-b border-slate-100 p-3 sm:flex-row sm:items-center sm:justify-between">
+          {/* The parts of the annex, in the order they appear on the printed
+              form, so the screen and the paper are walked the same way. */}
           <div className="flex flex-wrap gap-1">
+            <button type="button"
+              onClick={() => setView('licensee')}
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-black transition-colors ${
+                view === 'licensee' ? 'bg-[#0B1A35] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}>
+              <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] ${
+                view === 'licensee' ? 'bg-[#E6C45A] text-[#0B1A35]' : 'bg-white text-slate-500'
+              }`}>១</span>
+              ព័ត៌មានសហគ្រាស
+            </button>
+
             {PARTS.map((p) => {
               const count = (entries[listKey[p.key]] || []).length;
               const active = view === 'entries' && part === p.key;
               return (
                 <button key={p.key} type="button"
                   onClick={() => { setView('entries'); setPart(p.key); setQuery(''); }}
-                  className={`rounded-lg px-2.5 py-1.5 text-[11px] font-black transition-colors ${
+                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-black transition-colors ${
                     active ? 'bg-[#0B1A35] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}>
-                  ផ្នែក{p.no} {p.kh}
-                  <span className={`ml-1 ${active ? 'text-[#E6C45A]' : 'text-slate-400'}`}>{kh(count)}</span>
+                  <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] ${
+                    active ? 'bg-[#E6C45A] text-[#0B1A35]' : 'bg-white text-slate-500'
+                  }`}>{p.no}</span>
+                  {p.kh}
+                  <span className={active ? 'text-[#E6C45A]' : 'text-slate-400'}>{kh(count)}</span>
                 </button>
               );
             })}
+
             {report && (
               <button type="button" onClick={() => setView('review')}
-                className={`rounded-lg px-2.5 py-1.5 text-[11px] font-black transition-colors ${
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-black transition-colors ${
                   view === 'review' ? 'bg-[#C9A227] text-[#0B1A35]' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}>
+                <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] ${
+                  view === 'review' ? 'bg-[#0B1A35] text-[#E6C45A]' : 'bg-white text-slate-500'
+                }`}>២</span>
                 ពិនិត្យ និងដាក់ជូន
+                <span className="text-[9px] font-bold opacity-70">៦·៧</span>
               </button>
             )}
           </div>
 
-          <div className={`relative w-full sm:max-w-xs ${view === 'review' ? 'hidden' : ''}`}>
+          <div className={`relative w-full sm:max-w-xs ${view === 'entries' ? '' : 'hidden'}`}>
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-2 text-[11px] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0B1A35]"
               placeholder="ស្វែងរក លេខស៊េរី / QR / អតិថិជន"
@@ -621,7 +680,63 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
           </div>
         </div>
 
-        {view === 'review' && report ? (
+        {view === 'licensee' ? (
+          /* Part 1 is not typed. It is the licence record, copied onto the
+             report when the month opens so the annex stays readable even if
+             the licence changes later. Shown read-only so the licensee can
+             check it before submitting, and told where to get it corrected. */
+          <div className="p-4">
+            <div className="mb-3 border-l-4 border-[#C9A227] pl-3">
+              <h4 className="text-[13px] font-black text-[#0B1A35]">ព័ត៌មានសហគ្រាស និងរយៈពេល</h4>
+              <p className="text-[10px] font-bold text-slate-400">Part 1 · Licensee &amp; period</p>
+            </div>
+
+            {!report ? (
+              <p className="text-[12px] font-semibold text-slate-500">
+                សូមបង្កើតរបាយការណ៍សម្រាប់ខែនេះជាមុនសិន។
+              </p>
+            ) : (
+              <>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {[
+                    ['ឈ្មោះសហគ្រាស (ខ្មែរ)', report.enterprise_name_kh || currentUser.company_name_kh],
+                    ['ឈ្មោះសហគ្រាស (ឡាតាំង)', report.enterprise_name_en || currentUser.company_name_en],
+                    ['លេខអាជ្ញាបណ្ណ', report.licence_no],
+                    ['ប្រភេទអាជ្ញាបណ្ណ', report.licence_type === 'REPAIR' ? 'ជួសជុល' : 'ផលិត និងដំឡើង'],
+                    ['លេខវិញ្ញាបនបត្រចុះបញ្ជី', report.registration_no],
+                    ['អាជ្ញាបណ្ណមានសុពលភាពដល់', report.licence_valid_to],
+                    ['អាសយដ្ឋានប្រតិបត្តិការ', report.operating_address],
+                    ['ខែរបាយការណ៍', khmerMonthLabel(report.period_month)],
+                    ['អ្នកទំនាក់ទំនង', report.contact_name],
+                    ['តួនាទី', report.contact_position],
+                    ['ទូរស័ព្ទ', report.contact_phone],
+                    ['អ៊ីមែល', report.contact_email],
+                  ].map(([label, value]) => (
+                    <div key={String(label)} className="rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2">
+                      <div className="text-[10px] font-bold text-slate-500">{label}</div>
+                      <div className="mt-0.5 text-[12px] font-black text-[#0B1A35] break-words">
+                        {String(value ?? '').trim() || '—'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="mt-3 text-[10px] font-semibold text-slate-400">
+                  ព័ត៌មាននេះយកពីបញ្ជីអាជ្ញាបណ្ណ។ បើមានកំហុស សូមទាក់ទងមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ
+                  ដើម្បីកែក្នុងបញ្ជីអាជ្ញាបណ្ណ មិនមែនក្នុងរបាយការណ៍ទេ។
+                </p>
+
+                {editable && (
+                  <button type="button"
+                    onClick={() => { setView('entries'); setPart('instrument'); }}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#0B1A35] px-4 py-2.5 text-[12px] font-black text-white hover:bg-[#15284d]">
+                    បន្តទៅផ្នែកទី៣ · ផលិត / ដំឡើង
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        ) : view === 'review' && report ? (
           <div className="p-3">
             <Annex8MonthReview
               reportUuid={report.id}
