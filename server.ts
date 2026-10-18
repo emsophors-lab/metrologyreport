@@ -2,7 +2,8 @@ import express from 'express';
 import path from 'path';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createMysqlClient } from './src/db/mysqlClient';
 // Annex 8 rules live in one isomorphic module so the server validates with the
 // same code the form uses, rather than a second copy that drifts out of step.
 import { validateAnnex8, blockingIssues, warningIssues, hostPart } from './src/annex8/validation';
@@ -54,14 +55,36 @@ const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL
 const allowLegacyHeaderAuth =
   !isProduction && process.env.ALLOW_LEGACY_API_HEADER_AUTH === 'true';
 
-const supabaseAdmin = (hasSupabaseUrl && hasServiceKey)
-  ? createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    })
-  : null;
+/**
+ * Which database this server talks to.
+ *
+ *   DB_DRIVER=supabase   (default) hosted PostgreSQL through supabase-js
+ *   DB_DRIVER=mysql      MySQL via MYSQL_URL, through src/db/mysqlClient
+ *
+ * Both speak the same query-builder dialect, so nothing below this line
+ * knows or cares which one is in use. See src/db/mysqlClient.ts for what
+ * differs underneath, and docs/database-portability.md for the move.
+ */
+const DB_DRIVER = (process.env.DB_DRIVER || 'supabase').toLowerCase();
+const mysqlUrl = process.env.MYSQL_URL || '';
+
+// The MySQL client is cast to the Supabase client's type because it is a
+// deliberate stand-in for it: it answers the same calls with the same shapes,
+// so every call site below keeps the typing it already had.
+const supabaseAdmin = DB_DRIVER === 'mysql'
+  ? (mysqlUrl ? (createMysqlClient(mysqlUrl) as unknown as SupabaseClient) : null)
+  : (hasSupabaseUrl && hasServiceKey)
+    ? createClient(supabaseUrl, supabaseServiceRoleKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false
+        }
+      })
+    : null;
+
+if (DB_DRIVER === 'mysql' && !mysqlUrl) {
+  console.warn('[db] DB_DRIVER=mysql but MYSQL_URL is not set — the API will answer 503.');
+}
 
 async function resolveApiUser(req: any): Promise<{ role: string; userRow: any | null } | null> {
   if (!supabaseAdmin) {

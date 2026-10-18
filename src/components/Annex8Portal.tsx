@@ -1,0 +1,157 @@
+/**
+ * ឧបសម្ព័ន្ធទី៨ — the Annex 8 portal.
+ *
+ * Annex 8 stands on its own page, away from the legacy monthly report. The two
+ * are different documents with different rules, and mixing their switches on
+ * one screen made licensees pick the wrong one: the old flat report has its own
+ * tab and is left exactly as it was.
+ *
+ * Everything a licensee needs for Annex 8 is here and nowhere else:
+ *
+ *   បំពេញប្រចាំខែ   record work as it happens, review, submit (the standard way)
+ *   បំពេញម្តងទាំងអស់  the 7-step form, for a month filled in one sitting
+ *   ប្រវត្តិរបាយការណ៍  search what was submitted before
+ *
+ * This file only chooses between those three. The work itself lives in the
+ * three components below, unchanged — nothing about the official document is
+ * decided here.
+ */
+import { Suspense, lazy, useState } from 'react';
+import { CalendarRange, FileSpreadsheet, History, Loader2 } from 'lucide-react';
+
+import { EnterpriseLicense, MetrologyUser } from '../types';
+
+const Annex8MonthWorkspace = lazy(() => import('./Annex8MonthWorkspace'));
+const Annex8ReportForm = lazy(() => import('./Annex8ReportForm'));
+const Annex8ReportSearch = lazy(() => import('./Annex8ReportSearch'));
+
+type View = 'month' | 'form' | 'history';
+
+interface Annex8PortalProps {
+  currentUser: MetrologyUser;
+  licence?: EnterpriseLicense | null;
+  toastMsg: (msg: string, type: 'success' | 'error') => void;
+  language?: 'km' | 'en';
+}
+
+const VIEWS: Array<{
+  key: View;
+  kh: string;
+  en: string;
+  hint: string;
+  icon: typeof CalendarRange;
+  needsSave: boolean;
+}> = [
+  {
+    key: 'month',
+    kh: 'បំពេញប្រចាំខែ',
+    en: 'Monthly entry',
+    hint: 'បញ្ចូលការងារបន្តិចម្តងៗពេញមួយខែ រួចពិនិត្យ និងដាក់ជូន',
+    icon: CalendarRange,
+    needsSave: true,
+  },
+  {
+    key: 'form',
+    kh: 'បំពេញម្តងទាំងអស់',
+    en: 'Full form',
+    hint: 'បំពេញរបាយការណ៍ទាំងមូលក្នុងពេលតែមួយ (៧ជំហាន)',
+    icon: FileSpreadsheet,
+    needsSave: true,
+  },
+  {
+    key: 'history',
+    kh: 'ប្រវត្តិរបាយការណ៍',
+    en: 'Report history',
+    hint: 'ស្វែងរកតាមខែ ឆ្នាំ ប្រភេទសេវាកម្ម និងលទ្ធផលផ្ទៀងផ្ទាត់',
+    icon: History,
+    needsSave: false,
+  },
+];
+
+const Spinner = () => (
+  <div className="flex items-center justify-center py-16 text-slate-400">
+    <Loader2 className="h-5 w-5 animate-spin" />
+  </div>
+);
+
+export default function Annex8Portal({ currentUser, licence, toastMsg, language }: Annex8PortalProps) {
+  // A licensee who may not save still gets the history — reading back what the
+  // enterprise already submitted is not an edit.
+  const canSave = !!currentUser.can_save;
+  const views = VIEWS.filter((v) => canSave || !v.needsSave);
+  const [view, setView] = useState<View>(canSave ? 'month' : 'history');
+  const active = views.find((v) => v.key === view) || views[0];
+
+  return (
+    <div className="space-y-5 animate-fade-in duration-300">
+      {/* Page identity: this is the official annex, not the legacy report. */}
+      <div className="rounded-xl bg-[#0B2A66] text-white px-5 py-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h3 className="font-extrabold text-lg">របាយការណ៍ប្រចាំខែ ឧបសម្ព័ន្ធទី៨</h3>
+          <span className="px-2 py-0.5 rounded-full bg-[#C9A227] text-[#0B2A66] text-[10px] font-extrabold tracking-wide">
+            A8-2026.2
+          </span>
+        </div>
+        <p className="text-[11px] text-white/70 mt-1">
+          Monthly Report on Manufacture, Installation and Repair of Measuring Instruments
+        </p>
+        <p className="text-[11px] text-white/80 mt-2 leading-relaxed">
+          សហគ្រាសដែលទទួលបានអាជ្ញាបណ្ណ ត្រូវដាក់បញ្ជូនរបាយការណ៍នេះមកមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ
+          យ៉ាងយូរបំផុតត្រឹមថ្ងៃទី៧ នៃខែបន្ទាប់ (មាត្រា២១)។
+        </p>
+      </div>
+
+      {/* Which way to fill it in. Three cards rather than a pill row, because
+          the choice is made once a month and deserves its explanation. */}
+      <div className={`grid gap-2 ${views.length === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+        {views.map((v) => {
+          const Icon = v.icon;
+          const on = v.key === view;
+          return (
+            <button
+              key={v.key}
+              type="button"
+              onClick={() => setView(v.key)}
+              className={`text-left px-4 py-3 rounded-xl border transition-all cursor-pointer ${
+                on
+                  ? 'bg-white border-[#0B2A66] ring-2 ring-[#0B2A66]/15 shadow-sm'
+                  : 'bg-slate-50 border-slate-200 hover:bg-white hover:border-slate-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Icon className={`h-4 w-4 shrink-0 ${on ? 'text-[#C9A227]' : 'text-slate-400'}`} />
+                <span className={`text-xs font-extrabold ${on ? 'text-[#0B2A66]' : 'text-slate-600'}`}>
+                  {v.kh}
+                </span>
+                <span className="text-[10px] font-bold text-slate-400">{v.en}</span>
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">{v.hint}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      {!canSave && (
+        <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl text-xs text-slate-500 font-medium">
+          ⚠️ គណនីរបស់អ្នកអាចមើលប្រវត្តិរបាយការណ៍បាន ប៉ុន្តែមិនអាចបំពេញ ឬដាក់បញ្ជូនបានឡើយ។
+          ប្រសិនបើត្រូវការសិទ្ធិបន្ថែម សូមទាក់ទងមកមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ។
+        </div>
+      )}
+
+      <Suspense fallback={<Spinner />}>
+        {active?.key === 'month' && (
+          <Annex8MonthWorkspace currentUser={currentUser} toastMsg={toastMsg} />
+        )}
+        {active?.key === 'form' && (
+          <Annex8ReportForm
+            currentUser={currentUser}
+            licence={licence || null}
+            toastMsg={toastMsg}
+            language={language}
+          />
+        )}
+        {active?.key === 'history' && <Annex8ReportSearch currentUser={currentUser} />}
+      </Suspense>
+    </div>
+  );
+}

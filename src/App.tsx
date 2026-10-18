@@ -63,9 +63,9 @@ import {
 import LoginScreen from './components/LoginScreen';
 const UserManagement = lazy(() => import('./components/UserManagement'));
 const ReportForm = lazy(() => import('./components/ReportForm'));
-const Annex8ReportForm = lazy(() => import('./components/Annex8ReportForm'));
-const Annex8ReportSearch = lazy(() => import('./components/Annex8ReportSearch'));
-const Annex8MonthWorkspace = lazy(() => import('./components/Annex8MonthWorkspace'));
+// Annex 8 lives on its own tab, in its own portal. The legacy monthly report
+// below keeps the flat form and the Excel upload it always had.
+const Annex8Portal = lazy(() => import('./components/Annex8Portal'));
 const ExcelReportUpload = lazy(() => import('./components/ExcelReportUpload'));
 const DashboardStats = lazy(() => import('./components/DashboardStats'));
 const SuperadminDashboard = lazy(() => import('./components/SuperadminDashboard'));
@@ -421,7 +421,7 @@ export default function App() {
   const [dashboardDataError, setDashboardDataError] = useState<string | null>(null);
   
   // App navigation state: 'dashboard' | 'reports' | 'users' | 'developer' | 'history' | 'backup' | 'licenses' | 'ml'
-  const [activeTab, setActiveTab ] = useState<'dashboard' | 'reports' | 'users' | 'developer' | 'history' | 'backup' | 'licenses' | 'ml'>('dashboard');
+  const [activeTab, setActiveTab ] = useState<'dashboard' | 'reports' | 'annex8' | 'users' | 'developer' | 'history' | 'backup' | 'licenses' | 'ml'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [language, setLanguage] = useState<AppLanguage>(() => {
@@ -465,10 +465,8 @@ export default function App() {
 
   // Active items state
   const [selectedEditReport, setSelectedEditReport] = useState<MetrologyReport | null>(null);
-  // 'annex8' is the new Annex 8 (A8-2026.2) wizard. It runs alongside the legacy
-  // 'manual' form until the new one is signed off; neither replaces the other yet.
-  /** Reports tab: how to add a report, or search the ones already filed. */
-  const [addReportMethod, setAddReportMethod] = useState<'manual' | 'annex8' | 'excel' | 'search' | 'month'>('month');
+  /** Legacy reports tab: how to add a report. Annex 8 has its own tab. */
+  const [addReportMethod, setAddReportMethod] = useState<'manual' | 'excel'>('manual');
   const [selectedPrintReport, setSelectedPrintReport] = useState<MetrologyReport | null>(null);
   const [isPrintAllPreview, setIsPrintAllPreview] = useState(false);
 
@@ -1784,6 +1782,24 @@ export default function App() {
                   <span>{t('reports', language)}</span>
                 </button>
 
+                {/* Annex 8 — its own anchor, not a switch inside the legacy page. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('annex8');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
+                    activeTab === 'annex8'
+                      ? 'bg-gold/10 text-gold border-r-4 border-gold'
+                      : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
+                  }`}
+                >
+                  <FileCheck2 className="h-4 w-4 shrink-0 text-gold" />
+                  <span>{language === 'en' ? 'Annex 8' : 'ឧបសម្ព័ន្ធទី៨'}</span>
+                  <span className="ml-auto text-[9px] font-extrabold text-gold/80">ថ្មី</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -1988,6 +2004,21 @@ export default function App() {
               >
                 <NotebookTabs className="h-4 w-4 shrink-0 text-gold" />
                 <span>{t('reports', language)}</span>
+              </button>
+
+              {/* Annex 8 Tab Anchor */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('annex8')}
+                className={`w-full flex items-center gap-3 px-5 py-3 text-[13px] font-bold transition-all cursor-pointer justify-start rounded-none ${
+                  activeTab === 'annex8'
+                    ? 'bg-white/5 text-white border-r-4 border-gold shadow-xs'
+                    : 'text-slate-400 hover:bg-white/[0.02] hover:text-white border-r-4 border-transparent'
+                }`}
+              >
+                <FileCheck2 className="h-4 w-4 shrink-0 text-gold" />
+                <span>{language === 'en' ? 'Annex 8' : 'ឧបសម្ព័ន្ធទី៨'}</span>
+                <span className="ml-auto mr-4 text-[9px] font-extrabold text-gold/80">ថ្មី</span>
               </button>
 
               {/* Licenses Registry Tab Anchor */}
@@ -2241,25 +2272,18 @@ export default function App() {
 
             {/* B. REPORT PORTAL: Submission & tables */}
             {activeTab === 'reports' && (() => {
-              // While the Annex 8 wizard is open it owns the whole page: the
-              // legacy header actions, summary cards and detail table belong to
-              // the old flat report shape and would only confuse the two.
-              const isAnnex8Mode = addReportMethod === 'annex8' && !selectedEditReport && sessionUser.can_save;
-              const isSearchMode = addReportMethod === 'search' && !selectedEditReport;
-              const isMonthMode = addReportMethod === 'month' && !selectedEditReport;
-              // Both the Annex 8 wizard and the search own the whole page.
-              const hideLegacy = isAnnex8Mode || isSearchMode || isMonthMode;
+              // Annex 8 moved to its own tab, so this page is the legacy report
+              // again: the flat form, the Excel upload and the old tables.
+              const hideLegacy = false;
               return (
               <div className="space-y-6 animate-fade-in duration-300">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
                     <h3 className="font-extrabold text-slate-800 text-lg">
-                      {isSearchMode ? 'ស្វែងរករបាយការណ៍' : 'រៀបចំ និងបំពេញរបាយការណ៍ប្រចាំខែ'}
+                      រៀបចំ និងបំពេញរបាយការណ៍ប្រចាំខែ
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      {isSearchMode
-                        ? 'ស្វែងរកតាមខែ ឆ្នាំ ប្រភេទសេវាកម្ម និងលទ្ធផលផ្ទៀងផ្ទាត់'
-                        : 'បញ្ចូលថ្មី ឬកែប្រែទិន្នន័យសេវាកម្មមាត្រាសាស្ត្រ'}
+                      បញ្ចូលថ្មី ឬកែប្រែទិន្នន័យសេវាកម្មមាត្រាសាស្ត្រ
                     </p>
                   </div>
                   
@@ -2292,20 +2316,8 @@ export default function App() {
                 </div>
 
                 {/* Addition Switch Toggles */}
-                {!selectedEditReport && (
-                  <div className={`flex bg-slate-100 p-1 rounded-lg ${sessionUser.can_save ? 'max-w-2xl' : 'max-w-xs'}`}>
-                    {sessionUser.can_save && (<>
-                    {/* The default: record work as it happens, through the month. */}
-                    <button
-                      onClick={() => setAddReportMethod('month')}
-                      className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
-                        addReportMethod === 'month'
-                          ? 'bg-white text-[#0B2A66] shadow-xs border border-slate-200/50'
-                          : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      បញ្ចូលប្រចាំខែ / Monthly entry
-                    </button>
+                {!selectedEditReport && sessionUser.can_save && (
+                  <div className="flex bg-slate-100 p-1 rounded-lg max-w-md">
                     <button
                       onClick={() => setAddReportMethod('manual')}
                       className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
@@ -2317,16 +2329,6 @@ export default function App() {
                       បញ្ចូលម្តងមួយ / Add One by One
                     </button>
                     <button
-                      onClick={() => setAddReportMethod('annex8')}
-                      className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
-                        addReportMethod === 'annex8'
-                          ? 'bg-white text-[#0B2A66] shadow-xs border border-slate-200/50'
-                          : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      ឧបសម្ព័ន្ធទី៨ / Annex 8 <span className="text-[9px] text-[#C9A227]">ថ្មី</span>
-                    </button>
-                    <button
                       onClick={() => setAddReportMethod('excel')}
                       className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
                         addReportMethod === 'excel'
@@ -2336,31 +2338,11 @@ export default function App() {
                     >
                       Upload Excel Template
                     </button>
-                    </>)}
-                    {/* Searching lives in the same switch as the entry modes:
-                        a second control row above the Annex 8 wizard would sit
-                        on top of a form that is meant to own the whole page. */}
-                    <button
-                      onClick={() => setAddReportMethod('search')}
-                      className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
-                        addReportMethod === 'search'
-                          ? 'bg-white text-[#0B2A66] shadow-xs border border-slate-200/50'
-                          : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      ស្វែងរក / Search
-                    </button>
                   </div>
                 )}
 
-                {isMonthMode && (
-                  <Annex8MonthWorkspace currentUser={sessionUser} toastMsg={showToast} />
-                )}
-
-                {isSearchMode && <Annex8ReportSearch currentUser={sessionUser} />}
-
                 {/* Form or Excel Upload column based on permission view */}
-                {isSearchMode || isMonthMode ? null : selectedEditReport ? (
+                {selectedEditReport ? (
                   <ReportForm 
                     currentUser={sessionUser}
                     selectedReport={selectedEditReport}
@@ -2377,13 +2359,6 @@ export default function App() {
                       existingReports={reports}
                       onImportSuccess={handleImportExcelSuccess}
                       toastMsg={showToast}
-                    />
-                  ) : addReportMethod === 'annex8' ? (
-                    <Annex8ReportForm
-                      currentUser={sessionUser}
-                      licence={dashboardLicenses.find(l => l.license_number === sessionUser.license_number) || null}
-                      toastMsg={showToast}
-                      language={language}
                     />
                   ) : (
                     <ReportForm 
@@ -2940,6 +2915,16 @@ export default function App() {
                 </>)}
               </div>
             ); })()}
+
+            {/* B2. ANNEX 8 — its own page, independent of the legacy report. */}
+            {activeTab === 'annex8' && (
+              <Annex8Portal
+                currentUser={sessionUser}
+                licence={dashboardLicenses.find(l => l.license_number === sessionUser.license_number) || null}
+                toastMsg={showToast}
+                language={language}
+              />
+            )}
 
             {/* C. USER ACCOUNTS MANAGER */}
             {activeTab === 'users' && (sessionUser.role === 'superadmin' || sessionUser.role === 'admin') && (

@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js dist/server.cjs",
     "lint": "tsc --noEmit",
-    "annex8:check": "tsx scripts/annex8-check-template.ts && tsx scripts/annex8-check-db-mapping.ts && tsx scripts/annex8-check-entries.ts"
+    "annex8:check": "tsx scripts/annex8-check-template.ts && tsx scripts/annex8-check-db-mapping.ts && tsx scripts/annex8-check-entries.ts",
+    "mysql:check": "tsx scripts/mysql-adapter-check.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -31,6 +32,7 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "mysql2": "3.11.5",
     "pizzip": "3.1.7",
     "pptxgenjs": "^4.0.1",
     "qrcode": "^1.5.4",
