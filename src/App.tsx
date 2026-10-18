@@ -466,9 +466,8 @@ export default function App() {
   const [selectedEditReport, setSelectedEditReport] = useState<MetrologyReport | null>(null);
   // 'annex8' is the new Annex 8 (A8-2026.2) wizard. It runs alongside the legacy
   // 'manual' form until the new one is signed off; neither replaces the other yet.
-  const [addReportMethod, setAddReportMethod] = useState<'manual' | 'annex8' | 'excel'>('manual');
-  /** Reports tab: filling a report in, or searching the ones already filed. */
-  const [reportView, setReportView] = useState<'entry' | 'search'>('entry');
+  /** Reports tab: how to add a report, or search the ones already filed. */
+  const [addReportMethod, setAddReportMethod] = useState<'manual' | 'annex8' | 'excel' | 'search'>('manual');
   const [selectedPrintReport, setSelectedPrintReport] = useState<MetrologyReport | null>(null);
   const [isPrintAllPreview, setIsPrintAllPreview] = useState(false);
 
@@ -2245,15 +2244,21 @@ export default function App() {
               // legacy header actions, summary cards and detail table belong to
               // the old flat report shape and would only confuse the two.
               const isAnnex8Mode = addReportMethod === 'annex8' && !selectedEditReport && sessionUser.can_save;
-              const isSearchMode = reportView === 'search' && !selectedEditReport;
+              const isSearchMode = addReportMethod === 'search' && !selectedEditReport;
               // Both the Annex 8 wizard and the search own the whole page.
               const hideLegacy = isAnnex8Mode || isSearchMode;
               return (
               <div className="space-y-6 animate-fade-in duration-300">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
-                    <h3 className="font-extrabold text-slate-800 text-lg">រៀបចំ និងបំពេញរបាយការណ៍ប្រចាំខែ</h3>
-                    <p className="text-xs text-slate-400 mt-0.5">បញ្ចូលថ្មី ឬកែប្រែទិន្នន័យសេវាកម្មមាត្រាសាស្ត្រ</p>
+                    <h3 className="font-extrabold text-slate-800 text-lg">
+                      {isSearchMode ? 'ស្វែងរករបាយការណ៍' : 'រៀបចំ និងបំពេញរបាយការណ៍ប្រចាំខែ'}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {isSearchMode
+                        ? 'ស្វែងរកតាមខែ ឆ្នាំ ប្រភេទសេវាកម្ម និងលទ្ធផលផ្ទៀងផ្ទាត់'
+                        : 'បញ្ចូលថ្មី ឬកែប្រែទិន្នន័យសេវាកម្មមាត្រាសាស្ត្រ'}
+                    </p>
                   </div>
                   
                   {/* Quick toggle list printable — Annex 8 carries its own
@@ -2284,39 +2289,10 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Fill in a report, or search what has already been filed.
-                    Search is open to every role; the server scopes a company
-                    account to its own licence. */}
-                {!selectedEditReport && (
-                  <div className="flex max-w-xs rounded-lg bg-slate-100 p-1">
-                    <button
-                      onClick={() => setReportView('entry')}
-                      className={`flex-1 cursor-pointer rounded-md py-2 text-center text-[11px] font-bold transition-all ${
-                        reportView === 'entry'
-                          ? 'border border-slate-200/50 bg-white text-slate-800 shadow-xs'
-                          : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      បំពេញរបាយការណ៍ / Fill in
-                    </button>
-                    <button
-                      onClick={() => setReportView('search')}
-                      className={`flex-1 cursor-pointer rounded-md py-2 text-center text-[11px] font-bold transition-all ${
-                        reportView === 'search'
-                          ? 'border border-slate-200/50 bg-white text-[#0B2A66] shadow-xs'
-                          : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      ស្វែងរក / Search
-                    </button>
-                  </div>
-                )}
-
-                {isSearchMode && <Annex8ReportSearch currentUser={sessionUser} />}
-
                 {/* Addition Switch Toggles */}
-                {!isSearchMode && sessionUser.can_save && !selectedEditReport && (
-                  <div className="flex bg-slate-100 p-1 rounded-lg max-w-sm">
+                {!selectedEditReport && (
+                  <div className={`flex bg-slate-100 p-1 rounded-lg ${sessionUser.can_save ? 'max-w-2xl' : 'max-w-xs'}`}>
+                    {sessionUser.can_save && (<>
                     <button
                       onClick={() => setAddReportMethod('manual')}
                       className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
@@ -2347,8 +2323,24 @@ export default function App() {
                     >
                       Upload Excel Template
                     </button>
+                    </>)}
+                    {/* Searching lives in the same switch as the entry modes:
+                        a second control row above the Annex 8 wizard would sit
+                        on top of a form that is meant to own the whole page. */}
+                    <button
+                      onClick={() => setAddReportMethod('search')}
+                      className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                        addReportMethod === 'search'
+                          ? 'bg-white text-[#0B2A66] shadow-xs border border-slate-200/50'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      ស្វែងរក / Search
+                    </button>
                   </div>
                 )}
+
+                {isSearchMode && <Annex8ReportSearch currentUser={sessionUser} />}
 
                 {/* Form or Excel Upload column based on permission view */}
                 {isSearchMode ? null : selectedEditReport ? (
