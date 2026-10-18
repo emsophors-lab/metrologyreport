@@ -19,6 +19,8 @@
 --      superadmin / admin123
 --      admin      / admin123
 --      company01  / LIC001      (company — sees only its own data)
+--      company02  / LIC001      (a second company, so "all licensees" means
+--                                more than one and the scoping is visible)
 --
 --  Change all three before this database is reachable by anyone else.
 --
@@ -57,6 +59,15 @@ INSERT INTO users (
   1, 1, 1, 1, 1, 1, 1
 ),
 (
+  'user-co-002',
+  'company02', 'contact@angkormetro.local', 'company', 'LIC-2026-002',
+  'ក្រុមហ៊ុន មាត្រាសាស្ត្រ អង្គរ', 'Angkor Metrology Co',
+  'ភូមិស្លក្រាម ឃុំស្លក្រាម ក្រុងសៀមរាប ខេត្តសៀមរាប', '017 222 333',
+  'លោកស្រី ចាន់ សុភា', 'នាយិកា',
+  'pbkdf2_sha256$120000$87y3oPqTrEAPUFFARJCxYg==$jdgnOsQ4LMc4Ru5Ded/63miBNw7mdUY4Xlr6hQVAPzQ=',
+  1, 1, 1, 1, 0, 0, 1
+),
+(
   'user-co-001',
   'company01', 'contact@bokormetrology.com', 'company', 'LIC-2026-001',
   'ក្រុមហ៊ុន មាត្រាសាស្ត្រ បូកគោ', 'Bokor Metrology Corp',
@@ -90,6 +101,38 @@ INSERT INTO enterprise_licenses (
   '2026-01-15T00:00:00Z', '2026-01-15T00:00:00Z'
 )
 ON DUPLICATE KEY UPDATE company_name = VALUES(company_name);
+
+-- A second licensee. Without one, "admin sees every company" and "a company
+-- sees only its own" look identical on screen, and a scoping mistake would
+-- not show up until there were real enterprises in the database.
+INSERT INTO enterprise_licenses (
+  id, company_user_id, company_name, company_name_kh, license_number,
+  company_address, province_city, phone_number, email,
+  business_type, service_scope, measuring_instrument_type,
+  license_owner_name, license_owner_position,
+  license_issue_date, license_expiry_date, license_validity_years, license_status,
+  created_at, updated_at
+) VALUES (
+  'b0000000-0000-4000-8000-000000000002',
+  'user-co-002',
+  'Angkor Metrology Co', 'ក្រុមហ៊ុន មាត្រាសាស្ត្រ អង្គរ', 'LIC-2026-002',
+  'ភូមិស្លក្រាម ឃុំស្លក្រាម ក្រុងសៀមរាប ខេត្តសៀមរាប',
+  'ខេត្តសៀមរាប', '017 222 333', 'contact@angkormetro.local',
+  'ផលិត និងដំឡើង', 'ផលិត ដំឡើង ឧបករណ៍វាស់វែង', 'ជញ្ជីង',
+  'លោកស្រី ចាន់ សុភា', 'នាយិកា',
+  '2026-02-01', '2029-01-31', 3, 'Active',
+  '2026-02-01T00:00:00Z', '2026-02-01T00:00:00Z'
+)
+ON DUPLICATE KEY UPDATE company_name = VALUES(company_name);
+
+INSERT INTO annex8_licence_profiles (license_number, licence_type, contact_name, contact_position)
+VALUES ('LIC-2026-002', 'MANUF_INSTALL', 'លោកស្រី ចាន់ សុភា', 'នាយិកា')
+ON DUPLICATE KEY UPDATE licence_type = VALUES(licence_type);
+
+INSERT INTO annex8_licence_scope (license_number, category_code) VALUES
+  ('LIC-2026-002', 'NAWI'),
+  ('LIC-2026-002', 'WEIGHTS')
+ON DUPLICATE KEY UPDATE category_code = VALUES(category_code);
 
 -- ---------------------------------------------------------------------
 --  Annex 8 reference data: who may report on what (drives V06), who the

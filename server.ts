@@ -4097,6 +4097,200 @@ app.post('/api/annex8/month/submit', async (req, res) => {
  * submitted one still agrees with its own entries. Soft-deleted rows are
  * excluded, exactly as the printed annex excludes them.
  */
+/**
+ * GET /api/annex8/overview?year=YYYY
+ *
+ * The numbers behind the Annex 8 dashboard, scoped by who is asking:
+ *
+ *   superadmin / admin   every licensee
+ *   company              its own licence, and nothing else
+ *
+ * The scope is decided HERE from the resolved user, never from a query
+ * parameter, so a company cannot widen it by asking differently. A company
+ * that passes someone else's licence_no is refused rather than quietly
+ * given its own — silently substituting would hide a broken client.
+ */
+app.get('/api/annex8/overview', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const resolved = await resolveApiUser(req);
+    if (!resolved) return res.status(401).json({ error: 'Authentication required.' });
+    if (!['superadmin', 'admin', 'company'].includes(resolved.role)) {
+      return res.status(403).json({ error: 'Insufficient permission.' });
+    }
+
+    const isStaff = resolved.role === 'superadmin' || resolved.role === 'admin';
+    const ownLicence = String(resolved.userRow?.license_number || '').trim();
+    const asked = String(req.query?.licence_no || '').trim();
+
+    if (!isStaff) {
+      if (!ownLicence) return apiError(res, 403, 'This account has no licence number.');
+      if (asked && asked !== ownLicence) {
+        return res.status(403).json({ error: 'This licence belongs to another enterprise.' });
+      }
+    }
+    // Staff may narrow to one licensee; a company is always its own.
+    const scopeLicence = isStaff ? (asked || null) : ownLicence;
+
+    const year = String(req.query?.year || '').trim();
+    const yearOk = /^\d{4}$/.test(year);
+
+    let reportQuery = supabaseAdmin.from('annex8_reports').select('*');
+    if (scopeLicence) reportQuery = reportQuery.eq('licence_no', scopeLicence);
+    const { data: allReports, error } = await reportQuery;
+    if (error) throw error;
+
+    const reports = (allReports || []).filter((r: any) =>
+      !yearOk || String(r.period_month || '').startsWith(year));
+
+    const filed = reports.filter((r: any) => r.status !== 'OPEN' && r.status !== 'DRAFT');
+    const ids = filed.map((r: any) => r.id);
+    const byId = new Map(filed.map((r: any) => [r.id, r]));
+
+    const none = { data: [] as any[] };
+    const [instruments, repairs] = ids.length
+      ? await Promise.all([
+          supabaseAdmin.from('annex8_report_instruments')
+            .select('report_uuid,op_code,category,province,verification_status')
+            .in('report_uuid', ids).is('deleted_at', null),
+          supabaseAdmin.from('annex8_report_repairs')
+            .select('report_uuid,category,province,verification_status')
+            .in('report_uuid', ids).is('deleted_at', null),
+        ])
+      : [none, none];
+
+    /* ---------------- aggregate ---------------- */
+
+    const totals = { manufactured: 0, installed: 0, repaired: 0, passed: 0, failed: 0, pending: 0 };
+    const byCategory = new Map<string, { manufactured: number; installed: number; repaired: number; passed: number; failed: number; pending: number }>();
+    const byProvince = new Map<string, number>();
+    const byMonth = new Map<string, { manufactured: number; installed: number; repaired: number; total: number }>();
+
+    const catBucket = (c: string) => {
+      const key = c || 'OTHER';
+      if (!byCategory.has(key)) {
+        byCategory.set(key, { manufactured: 0, installed: 0, repaired: 0, passed: 0, failed: 0, pending: 0 });
+      }
+      return byCategory.get(key)!;
+    };
+    const monthBucket = (m: string) => {
+      if (!byMonth.has(m)) byMonth.set(m, { manufactured: 0, installed: 0, repaired: 0, total: 0 });
+      return byMonth.get(m)!;
+    };
+    const judge = (bucket: any, status: string) => {
+      if (status === 'PASSED') bucket.passed++;
+      else if (status === 'FAILED') bucket.failed++;
+      else bucket.pending++;
+    };
+
+    for (const i of instruments.data || []) {
+      const report = byId.get(String(i.report_uuid));
+      if (!report) continue;
+      const made = i.op_code === 'M';
+      totals[made ? 'manufactured' : 'installed']++;
+      judge(totals, String(i.verification_status || 'PENDING'));
+      const cat = catBucket(String(i.category || ''));
+      cat[made ? 'manufactured' : 'installed']++;
+      judge(cat, String(i.verification_status || 'PENDING'));
+      if (i.province) byProvince.set(String(i.province), (byProvince.get(String(i.province)) || 0) + 1);
+      const m = monthBucket(String(report.period_month));
+      m[made ? 'manufactured' : 'installed']++; m.total++;
+    }
+
+    for (const p of repairs.data || []) {
+      const report = byId.get(String(p.report_uuid));
+      if (!report) continue;
+      totals.repaired++;
+      judge(totals, String(p.verification_status || 'PENDING'));
+      const cat = catBucket(String(p.category || ''));
+      cat.repaired++;
+      judge(cat, String(p.verification_status || 'PENDING'));
+      if (p.province) byProvince.set(String(p.province), (byProvince.get(String(p.province)) || 0) + 1);
+      const m = monthBucket(String(report.period_month));
+      m.repaired++; m.total++;
+    }
+
+    /* ------------- who has and has not reported (staff view) ------------- */
+
+    let licensees: any[] = [];
+    if (isStaff && !scopeLicence) {
+      const { data: licences } = await supabaseAdmin
+        .from('enterprise_licenses').select('license_number, company_name, company_name_kh, license_status');
+
+      const perLicence = new Map<string, { filed: number; late: number; last: string | null }>();
+      for (const r of filed) {
+        const key = String(r.licence_no);
+        if (!perLicence.has(key)) perLicence.set(key, { filed: 0, late: 0, last: null });
+        const row = perLicence.get(key)!;
+        row.filed++;
+        if (r.on_time === false) row.late++;
+        const period = String(r.period_month || '');
+        if (!row.last || period > row.last) row.last = period;
+      }
+
+      licensees = (licences || []).map((l: any) => {
+        const row = perLicence.get(String(l.license_number)) || { filed: 0, late: 0, last: null };
+        return {
+          licence_no: l.license_number,
+          company_name: l.company_name,
+          company_name_kh: l.company_name_kh,
+          licence_active: String(l.license_status || '').toLowerCase() !== 'expired',
+          reports_filed: row.filed,
+          late: row.late,
+          last_period: row.last,
+        };
+      }).sort((a: any, b: any) => b.reports_filed - a.reports_filed);
+    }
+
+    // The month that is currently owed: the one that has just ended.
+    const duePeriod = previousPeriod();
+    const submittedForDue = new Set(
+      filed.filter((r: any) => r.period_month === duePeriod).map((r: any) => String(r.licence_no)));
+    const missingForDue = isStaff && !scopeLicence
+      ? licensees.filter((l: any) => l.licence_active && !submittedForDue.has(l.licence_no))
+          .map((l: any) => ({ licence_no: l.licence_no, company_name_kh: l.company_name_kh, company_name: l.company_name }))
+      : [];
+
+    return apiSuccess(res, {
+      scope: isStaff ? (scopeLicence ? 'licence' : 'all') : 'own',
+      role: resolved.role,
+      licence_no: scopeLicence,
+      year: yearOk ? year : null,
+      years: Array.from(new Set((allReports || [])
+        .map((r: any) => String(r.period_month || '').slice(0, 4)).filter(Boolean))).sort().reverse(),
+      summary: {
+        reports: reports.length,
+        filed: filed.length,
+        open: reports.length - filed.length,
+        accepted: filed.filter((r: any) => r.status === 'ACCEPTED').length,
+        returned: filed.filter((r: any) => r.status === 'RETURNED').length,
+        late: filed.filter((r: any) => r.on_time === false).length,
+        on_time: filed.filter((r: any) => r.on_time === true).length,
+        nil: filed.filter((r: any) => r.report_type === 'NIL').length,
+        licensees: isStaff && !scopeLicence ? licensees.length : 1,
+        reporting_licensees: new Set(filed.map((r: any) => String(r.licence_no))).size,
+      },
+      totals,
+      due_period: duePeriod,
+      missing_for_due: missingForDue,
+      by_category: Array.from(byCategory.entries())
+        .map(([code, v]) => ({ code, ...v, total: v.manufactured + v.installed + v.repaired }))
+        .sort((a, b) => b.total - a.total),
+      by_province: Array.from(byProvince.entries())
+        .map(([province, count]) => ({ province, count }))
+        .sort((a, b) => b.count - a.count),
+      by_month: Array.from(byMonth.entries())
+        .map(([period_month, v]) => ({ period_month, ...v }))
+        .sort((a, b) => a.period_month.localeCompare(b.period_month)),
+      licensees,
+    });
+  } catch (err: any) {
+    console.error('Annex 8 overview failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to load the overview.');
+  }
+});
+
 app.get('/api/annex8/reports-list', async (req, res) => {
   try {
     if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');

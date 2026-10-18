@@ -8,8 +8,14 @@
  *
  * Everything a licensee needs for Annex 8 is here and nowhere else:
  *
+ *   ទិដ្ឋភាពរួម      cards and charts, scoped by role
  *   បំពេញប្រចាំខែ   record work as it happens, review, submit
  *   ប្រវត្តិរបាយការណ៍  the register of what was filed, and instrument search
+ *
+ * NMC staff get the overview across every licensee and may not fill anything
+ * in: they receive these reports, they do not file them. A company gets the
+ * same three, its own data only. Which data that is, is decided by the
+ * server from the signed-in user, never by this file.
  *
  * There was a third, a 7-step form that filled a whole month in one sitting.
  * It is gone. Two ways to write the same annex meant two code paths, and they
@@ -20,15 +26,16 @@
  * validated, audited and reviewable.
  */
 import { Suspense, lazy, useState } from 'react';
-import { CalendarRange, History, Loader2 } from 'lucide-react';
+import { BarChart3, CalendarRange, History, Loader2 } from 'lucide-react';
 
 import { EnterpriseLicense, MetrologyUser } from '../types';
 
 const Annex8MonthWorkspace = lazy(() => import('./Annex8MonthWorkspace'));
 const Annex8ReportSearch = lazy(() => import('./Annex8ReportSearch'));
 const Annex8MyReportsTable = lazy(() => import('./Annex8MyReportsTable'));
+const Annex8Overview = lazy(() => import('./Annex8Overview'));
 
-type View = 'month' | 'history';
+type View = 'overview' | 'month' | 'history';
 
 /**
  * History has two levels, because they answer different questions. The
@@ -52,6 +59,14 @@ const VIEWS: Array<{
   icon: typeof CalendarRange;
   needsSave: boolean;
 }> = [
+  {
+    key: 'overview',
+    kh: 'ទិដ្ឋភាពរួម',
+    en: 'Overview',
+    hint: 'កាត និងក្រាហ្វិកសង្ខេបនៃរបាយការណ៍ប្រចាំខែ',
+    icon: BarChart3,
+    needsSave: false,
+  },
   {
     key: 'month',
     kh: 'បំពេញប្រចាំខែ',
@@ -77,12 +92,23 @@ const Spinner = () => (
 );
 
 export default function Annex8Portal({ currentUser, licence, toastMsg, language }: Annex8PortalProps) {
-  // A licensee who may not save still gets the history — reading back what the
-  // enterprise already submitted is not an edit.
-  const canSave = !!currentUser.can_save;
-  const views = VIEWS.filter((v) => canSave || !v.needsSave);
-  const [view, setView] = useState<View>(canSave ? 'month' : 'history');
-  const [historyTab, setHistoryTab] = useState<HistoryTab>('register');
+  // NMC staff receive these reports; they do not file them. Their account's
+  // licence number is the Centre's own, so showing them the entry form would
+  // invite filing an Annex 8 against NMC itself — which is how empty reports
+  // under NMC-SA-2026 appeared in the first place.
+  const isStaff = currentUser.role === 'superadmin' || currentUser.role === 'admin';
+
+  // A licensee who may not save still gets the history and the overview —
+  // reading back what the enterprise already submitted is not an edit.
+  const canSave = !!currentUser.can_save && !isStaff;
+
+  const views = VIEWS.filter((v) => (canSave || !v.needsSave));
+  const [view, setView] = useState<View>(isStaff ? 'overview' : canSave ? 'month' : 'overview');
+
+  // Staff have no licence of their own to register, so their history is the
+  // cross-licensee instrument search; the per-licensee picture is on the
+  // overview instead.
+  const [historyTab, setHistoryTab] = useState<HistoryTab>(isStaff ? 'search' : 'register');
   const active = views.find((v) => v.key === view) || views[0];
 
   return (
@@ -134,7 +160,14 @@ export default function Annex8Portal({ currentUser, licence, toastMsg, language 
         })}
       </div>
 
-      {!canSave && (
+      {isStaff ? (
+        <div className="bg-[#0B2A66]/5 border border-[#0B2A66]/20 p-3 rounded-xl text-[11px] text-[#0B2A66] font-bold">
+          គណនីមន្ត្រី ម.ម.ជ — អ្នកកំពុងមើលទិន្នន័យរបស់សហគ្រាសទាំងអស់។
+          <span className="block font-semibold text-slate-500 mt-0.5">
+            NMC staff view: every licensee. Reports are filed by the enterprises themselves.
+          </span>
+        </div>
+      ) : !canSave && (
         <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl text-xs text-slate-500 font-medium">
           ⚠️ គណនីរបស់អ្នកអាចមើលប្រវត្តិរបាយការណ៍បាន ប៉ុន្តែមិនអាចបំពេញ ឬដាក់បញ្ជូនបានឡើយ។
           ប្រសិនបើត្រូវការសិទ្ធិបន្ថែម សូមទាក់ទងមកមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ។
@@ -142,16 +175,21 @@ export default function Annex8Portal({ currentUser, licence, toastMsg, language 
       )}
 
       <Suspense fallback={<Spinner />}>
+        {active?.key === 'overview' && <Annex8Overview currentUser={currentUser} />}
+
         {active?.key === 'month' && (
           <Annex8MonthWorkspace currentUser={currentUser} toastMsg={toastMsg} />
         )}
         {active?.key === 'history' && (
           <div className="space-y-3">
             <div className="flex bg-slate-100 p-1 rounded-lg max-w-md">
-              {([
-                ['register', 'តារាងរបាយការណ៍', 'My reports'],
-                ['search', 'ស្វែងរកឧបករណ៍', 'Search instruments'],
-              ] as Array<[HistoryTab, string, string]>).map(([key, kh, en]) => (
+              {(isStaff
+                ? [['search', 'ស្វែងរកឧបករណ៍', 'Search instruments']]
+                : [
+                    ['register', 'តារាងរបាយការណ៍', 'My reports'],
+                    ['search', 'ស្វែងរកឧបករណ៍', 'Search instruments'],
+                  ]
+              ).map(([key, kh, en]: any) => (
                 <button
                   key={key}
                   type="button"

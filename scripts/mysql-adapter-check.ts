@@ -29,8 +29,11 @@ const ok = (name: string, cond: boolean, extra?: any) => {
   await db.from('annex8_report_counters').delete().eq('period_month', '2026-11');
 
   console.log('\nselect / filters');
-  const { data: users, error: e1 } = await db.from('users').select('*').eq('role', 'company');
-  ok('eq returns the company account', !e1 && users.length === 1, e1 || users);
+  // Scoped to one licence, not "the only company", so adding a second
+  // licensee to the database does not break an unrelated check.
+  const { data: users, error: e1 } = await db.from('users').select('*')
+    .eq('role', 'company').eq('license_number', 'LIC-2026-001');
+  ok('eq returns exactly that company account', !e1 && users.length === 1, e1 || users);
   ok('TINYINT(1) comes back as a boolean', users[0]?.is_active === true, typeof users[0]?.is_active);
   ok('a deactivated check would work', users[0]?.is_active !== false);
   ok('Khmer survives the round trip', users[0]?.company_name_kh === 'ក្រុមហ៊ុន មាត្រាសាស្ត្រ បូកគោ', users[0]?.company_name_kh);
@@ -44,23 +47,23 @@ const ok = (name: string, cond: boolean, extra?: any) => {
   ok('single errors when absent', !!eSingle);
 
   const { data: inRows } = await db.from('annex8_licence_scope')
-    .select('*').in('category_code', ['NAWI', 'WEIGHBRIDGE']);
+    .select('*').eq('license_number', 'LIC-2026-001').in('category_code', ['NAWI', 'WEIGHBRIDGE']);
   ok('in() filters', inRows.length === 2, inRows.length);
   const { data: emptyIn } = await db.from('annex8_licence_scope').select('*').in('category_code', []);
   ok('in([]) matches nothing instead of erroring', emptyIn.length === 0);
 
   const { data: notNull } = await db.from('annex8_licence_standards')
-    .select('*').not('cal_cert_no', 'is', null);
+    .select('*').eq('license_number', 'LIC-2026-001').not('cal_cert_no', 'is', null);
   ok('not(is null)', notNull.length === 2, notNull.length);
   const { data: isNull } = await db.from('annex8_report_instruments').select('*').is('deleted_at', null);
   ok('is(null)', Array.isArray(isNull));
 
   const { data: ordered } = await db.from('annex8_licence_technicians')
-    .select('*').order('full_name', { ascending: false }).limit(1);
+    .select('*').eq('license_number', 'LIC-2026-001').order('full_name', { ascending: false }).limit(1);
   ok('order + limit', ordered.length === 1);
 
   const { data: ored } = await db.from('annex8_licence_standards')
-    .select('*').or('equipment.ilike.%ធុង%,serial_no.ilike.%F1%');
+    .select('*').eq('license_number', 'LIC-2026-001').or('equipment.ilike.%ធុង%,serial_no.ilike.%F1%');
   ok('or() with ilike', ored.length === 2, ored.length);
 
   console.log('\ninsert / update / delete');
