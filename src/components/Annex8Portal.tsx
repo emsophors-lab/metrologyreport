@@ -26,7 +26,7 @@
  * validated, audited and reviewable.
  */
 import { Suspense, lazy, useState } from 'react';
-import { BarChart3, CalendarRange, History, Loader2 } from 'lucide-react';
+import { BarChart3, CalendarRange, FileText, History, Loader2 } from 'lucide-react';
 
 import { EnterpriseLicense, MetrologyUser } from '../types';
 
@@ -34,8 +34,9 @@ const Annex8MonthWorkspace = lazy(() => import('./Annex8MonthWorkspace'));
 const Annex8ReportSearch = lazy(() => import('./Annex8ReportSearch'));
 const Annex8MyReportsTable = lazy(() => import('./Annex8MyReportsTable'));
 const Annex8Overview = lazy(() => import('./Annex8Overview'));
+const ConsolidatedReportPage = lazy(() => import('./ConsolidatedReportPage'));
 
-type View = 'overview' | 'month' | 'history';
+type View = 'overview' | 'month' | 'history' | 'consolidated';
 
 /**
  * History has two levels, because they answer different questions. The
@@ -58,6 +59,7 @@ const VIEWS: Array<{
   hint: string;
   icon: typeof CalendarRange;
   needsSave: boolean;
+  staffOnly?: boolean;
 }> = [
   {
     key: 'overview',
@@ -83,6 +85,10 @@ const VIEWS: Array<{
     icon: History,
     needsSave: false,
   },
+  {
+    key: 'consolidated', kh: 'របាយការណ៍សរុប', en: 'Consolidated report',
+    hint: 'ប្រចាំខែ ត្រីមាស ឆមាស និងឆ្នាំ', icon: FileText, needsSave: false, staffOnly: true,
+  },
 ];
 
 const Spinner = () => (
@@ -102,7 +108,7 @@ export default function Annex8Portal({ currentUser, licence, toastMsg, language 
   // reading back what the enterprise already submitted is not an edit.
   const canSave = !!currentUser.can_save && !isStaff;
 
-  const views = VIEWS.filter((v) => (canSave || !v.needsSave));
+  const views = VIEWS.filter((v) => (canSave || !v.needsSave) && (!v.staffOnly || isStaff));
   const [view, setView] = useState<View>(isStaff ? 'overview' : canSave ? 'month' : 'overview');
 
   // Staff have no licence of their own to register, so their history is the
@@ -176,6 +182,7 @@ export default function Annex8Portal({ currentUser, licence, toastMsg, language 
 
       <Suspense fallback={<Spinner />}>
         {active?.key === 'overview' && <Annex8Overview currentUser={currentUser} />}
+        {active?.key === 'consolidated' && isStaff && <ConsolidatedReportPage currentUser={currentUser} />}
 
         {active?.key === 'month' && (
           <Annex8MonthWorkspace currentUser={currentUser} toastMsg={toastMsg} />

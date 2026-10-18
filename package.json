@@ -14,7 +14,9 @@
     "mysql:check": "tsx scripts/mysql-adapter-check.ts",
     "annex8:scenario": "node scripts/annex8-scenario.mjs",
     "annex8:carry-over": "node scripts/annex8-carry-over-check.mjs",
-    "annex8:scope": "node scripts/annex8-scope-check.mjs"
+    "annex8:scope": "node scripts/annex8-scope-check.mjs",
+    "consolidated:check": "tsx scripts/consolidated-check.ts",
+    "consolidated:test": "tsx scripts/consolidated-test.ts && tsx scripts/consolidated-automatic-test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

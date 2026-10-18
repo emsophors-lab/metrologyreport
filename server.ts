@@ -8,6 +8,9 @@ import { createMysqlClient } from './src/db/mysqlClient';
 // same code the form uses, rather than a second copy that drifts out of step.
 import { validateAnnex8, blockingIssues, warningIssues, hostPart } from './src/annex8/validation';
 import { computeSummary, deadlineFor, isOnTime } from './src/annex8/summary';
+import { previousPeriod as previousConsolidatedPeriod, reportingPeriod } from './src/lib/consolidated/periods';
+import { dataProblems as consolidatedDataProblems } from './src/lib/consolidated/contract';
+import type { PeriodType } from './src/lib/consolidated/periods';
 // NMC's own summary over the submissions. Deliberately separate from the
 // official annex: this one has a layout built in code, that one never does.
 import {
@@ -4176,6 +4179,40 @@ async function resolveOverviewScope(req: any, res: any): Promise<
  *   superadmin / admin   every licensee, or one if they narrow to it
  *   company              its own licence, and nothing else
  */
+// Code-only integration: this reads the proposed RPC after its approved
+// migration exists. It never falls back to partial source rows or sample data.
+app.get('/api/consolidated/preview', async (req, res) => {
+  try {
+    const user = await resolveApiUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required.' });
+    if (!['superadmin', 'admin'].includes(user.role)) return res.status(403).json({ error: 'NMC staff access required.' });
+    let period;
+    try {
+      period = reportingPeriod(String(req.query.period_type) as PeriodType, Number(req.query.year), Number(req.query.index || 1));
+    } catch {
+      return apiError(res, 400, 'Invalid consolidated reporting period.');
+    }
+    if (DB_DRIVER !== 'supabase' || !supabaseAdmin) {
+      return res.status(503).json({ code: 'CONSOLIDATED_SCHEMA_PENDING', error: 'ការប្រមូលទិន្នន័យ PostgreSQL សម្រាប់របាយការណ៍សរុបមិនទាន់អាចប្រើបានទេ។' });
+    }
+    const { data, error } = await supabaseAdmin.rpc('mlrs_consolidated_preview', {
+      p_period_type: period.type, p_year: period.year, p_index: period.index,
+    });
+    if (error) {
+      if (['PGRST202', '42883'].includes(error.code)) {
+        return res.status(503).json({ code: 'CONSOLIDATED_SCHEMA_PENDING', error: 'ការប្រមូលទិន្នន័យរបាយការណ៍សរុបត្រូវរង់ចាំការរៀបចំ database ដែលបានអនុម័ត។' });
+      }
+      throw error;
+    }
+    const problems = consolidatedDataProblems(data?.data);
+    if (problems.length || !data?.data_as_of || !Array.isArray(data?.warnings)) throw new Error('Invalid consolidated RPC response contract.');
+    return apiSuccess(res, { ...data, source: 'postgresql', period, previous: previousConsolidatedPeriod(period) });
+  } catch (err: any) {
+    console.error('Consolidated preview failed:', err?.message || err);
+    return apiError(res, 500, 'មិនអាចផ្ទុកទិន្នន័យរបាយការណ៍សរុបបានទេ។');
+  }
+});
+
 app.get('/api/annex8/overview', async (req, res) => {
   try {
     const scoped = await resolveOverviewScope(req, res);
@@ -4678,6 +4715,9 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
+        // Downloaded Word files may be locked briefly on Windows. They are
+        // generated test artifacts, not application source to watch for HMR.
+        watch: process.env.DISABLE_HMR === 'true' ? null : { ignored: ['**/test-output/**'] },
         hmr: process.env.DISABLE_HMR === 'true'
           ? false
           : {

@@ -4,7 +4,7 @@ Metrology License Report System, National Metrology Center (NMC), MISTI.
 Repository: `C:\github-work\metrology-report-system-github`.
 Live: https://metrologyreport.vercel.app/
 
-State as of commit `d15cd18`, 18 October 2026.
+State as of commit `f272c6b`, 18 October 2026, pushed to `origin/main`.
 
 ---
 
@@ -80,8 +80,11 @@ src/annex8/monthlyDigest.ts            the Telegram monthly digest
 src/components/Annex8Portal.tsx        the Annex 8 tab (new)
 src/components/Annex8MonthWorkspace.tsx  incremental entry
 src/components/Annex8MonthReview.tsx     review and submit
-src/components/Annex8ReportSearch.tsx    report history
-src/components/Annex8ReportForm.tsx      the 7-step one-sitting form
+src/components/Annex8ReportSearch.tsx    instrument search
+src/components/Annex8MyReportsTable.tsx  the licensee's register of reports
+src/components/Annex8Overview.tsx        cards and charts, role-scoped
+src/annex8/staffReport.ts              one aggregation + the Word and Excel
+                                       summaries NMC generates
 server.ts                              every API endpoint
 src/supabaseSync.ts                    the browser's data facade — no SQL in it
 mysql/                                 the MySQL schema, functions, seed (new)
@@ -93,14 +96,7 @@ deliberately: the anon key had made password hashes readable and bot tokens
 reachable from page memory. Nine tables were reachable; now none are. Keep it
 that way — `src/supabaseSync.ts` contains no `.from(` and should not regain any.
 
-Checks that must keep passing:
-
-```
-npm run lint          # tsc --noEmit
-npm run build
-npm run annex8:check  # template hash, DB mapping, 46 entry rules
-npm run mysql:check   # 31 adapter checks, needs a local MySQL
-```
+The checks are in section 9.
 
 ---
 
@@ -119,6 +115,13 @@ sessions and devices, then reviews, submits and prints.
 - Duplicate exists so eight load cells on one weighbridge are not typed eight
   times — but it must never copy a serial number, a label or a verification
   result, or one unit's certificate ends up on another.
+- The month list includes **the current month**, because work is recorded
+  while the month runs and submitted after it ends. Browsing the list creates
+  nothing: starting a month is an explicit button.
+- **Carry-over (Art. 17):** an instrument reported earlier as រង់ចាំ gets its
+  result recorded in the month the result arrived. It is held against that
+  month and written back to the original row only at submit, so a result typed
+  and then thought better of cannot rewrite a month already with NMC.
 
 Statuses: `OPEN` → `SUBMITTED` → `ACCEPTED`, or `SUBMITTED` → `RETURNED` →
 back to editable. `DRAFT` is legacy.
@@ -138,59 +141,128 @@ month** rather than a second set of rules drifting from the first.
 
 ---
 
-## 5. Delivery stages
+## 5. The screens
+
+Annex 8 has its own top-level tab, separate from the legacy monthly report.
+Inside it, what you see depends on who you are — decided by the server, not by
+the page.
+
+**A licensed company** gets three cards:
+
+| | |
+|---|---|
+| ទិដ្ឋភាពរួម | its own cards and charts |
+| បំពេញប្រចាំខែ | the form: Part 1, 3, 3ក, 4, 5, carry-over, then review and submit |
+| ប្រវត្តិរបាយការណ៍ | its register of filed reports, and instrument search |
+
+**NMC staff** (admin, superadmin) get two: the overview across every licensee,
+and the search. **They do not get the entry form.** Their account carries the
+Centre's own licence number, so the form invited filing an Annex 8 against NMC
+itself — which is exactly how empty reports under `NMC-SA-2026` appeared
+during testing.
+
+There was a third entry mode, a 7-step "Full form". It is gone. Two ways to
+write the same annex meant two code paths, and they had drifted: the one-shot
+path jumped straight to `SUBMITTED` and wrote no audit entries at all.
+
+## 6. Who can see what
+
+The rule from NMC: **admin and superadmin see every licensee; a company sees
+only its own.**
+
+Scope is resolved once, in `resolveOverviewScope()` in `server.ts`, from the
+**signed-in user**. A licence in the query string can only narrow it, never
+widen it. A company passing another licence is refused rather than quietly
+given its own, because silently substituting would hide a broken client.
+
+```
+npm run annex8:scope
+```
+
+29 checks against a running server: a company is refused another licence on
+the overview, the register, the pending list, a month and both file exports;
+two companies cannot see each other; an unauthenticated caller gets 401; staff
+narrowing to one licensee see exactly what that licensee sees.
+
+The seed carries **two** licensees on purpose. With one, "every company" and
+"my company" look identical on screen, and a scoping mistake would not surface
+until there were real enterprises in the database.
+
+## 7. Two different documents
+
+Do not confuse these. They are downloaded from different places and named
+differently so that nobody does.
+
+| | Official Annex 8 | NMC summary |
+|---|---|---|
+| Comes from | `templates/Annex8_template_v1.docx` | built in code |
+| Covers | one licensee, one month | one licensee or all |
+| Route | `/api/reports/:id/annex8.docx` | `/api/annex8/export` |
+| File name | `Annex8_LIC-…_2026-09_NMC-RPT-…` | `Annex8_NMC_Summary_…` |
+| Layout in code | **never** | yes — it has no prescribed form |
+
+The summary comes in Excel (7 sheets), Word (NMC letterhead, and a line saying
+it is not the official annex) and PDF — the Word file through LibreOffice, the
+same Gotenberg path the annex uses, rather than a second PDF engine with its
+own opinions about Khmer.
+
+Screen, Word and Excel all read one aggregation, `collectOverview()` in
+`src/annex8/staffReport.ts`. Three separate counts would eventually disagree,
+and a figure on screen that differs from the figure in the file sent to the
+Ministry is a discrepancy nobody can explain afterwards.
+
+## 8. Delivery stages
 
 | | | |
 |---|---|---|
-| 1 | Schema and migration | done, migration run by the owner |
+| 1 | Schema and migration | done, migration run |
 | 2 | Entry API | done |
-| 3 | Month workspace (record entries) | done, pushed |
-| 4 | Review, submit, lock | done, committed |
-| 5 | **Amendment + NMC return flow** | **not started** |
-| 6 | **NMC staff screens + reminders** | **not started** |
+| 3 | Month workspace | done |
+| 4 | Review, submit, lock | done |
+| 5 | Carry-over (Art. 17) | **done** |
+| 5b | **Amendment + NMC return flow** | **not started** |
+| 6 | **NMC review actions + reminders** | **not started** |
 
-**Stage 5** — amendment copies entries into a new `OPEN` report linked to the
+**Stage 5b** — amendment copies entries into a new `OPEN` report linked to the
 original, leaving the original untouched; NMC Accept, or Return with a comment
 → `RETURNED`, keeping the same `report_no`.
 
-**Stage 6** — NMC screens (reports by month with filters; licences that have
-*not* submitted; read-only detail with Word and audit log; Accept/Return), and
-reminders (banner from the 25th; banner 1st–7th for the previous month; late
-marked after the 7th 23:59 Asia/Phnom_Penh, computed server-side).
+**Stage 6** — NMC can open a submitted report read-only with its audit log and
+Accept or Return it; plus reminders (banner from the 25th; banner 1st–7th for
+the previous month; late marked after the 7th 23:59 Asia/Phnom_Penh, computed
+server-side).
 
-After each stage: run the app and test with the sample scenario — three
-sessions in one month adding a weighbridge with 8 load cells, an electronic
-scale, and a fuel-dispenser repair with a broken seal; then edit one, delete
-one, submit, download Word.
+## 9. Checks
 
----
+```
+npm run lint              # tsc --noEmit
+npm run build
+npm run annex8:check      # template hash, DB mapping, 46 entry rules
+npm run mysql:check       # adapter against a real database
+npm run annex8:scenario   # the full filing scenario
+npm run annex8:carry-over # Article 17, end to end
+npm run annex8:scope      # who can see what
+```
 
-## 6. Honest status
+The last four need a database and a running server. Locally that means
+`.\scripts\mysql-local.ps1 start` and `DB_DRIVER=mysql` in `.env`.
 
-**Stages 3 and 4 have never been run end to end.** They are typechecked,
-built, and every route was probed, but until this session there was no
-database on this machine, so no report has actually been opened, filled,
-submitted and locked through those endpoints. Two stages of untested work are
-stacked, and Stage 5 builds on them again.
+`annex8:scenario` is the one that matters most: three sessions in one month
+adding a weighbridge with eight load cells, an electronic scale and a sealed
+fuel-dispenser repair, then edit, delete, undo, submit, download Word. It
+checks the printed document against the stored rows — the deleted load cell
+must not appear — and that a submitted month refuses further entries.
 
-**This is now fixable.** A local MySQL database exists (section 7) with a
-seeded licensee. The first thing worth doing is running the sample scenario
-against it before writing Stage 5.
+## 10. The local MySQL database
 
-Also untested: Gotenberg PDF conversion (needs Docker, not installed here).
-
----
-
-## 7. The local MySQL database (new this session)
-
-MySQL 8.4 running on `127.0.0.1:3306`, data in `C:\mlrs-mysql\data`, outside
-the repository. Not a Windows service — it runs only when started.
+MySQL 8.4 on `127.0.0.1:3306`, data in `C:\mlrs-mysql\data`, outside the
+repository. Not a Windows service — it runs only when started.
 
 ```powershell
 .\scripts\mysql-local.ps1 init    # once
 .\scripts\mysql-local.ps1 start
 .\scripts\mysql-local.ps1 load    # schema + functions + views
-.\scripts\mysql-local.ps1 seed    # demo licensee and accounts
+.\scripts\mysql-local.ps1 seed    # two licensees and the staff accounts
 ```
 
 `.env`:
@@ -203,66 +275,69 @@ ALLOW_LEGACY_API_HEADER_AUTH=true
 VITE_ALLOW_LEGACY_API_HEADER_AUTH=true
 ```
 
-Seeded accounts (development only, see `mysql/03_seed.sql`):
-`nmcadmin / NmcAdmin#2026` (superadmin), `bokor / Bokor#2026` (company,
-licence `LIC-2026-001`).
+Development accounts, matching `INITIAL_USERS` in `src/demoData.ts` so the
+local login resolves to rows that exist: `superadmin/admin123`,
+`admin/admin123`, `company01/LIC001`, `company02/LIC001`.
 
 `src/db/mysqlClient.ts` implements the Supabase query builder against MySQL,
-so none of the 202 call sites in `server.ts` changed. `DB_DRIVER` is the only
-switch. **Read `mysql/README.md` before changing any of it** — six things were
-re-engineered rather than translated:
+so none of the 200-odd call sites in `server.ts` changed. **Read
+`mysql/README.md` before touching it** — seven things were re-engineered
+rather than translated, and each was silent when wrong:
 
 1. Partial unique indexes became STORED generated columns that are NULL when
-   the predicate is false (MySQL unique indexes ignore NULLs). This is what
-   stops a licensee opening two months at once.
-2. `annex8_next_report_id` is a PROCEDURE, to avoid turning on the server-wide
+   the predicate is false. This is what stops a licensee opening two months at
+   once.
+2. `annex8_next_report_id` is a PROCEDURE, to avoid loosening the server-wide
    `log_bin_trust_function_creators`. Numbering is still atomic.
 3. TINYINT(1) is converted to boolean — otherwise `is_active !== false` reads
    a deactivated account as active, because `0 !== false`.
 4. DATETIME is returned as an ISO UTC string; DATE stays `YYYY-MM-DD`.
-5. `annex8_deadline()` converts with literal `'+07:00'`, because the named
+5. ISO instants written by the server are converted on the way in; MySQL
+   rejects that format outright.
+6. `annex8_deadline()` converts with the literal `'+07:00'`, because the named
    zone needs MySQL's time-zone tables. Cambodia has no DST, so it is exact.
-6. mysql2 reads JSON columns as BINARY, which turned every Khmer character in
-   Part 6 into mojibake. `field.string('utf8')` is required.
+7. The adapter asks the database which ids it generates itself. It used to
+   mint a UUID for every insert, which `annex8_report_audit_log` rejects
+   because its id is `BIGINT AUTO_INCREMENT`.
 
-`npm run mysql:check` runs 31 checks against the real database. It is what
-found the Khmer bug. All pass.
+## 11. Honest status
 
-**The gap:** the server does not yet issue its own session tokens, so under
-`DB_DRIVER=mysql` sign-in works only through the local header auth. The
-password check (PBKDF2 against the `users` table) is already server-side, so
-this is small and self-contained — but it is not done, and MySQL is not usable
-by anyone but a local developer until it is.
+**Working, and run end to end against a real database:** open a month, add
+entries across several sessions, edit, delete with undo, carry-over, review,
+submit, lock, download the official Word; the overview for both roles; the
+Excel and Word summaries.
 
----
+**Written but never executed:**
 
-## 8. Open items
+- **PDF conversion**, both the official annex's and the summary's. Both go
+  through Gotenberg, and this machine has no Docker, so `GOTENBERG_URL` is
+  unset and the route answers 503 with instructions.
+- **The monthly Telegram digest**, for the same reason plus `CRON_SECRET`.
+- **Supabase Auth sign-in**, since local development uses the header auth.
 
-- **Template fix for the owner:** Part 7 uses `{preparer_position}` twice, so
-  the legal representative's block prints the preparer's position. A
-  `{legal_rep_position}` tag needs adding in Word. The column already exists
-  in the schema, both PostgreSQL and MySQL.
+**The one real gap in the MySQL work:** the server does not yet issue its own
+session tokens, so under `DB_DRIVER=mysql` sign-in works only through the
+local header auth. The password check (PBKDF2 against `users`) is already
+server-side, so this is small and self-contained — but it is not done, and
+MySQL is not usable by anyone but a local developer until it is.
+
+## 12. Open items
+
+- **Template fix, for the project owner:** Part 7 uses `{preparer_position}`
+  twice, so the legal representative's signature block prints the preparer's
+  position. A `{legal_rep_position}` tag needs adding in Word. The column
+  exists in both schemas already.
 - Three `.storage.from()` calls remain in
-  `src/services/enterpriseLicenseService.ts` (licence photos) that need the
-  same `ANNEX8_STORAGE_DRIVER=fs` treatment.
-- `ChangePasswordModal`'s local-hash fallback no longer works in cloud mode;
-  a server-side verify endpoint was offered and not yet built.
-- Before deploying the digest: run `supabase_annex8_monthly_digest.sql` and
-  `supabase_annex8_report_storage.sql`, set `CRON_SECRET` and `GOTENBERG_URL`,
-  build the Gotenberg image. Vercel Hobby may reject the monthly cron
-  schedule `0 1 8 * *`.
-- Migrating real data from Supabase to MySQL is **not** attempted —
-  `pg_dump` output is not MySQL input. Notes in `mysql/README.md`.
-
----
-
-## 9. What changed in this session
-
-- Annex 8 moved to its own top-level tab (`src/components/Annex8Portal.tsx`)
-  holding monthly entry, the full form and report history. The legacy monthly
-  report page went back to the flat form, the Excel upload and the old tables.
-- A local MySQL database: `mysql/01_schema.sql`, `02_functions_views.sql`,
-  `03_seed.sql`, `scripts/mysql-local.ps1`.
-- `src/db/mysqlClient.ts`, wired into `server.ts` behind `DB_DRIVER`.
-- `scripts/mysql-adapter-check.ts`, 31 checks, all passing.
-- `mysql2@3.11.5` pinned exactly.
+  `src/services/enterpriseLicenseService.ts` (licence photos) needing the same
+  `ANNEX8_STORAGE_DRIVER=fs` treatment.
+- `ChangePasswordModal`'s local-hash fallback no longer works in cloud mode; a
+  server-side verify endpoint was offered and not built.
+- Before the digest can run: `supabase_annex8_monthly_digest.sql` and
+  `supabase_annex8_report_storage.sql` on Supabase, `CRON_SECRET` and
+  `GOTENBERG_URL` set, Gotenberg image built. Vercel Hobby may reject the
+  monthly cron schedule `0 1 8 * *`.
+- Migrating real data Supabase → MySQL is **not** attempted; `pg_dump` output
+  is not MySQL input. Notes in `mysql/README.md`.
+- `3805b20` bundles three files edited by another tool working in this same
+  checkout, under a commit message that does not mention them. Now pushed, so
+  it stands. **Give a second agent its own worktree.**

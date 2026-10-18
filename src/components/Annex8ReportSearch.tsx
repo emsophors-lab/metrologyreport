@@ -15,9 +15,10 @@
  * at ("which weighbridge failed in September?"), not whole reports.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, Loader2, MapPin, RotateCcw, Search } from 'lucide-react';
+import { FileSpreadsheet, FileText, Loader2, MapPin, Printer, RotateCcw, Search } from 'lucide-react';
 
 import { CATEGORIES } from '../annex8/constants';
+import type { ActivityRow, SearchExportContext } from '../annex8/searchExports';
 import { apiRequest } from '../supabaseSync';
 import { MetrologyUser } from '../types';
 
@@ -38,23 +39,6 @@ const VERIFICATION_LABELS: Record<string, { kh: string; cls: string }> = {
   FAILED: { kh: 'ធ្លាក់', cls: 'bg-red-50 text-red-700 border-red-200' },
   PENDING: { kh: 'រង់ចាំ', cls: 'bg-slate-100 text-slate-600 border-slate-200' },
 };
-
-interface ActivityRow {
-  format_version: string;
-  row_id: string;
-  licence_no: string;
-  company_name_kh: string;
-  category: string | null;
-  instrument_name: string;
-  serial_no: string;
-  customer_name: string;
-  province: string | null;
-  op_code: string;
-  activity_date: string | null;
-  verification_status: string | null;
-  report_month: string;
-  report_year: string;
-}
 
 interface SearchCounts {
   total: number;
@@ -89,6 +73,9 @@ export default function Annex8ReportSearch({ currentUser }: { currentUser: Metro
   const [truncated, setTruncated] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<'docx' | 'pdf' | 'xlsx' | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportContext, setExportContext] = useState<SearchExportContext>({ filters: [], truncated: false });
   const [facets, setFacets] = useState<{ years: string[]; licences: Array<{ licence_no: string; name: string }> }>({
     years: [], licences: [],
   });
@@ -108,6 +95,7 @@ export default function Annex8ReportSearch({ currentUser }: { currentUser: Metro
   const runSearch = useCallback(async () => {
     setBusy(true);
     setError(null);
+    setExportError(null);
     try {
       const params = new URLSearchParams();
       if (filterYear !== 'all') params.set('year', filterYear);
@@ -123,6 +111,19 @@ export default function Annex8ReportSearch({ currentUser }: { currentUser: Metro
       setRows(data.rows || []);
       setCounts(data.counts || BLANK);
       setTruncated(!!data.truncated);
+      setExportContext({
+        truncated: !!data.truncated,
+        filters: [
+          ['ខែ / Month', filterMonth === 'all' ? 'គ្រប់ខែ / All months' : `${MONTH_OPTIONS.find(([v]) => v === filterMonth)?.[1] || ''} (${filterMonth})`],
+          ['ឆ្នាំ / Year', filterYear === 'all' ? 'គ្រប់ឆ្នាំ / All years' : filterYear],
+          ['សេវាកម្ម / Service', OP_LABELS[filterServiceType]?.kh || 'គ្រប់ប្រភេទ / All'],
+          ['លទ្ធផល / Result', VERIFICATION_LABELS[filterVerification]?.kh || 'គ្រប់លទ្ធផល / All'],
+          ['សហគ្រាស / Company', !isStaff ? currentUser.license_number || currentUser.company_name_kh || '-'
+            : filterCompany === 'all' ? 'គ្រប់ក្រុមហ៊ុន / All companies'
+              : `${facets.licences.find(l => l.licence_no === filterCompany)?.name || filterCompany} (${filterCompany})`],
+          ['ពាក្យស្វែងរក / Search', searchQuery.trim() || '-'],
+        ],
+      });
     } catch (err: any) {
       setError(err?.message || 'Search failed');
       setRows([]);
@@ -130,7 +131,7 @@ export default function Annex8ReportSearch({ currentUser }: { currentUser: Metro
     } finally {
       setBusy(false);
     }
-  }, [filterYear, filterMonth, filterServiceType, filterVerification, filterCompany, searchQuery]);
+  }, [filterYear, filterMonth, filterServiceType, filterVerification, filterCompany, searchQuery, facets.licences, isStaff, currentUser]);
 
   // Dropdowns search immediately; free text waits for Enter or the button so
   // typing does not fire a request per keystroke.
@@ -152,27 +153,22 @@ export default function Annex8ReportSearch({ currentUser }: { currentUser: Metro
     setCurrentPage(1);
   };
 
-  const exportCsv = () => {
-    const header = ['ល.រ', 'ក្រុមហ៊ុនទទួលបានអាជ្ញាប័ណ្ណ', 'លេខអាជ្ញាប័ណ្ណ', 'ឈ្មោះអតិថិជន', 'ទីតាំង',
-      'ឈ្មោះឧបករណ៍វាស់វែង', 'លេខស៊េរី', 'ប្រភេទសេវាកម្ម', 'លទ្ធផលផ្ទៀងផ្ទាត់',
-      'កាលបរិច្ឆេទធ្វើសេវាកម្ម', 'ខែ', 'ឆ្នាំ'];
-    const body = rows.map((r, i) => [
-      i + 1, r.company_name_kh, r.licence_no, r.customer_name, r.province || '',
-      r.instrument_name, r.serial_no, OP_LABELS[r.op_code]?.kh || r.op_code,
-      VERIFICATION_LABELS[r.verification_status || '']?.kh || '', r.activity_date || '',
-      r.report_month, r.report_year,
-    ]);
-    const csv = [header, ...body]
-      .map((line) => line.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-    // The BOM makes Excel read it as UTF-8; without it the Khmer comes out as mojibake.
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `NMC_report_search_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  const exportResults = async (format: 'docx' | 'pdf' | 'xlsx') => {
+    // Open synchronously on the click, before loading the export module, so
+    // mobile browsers retain the user gesture needed for the print window.
+    const printWindow = format === 'pdf' ? window.open('', '_blank') : null;
+    if (printWindow) printWindow.opener = null;
+    setExporting(format);
+    setExportError(null);
+    try {
+      const { exportSearchResults } = await import('../annex8/searchExports');
+      await exportSearchResults(format, rows, exportContext, printWindow);
+    } catch (err: any) {
+      printWindow?.close();
+      setExportError(err?.message || 'មិនអាចបង្កើតឯកសារបានទេ។');
+    } finally {
+      setExporting(null);
+    }
   };
 
   const colSpan = isStaff ? 9 : 8;
@@ -278,7 +274,7 @@ export default function Annex8ReportSearch({ currentUser }: { currentUser: Metro
             <span>រង់ចាំ <strong className="text-slate-600">{counts.pending}</strong></span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => void runSearch()} disabled={busy}
               className="px-3 py-1.5 bg-[#353C96] hover:bg-[#2b3178] text-white text-[10px] font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50">
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
@@ -288,10 +284,20 @@ export default function Annex8ReportSearch({ currentUser }: { currentUser: Metro
               className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer">
               <RotateCcw className="h-3.5 w-3.5" /> សម្អាត
             </button>
-            <button type="button" onClick={exportCsv} disabled={!rows.length}
-              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40">
-              <Download className="h-3.5 w-3.5 text-emerald-600" /> Export Excel
-            </button>
+            {([
+              { format: 'docx' as const, label: 'Export Word', Icon: FileText, tone: 'text-blue-600' },
+              { format: 'pdf' as const, label: 'Print PDF', Icon: Printer, tone: 'text-red-600' },
+              { format: 'xlsx' as const, label: 'Export Excel', Icon: FileSpreadsheet, tone: 'text-emerald-600' },
+            ]).map(({ format, label, Icon, tone }) => (
+              <button key={format} type="button" onClick={() => void exportResults(format)}
+                disabled={busy || !!exporting || !rows.length}
+                title={format === 'pdf' ? 'Print all loaded results or save as PDF' : 'Export all loaded results across all pages'}
+                aria-busy={exporting === format}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40">
+                {exporting === format ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Icon className={`h-3.5 w-3.5 ${tone}`} />}
+                {label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -301,6 +307,10 @@ export default function Annex8ReportSearch({ currentUser }: { currentUser: Metro
             <span className="mt-0.5 block break-all font-mono text-[9px] font-semibold text-red-600">{error}</span>
           </div>
         )}
+
+        {exportError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] font-bold text-red-800">
+          មិនអាចបង្កើតឯកសារបានទេ។ <span className="block break-words font-normal">{exportError}</span>
+        </div>}
 
         {truncated && (
           <p className="text-[10px] font-bold text-amber-700">
