@@ -8,25 +8,27 @@
  *
  * Everything a licensee needs for Annex 8 is here and nowhere else:
  *
- *   បំពេញប្រចាំខែ   record work as it happens, review, submit (the standard way)
- *   បំពេញម្តងទាំងអស់  the 7-step form, for a month filled in one sitting
- *   ប្រវត្តិរបាយការណ៍  search what was submitted before
+ *   បំពេញប្រចាំខែ   record work as it happens, review, submit
+ *   ប្រវត្តិរបាយការណ៍  the register of what was filed, and instrument search
  *
- * This file only chooses between those three. The work itself lives in the
- * three components below, unchanged — nothing about the official document is
- * decided here.
+ * There was a third, a 7-step form that filled a whole month in one sitting.
+ * It is gone. Two ways to write the same annex meant two code paths, and they
+ * had drifted: the one-shot path jumped straight to SUBMITTED and wrote no
+ * audit entries at all, so a report filed through it left no record of who
+ * entered what. The monthly workspace does a single sitting perfectly well —
+ * add every entry in one visit and submit — and it is the path that is
+ * validated, audited and reviewable.
  */
 import { Suspense, lazy, useState } from 'react';
-import { CalendarRange, FileSpreadsheet, History, Loader2 } from 'lucide-react';
+import { CalendarRange, History, Loader2 } from 'lucide-react';
 
 import { EnterpriseLicense, MetrologyUser } from '../types';
 
 const Annex8MonthWorkspace = lazy(() => import('./Annex8MonthWorkspace'));
-const Annex8ReportForm = lazy(() => import('./Annex8ReportForm'));
 const Annex8ReportSearch = lazy(() => import('./Annex8ReportSearch'));
 const Annex8MyReportsTable = lazy(() => import('./Annex8MyReportsTable'));
 
-type View = 'month' | 'form' | 'history';
+type View = 'month' | 'history';
 
 /**
  * History has two levels, because they answer different questions. The
@@ -54,16 +56,8 @@ const VIEWS: Array<{
     key: 'month',
     kh: 'បំពេញប្រចាំខែ',
     en: 'Monthly entry',
-    hint: 'បញ្ចូលការងារបន្តិចម្តងៗពេញមួយខែ រួចពិនិត្យ និងដាក់ជូន',
+    hint: 'បញ្ចូលការងារបន្តិចម្តងៗពេញមួយខែ ឬម្តងទាំងអស់ រួចពិនិត្យ និងដាក់ជូន',
     icon: CalendarRange,
-    needsSave: true,
-  },
-  {
-    key: 'form',
-    kh: 'បំពេញម្តងទាំងអស់',
-    en: 'Full form',
-    hint: 'បំពេញរបាយការណ៍ទាំងមូលក្នុងពេលតែមួយ (៧ជំហាន)',
-    icon: FileSpreadsheet,
     needsSave: true,
   },
   {
@@ -150,14 +144,6 @@ export default function Annex8Portal({ currentUser, licence, toastMsg, language 
       <Suspense fallback={<Spinner />}>
         {active?.key === 'month' && (
           <Annex8MonthWorkspace currentUser={currentUser} toastMsg={toastMsg} />
-        )}
-        {active?.key === 'form' && (
-          <Annex8ReportForm
-            currentUser={currentUser}
-            licence={licence || null}
-            toastMsg={toastMsg}
-            language={language}
-          />
         )}
         {active?.key === 'history' && (
           <div className="space-y-3">

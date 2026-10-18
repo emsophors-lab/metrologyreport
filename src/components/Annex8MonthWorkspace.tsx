@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, CalendarDays, Check, CheckCircle2, Clock, Copy, FileText,
-  Layers, Loader2, LocateFixed, MapPin, Pencil, Plus, Search, ShieldCheck,
+  Layers, Loader2, LocateFixed, MapPin, Pencil, Plus, RotateCcw, Search, ShieldCheck,
   Sliders, Trash2, Wrench, X, XCircle,
 } from 'lucide-react';
 
@@ -337,7 +337,7 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
   const [period, setPeriod] = useState(periods[0]);
   const [part, setPart] = useState<Part>('instrument');
   /** The four entry parts, or the month-end check. */
-  const [view, setView] = useState<'licensee' | 'entries' | 'review'>('entries');
+  const [view, setView] = useState<'licensee' | 'entries' | 'carry' | 'review'>('entries');
 
   const [report, setReport] = useState<any>(null);
   const [entries, setEntries] = useState<Record<string, any[]>>({
@@ -348,6 +348,14 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ kh: string; detail: string } | null>(null);
   const [closedMonth, setClosedMonth] = useState<{ period: string; report_id: string | null } | null>(null);
+
+  /* Article 17 — instruments reported in an earlier month as រង់ចាំ, whose
+     verification result has now arrived. `pending` is what is still owed
+     across all earlier months; `carryOver` is what this month has recorded. */
+  const [pending, setPending] = useState<any[]>([]);
+  const [carryOver, setCarryOver] = useState<any[]>([]);
+  const [carryForm, setCarryForm] = useState<Record<string, { status: string; cert_no: string; date: string }>>({});
+  const [carrySaving, setCarrySaving] = useState<string | null>(null);
 
   const [form, setForm] = useState<{ part: Part; values: Record<string, any>; id: string | null } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -377,7 +385,17 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
       setReport(data.report);
       setEntries(data.entries || { instruments: [], modules: [], repairs: [], standards: [] });
       setTotals(data.totals);
+      setCarryOver(data.carry_over || []);
       setEditable(!!data.editable);
+
+      // What is still awaiting a result from months before this one.
+      try {
+        const p = await apiRequest<any>(
+          `/api/annex8/pending?licence_no=${encodeURIComponent(licenceNo)}&before=${target}`);
+        setPending(p?.items || []);
+      } catch {
+        setPending([]);       // never block the month on this
+      }
     } catch (err: any) {
       setError({ kh: 'មិនអាចបើកខែនេះបានទេ', detail: err?.message || String(err) });
     } finally {
@@ -495,6 +513,50 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
       toastMsg(`មិនអាចត្រឡប់វិញបានទេ / ${err?.message || err}`, 'error');
     }
   };
+
+  /* ---------------------- carry-over (Article 17) ---------------------- */
+
+  const saveCarryOver = async (item: any) => {
+    const draft = carryForm[item.source_row_id] || { status: '', cert_no: '', date: '' };
+    if (draft.status !== 'PASSED' && draft.status !== 'FAILED') {
+      toastMsg('សូមជ្រើស ជាប់ ឬ ធ្លាក់', 'error');
+      return;
+    }
+    setCarrySaving(item.source_row_id);
+    try {
+      await apiRequest('/api/annex8/carry-over', {
+        method: 'POST',
+        body: {
+          licence_no: licenceNo,
+          period,
+          source_part: item.ref,
+          source_row_id: item.source_row_id,
+          new_status: draft.status,
+          cert_no: draft.cert_no,
+          verification_date: draft.date,
+        },
+      });
+      toastMsg('បានកត់ត្រាលទ្ធផល', 'success');
+      await loadMonth(period, true);
+    } catch (err: any) {
+      toastMsg(err?.message || 'មិនអាចកត់ត្រាបានទេ', 'error');
+    } finally {
+      setCarrySaving(null);
+    }
+  };
+
+  const removeCarryOver = async (id: string) => {
+    try {
+      await apiRequest(`/api/annex8/carry-over/${id}`, { method: 'DELETE' });
+      toastMsg('បានដកចេញ', 'success');
+      await loadMonth(period, false);
+    } catch (err: any) {
+      toastMsg(err?.message || 'មិនអាចដកចេញបានទេ', 'error');
+    }
+  };
+
+  /** A pending item this month has already settled. */
+  const settledBy = (rowId: string) => carryOver.find((c) => c.source_row_id === rowId) || null;
 
   const captureGps = () => {
     if (!navigator.geolocation) return toastMsg('ឧបករណ៍នេះមិនស្គាល់ទីតាំង GPS ទេ', 'error');
@@ -658,6 +720,22 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
               );
             })}
 
+            {/* Not a numbered part of the annex — Article 17, results that
+                arrived this month for instruments reported earlier. Hidden
+                when there is nothing outstanding, so it never becomes noise. */}
+            {(pending.length > 0 || carryOver.length > 0) && (
+              <button type="button" onClick={() => setView('carry')}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-black transition-colors ${
+                  view === 'carry' ? 'bg-[#0B1A35] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}>
+                <RotateCcw className={`h-3.5 w-3.5 ${view === 'carry' ? 'text-[#E6C45A]' : 'text-slate-400'}`} />
+                រង់ចាំពីខែមុន
+                <span className={view === 'carry' ? 'text-[#E6C45A]' : 'text-slate-400'}>
+                  {kh(pending.length)}
+                </span>
+              </button>
+            )}
+
             {report && (
               <button type="button" onClick={() => setView('review')}
                 className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-black transition-colors ${
@@ -680,7 +758,100 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
           </div>
         </div>
 
-        {view === 'licensee' ? (
+        {view === 'carry' ? (
+          <div className="p-4">
+            <div className="mb-3 border-l-4 border-[#C9A227] pl-3">
+              <h4 className="text-[13px] font-black text-[#0B1A35]">ឧបករណ៍រង់ចាំផ្ទៀងផ្ទាត់ពីខែមុន</h4>
+              <p className="text-[10px] font-bold text-slate-400">
+                Article 17 · results that arrived this month for earlier reports
+              </p>
+            </div>
+
+            <p className="mb-3 text-[11px] font-semibold text-slate-500">
+              ឧបករណ៍ទាំងនេះត្រូវបានរាយការណ៍ក្នុងខែមុនជា «រង់ចាំ»។
+              នៅពេលលទ្ធផលផ្ទៀងផ្ទាត់មកដល់ សូមកត់ត្រានៅទីនេះ។
+              លទ្ធផលនឹងត្រូវបញ្ចូលទៅខែដើមវិញ នៅពេលដាក់ជូនរបាយការណ៍ខែនេះ។
+            </p>
+
+            {!pending.length ? (
+              <p className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 text-center text-[12px] font-bold text-slate-500">
+                គ្មានឧបករណ៍រង់ចាំពីខែមុនទេ
+                <span className="mt-0.5 block text-[10px] font-semibold text-slate-400">
+                  Nothing is awaiting verification from an earlier month.
+                </span>
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {pending.map((item) => {
+                  const settled = settledBy(item.source_row_id);
+                  const draft = carryForm[item.source_row_id] || { status: '', cert_no: '', date: '' };
+                  const setDraft = (patch: Partial<typeof draft>) =>
+                    setCarryForm((f) => ({ ...f, [item.source_row_id]: { ...draft, ...patch } }));
+
+                  return (
+                    <div key={item.source_row_id}
+                      className={`rounded-xl border p-3 ${settled ? 'border-emerald-200 bg-emerald-50/50' : 'border-slate-200 bg-white'}`}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-[12px] font-black text-[#0B1A35]">
+                            {item.instrument_name || '—'}
+                            <span className="ml-2 font-mono text-[11px] font-bold text-slate-500">
+                              {item.serial_no || '—'}
+                            </span>
+                          </div>
+                          <div className="text-[10px] font-bold text-slate-400">
+                            {item.ref === 'P4' ? 'ផ្នែកទី៤ ជួសជុល' : 'ផ្នែកទី៣ ផលិត / ដំឡើង'}
+                            {' · '}ពីខែ {khmerMonthLabel(item.since)}
+                            {item.source_report_id ? ` · ${item.source_report_id}` : ''}
+                          </div>
+                        </div>
+
+                        {settled && (
+                          <div className="flex items-center gap-2">
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${
+                              settled.new_status === 'PASSED'
+                                ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                            }`}>
+                              {settled.new_status === 'PASSED' ? 'ជាប់' : 'ធ្លាក់'}
+                              {settled.cert_no ? ` · ${settled.cert_no}` : ''}
+                            </span>
+                            {editable && (
+                              <button type="button" onClick={() => void removeCarryOver(settled.id)}
+                                className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-500 hover:bg-slate-50">
+                                ដកចេញ
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {!settled && editable && (
+                        <div className="mt-2.5 grid gap-2 sm:grid-cols-4">
+                          <select className={input} value={draft.status}
+                            onChange={(e) => setDraft({ status: e.target.value })}>
+                            <option value="">លទ្ធផល…</option>
+                            <option value="PASSED">ជាប់</option>
+                            <option value="FAILED">ធ្លាក់</option>
+                          </select>
+                          <input className={input} placeholder="លេខវិញ្ញាបនបត្រ"
+                            value={draft.cert_no} onChange={(e) => setDraft({ cert_no: e.target.value })} />
+                          <input className={input} type="date"
+                            value={draft.date} onChange={(e) => setDraft({ date: e.target.value })} />
+                          <button type="button"
+                            disabled={carrySaving === item.source_row_id}
+                            onClick={() => void saveCarryOver(item)}
+                            className="rounded-lg bg-[#0B1A35] px-3 py-2 text-[11px] font-black text-white hover:bg-[#15284d] disabled:opacity-50">
+                            {carrySaving === item.source_row_id ? 'កំពុងរក្សាទុក…' : 'កត់ត្រា'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : view === 'licensee' ? (
           /* Part 1 is not typed. It is the licence record, copied onto the
              report when the month opens so the annex stays readable even if
              the licence changes later. Shown read-only so the licensee can

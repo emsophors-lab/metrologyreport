@@ -111,6 +111,25 @@ const ok = (name: string, cond: boolean, extra?: any) => {
   ok('an object writes and reads back as an object', withJson?.events?.seal_broken === true, withJson?.events);
   ok('Khmer inside JSON survives', withJson?.events?.note === 'ត្រាបាក់', withJson?.events?.note);
 
+  console.log('\nauto-increment keys');
+  // annex8_report_audit_log's id is BIGINT AUTO_INCREMENT, not a UUID. The
+  // adapter used to mint a UUID for every insert, which this table rejects —
+  // and because the failure was returned rather than thrown, the audit log
+  // recorded nothing at all while every request still answered 200.
+  const { error: eAudit } = await db.from('annex8_report_audit_log').insert({
+    report_uuid: reportId, licence_no: 'LIC-2026-001', period_month: '2026-10',
+    entity: 'report', entity_id: reportId, action: 'open',
+    actor: 'user-co-001', actor_role: 'company',
+    new_value: { note: 'ត្រាបាក់' },
+  });
+  ok('an auto-increment table accepts an insert', !eAudit, eAudit);
+  const { data: auditRows } = await db.from('annex8_report_audit_log')
+    .select('*').eq('report_uuid', reportId);
+  ok('and the row is there', auditRows.length === 1, auditRows.length);
+  ok('with a numeric id the database chose', typeof auditRows[0]?.id === 'number', auditRows[0]?.id);
+  ok('and Khmer intact in its JSON', auditRows[0]?.new_value?.note === 'ត្រាបាក់', auditRows[0]?.new_value);
+  await db.from('annex8_report_audit_log').delete().eq('report_uuid', reportId);
+
   console.log('\nupsert');
   await db.from('annex8_report_drafts').upsert(
     { licence_no: 'LIC-2026-001', period_month: '2026-10', payload: { a: 1 }, draft_kind: 'ENTRY' },

@@ -12,7 +12,8 @@
     "lint": "tsc --noEmit",
     "annex8:check": "tsx scripts/annex8-check-template.ts && tsx scripts/annex8-check-db-mapping.ts && tsx scripts/annex8-check-entries.ts",
     "mysql:check": "tsx scripts/mysql-adapter-check.ts",
-    "annex8:scenario": "node scripts/annex8-scenario.mjs"
+    "annex8:scenario": "node scripts/annex8-scenario.mjs",
+    "annex8:carry-over": "node scripts/annex8-carry-over-check.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

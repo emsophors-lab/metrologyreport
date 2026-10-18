@@ -3055,11 +3055,14 @@ app.get('/api/annex8/licence', async (req, res) => {
 app.get('/api/annex8/pending', async (req, res) => {
   try {
     if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
-    if (!(await requireApiRole(req, res, ['superadmin', 'admin', 'company']))) return;
 
     const licenceNo = String(req.query?.licence_no || '').trim();
     const beforeMonth = String(req.query?.before || '').trim();
-    if (!licenceNo) return apiError(res, 400, 'licence_no is required.');
+    // requireApiRole only checked the ROLE, so any company account could ask
+    // for another enterprise's licence and be told which of its instruments
+    // are still awaiting verification. This is the same ownership check every
+    // other Annex 8 endpoint uses.
+    if (!(await requireAnnex8Licence(req, res, licenceNo))) return;
 
     const { data: reports } = await supabaseAdmin
       .from('annex8_reports')
@@ -3073,9 +3076,12 @@ app.get('/api/annex8/pending', async (req, res) => {
     const ids = relevant.map((r: any) => r.id);
     const byId = new Map(relevant.map((r: any) => [r.id, r]));
 
+    // A deleted entry must not resurface here asking to be verified.
     const [instruments, repairs] = await Promise.all([
-      supabaseAdmin.from('annex8_report_instruments').select('*').in('report_uuid', ids).eq('verification_status', 'PENDING'),
-      supabaseAdmin.from('annex8_report_repairs').select('*').in('report_uuid', ids).eq('verification_status', 'PENDING'),
+      supabaseAdmin.from('annex8_report_instruments').select('*')
+        .in('report_uuid', ids).eq('verification_status', 'PENDING').is('deleted_at', null),
+      supabaseAdmin.from('annex8_report_repairs').select('*')
+        .in('report_uuid', ids).eq('verification_status', 'PENDING').is('deleted_at', null),
     ]);
 
     const items = [
@@ -3163,7 +3169,10 @@ async function writeAnnex8Audit(entry: {
   new_value?: any;
 }) {
   try {
-    await supabaseAdmin.from('annex8_report_audit_log').insert({
+    // The client REPORTS failures, it does not throw them. Only catching a
+    // throw meant a rejected insert looked like a successful write, and the
+    // audit log recorded nothing at all while every request returned 200.
+    const { error } = await supabaseAdmin.from('annex8_report_audit_log').insert({
       report_uuid: entry.report_uuid || null,
       licence_no: entry.licence_no || null,
       period_month: entry.period_month || null,
@@ -3175,8 +3184,13 @@ async function writeAnnex8Audit(entry: {
       old_value: entry.old_value ?? null,
       new_value: entry.new_value ?? null,
     });
+    if (error) {
+      console.error(
+        `Annex 8 AUDIT WRITE FAILED (${entry.entity}/${entry.action}): ${error.message}`,
+      );
+    }
   } catch (err: any) {
-    console.warn('Annex 8 audit write failed:', err?.message || err);
+    console.error('Annex 8 AUDIT WRITE FAILED:', err?.message || err);
   }
 }
 
@@ -3357,9 +3371,10 @@ app.get('/api/annex8/month', async (req, res) => {
       });
     }
 
-    const [entries, totals] = await Promise.all([
+    const [entries, totals, carryOver] = await Promise.all([
       loadMonthEntries(report.id),
       monthTotals(report.id),
+      supabaseAdmin.from('annex8_carry_over_updates').select('*').eq('report_uuid', report.id),
     ]);
 
     return apiSuccess(res, {
@@ -3367,12 +3382,158 @@ app.get('/api/annex8/month', async (req, res) => {
       report,
       entries,
       totals,
+      // Art. 17 results this month settles for instruments reported earlier.
+      carry_over: carryOver.data || [],
       editable: isEditableStatus(report.status),
       deadline: deadlineDate(period),
     });
   } catch (err: any) {
     console.error('Annex 8 month load failed:', err?.message || err);
     return apiError(res, 500, 'Unable to load the month.');
+  }
+});
+
+/**
+ * POST /api/annex8/carry-over
+ *   { licence_no, period, source_part, source_row_id, new_status, cert_no?, verification_date? }
+ *
+ * Article 17: an instrument reported in an earlier month as រង់ចាំ gets its
+ * verification result recorded in the month the result actually arrived.
+ *
+ * The result is NOT written to the source row here. It is held against this
+ * month and applied at submit, so a result typed and then thought better of
+ * cannot quietly rewrite a month that is already with NMC. The source row is
+ * re-checked at that point too.
+ */
+app.post('/api/annex8/carry-over', async (req, res) => {
+  try {
+    const licenceNo = String(req.body?.licence_no || '').trim();
+    const resolved = await requireAnnex8Licence(req, res, licenceNo);
+    if (!resolved) return;
+
+    const sourcePart = String(req.body?.source_part || '').trim().toUpperCase();
+    const sourceRowId = String(req.body?.source_row_id || '').trim();
+    const newStatus = String(req.body?.new_status || '').trim().toUpperCase();
+    if (sourcePart !== 'P3' && sourcePart !== 'P4') {
+      return apiError(res, 400, 'source_part must be P3 or P4.');
+    }
+    if (!sourceRowId) return apiError(res, 400, 'source_row_id is required.');
+    if (newStatus !== 'PASSED' && newStatus !== 'FAILED') {
+      // PENDING would be a no-op: the row already says that.
+      return apiError(res, 400, 'new_status must be PASSED or FAILED.');
+    }
+
+    const period = String(req.body?.period || '').trim() || previousPeriod();
+    const actor = { id: String(resolved.userRow?.id || ''), role: resolved.role };
+    const report = await openMonthFor(req, res, licenceNo, period, actor);
+    if (!report) return;      // month closed; response already sent
+
+    // The source row must belong to this licensee, be awaiting verification,
+    // and come from a month before this one. Anything else is a client that
+    // has gone wrong, or one that is trying something.
+    const table = sourcePart === 'P4' ? 'annex8_report_repairs' : 'annex8_report_instruments';
+    const { data: sourceRow } = await supabaseAdmin
+      .from(table).select('*').eq('id', sourceRowId).maybeSingle();
+    if (!sourceRow || sourceRow.deleted_at) return apiError(res, 404, 'That entry no longer exists.');
+
+    const { data: sourceReport } = await supabaseAdmin
+      .from('annex8_reports').select('id, licence_no, period_month, report_id')
+      .eq('id', sourceRow.report_uuid).maybeSingle();
+    if (!sourceReport || sourceReport.licence_no !== licenceNo) {
+      return res.status(403).json({ error: 'That entry belongs to another enterprise.' });
+    }
+    if (sourceRow.verification_status !== 'PENDING') {
+      return apiError(res, 409, 'That entry already has a verification result.');
+    }
+    if (String(sourceReport.period_month) >= period) {
+      return apiError(res, 400,
+        'An entry from this month is edited directly, not carried over.');
+    }
+
+    // One carry-over per source row per month: recording a result twice is a
+    // correction, not a second result.
+    const { data: existing } = await supabaseAdmin
+      .from('annex8_carry_over_updates').select('id')
+      .eq('report_uuid', report.id).eq('source_row_id', sourceRowId).maybeSingle();
+
+    const values = {
+      report_uuid: report.id,
+      source_part: sourcePart,
+      source_row_id: sourceRowId,
+      source_report_id: sourceReport.report_id || null,
+      serial_no: sourceRow.serial_no || null,
+      new_status: newStatus,
+      cert_no: String(req.body?.cert_no || '').trim() || null,
+      verification_date: String(req.body?.verification_date || '').trim() || null,
+    };
+
+    let saved: any;
+    if (existing?.id) {
+      const { data, error } = await supabaseAdmin
+        .from('annex8_carry_over_updates').update(values).eq('id', existing.id).select('*').single();
+      if (error) throw error;
+      saved = data;
+    } else {
+      const { data, error } = await supabaseAdmin
+        .from('annex8_carry_over_updates').insert(values).select('*').single();
+      if (error) throw error;
+      saved = data;
+    }
+
+    await writeAnnex8Audit({
+      report_uuid: report.id, licence_no: licenceNo, period_month: period,
+      entity: 'carry_over', entity_id: String(saved.id),
+      action: existing?.id ? 'update' : 'create',
+      actor: actor.id, actor_role: actor.role,
+      new_value: values,
+    });
+
+    return apiSuccess(res, { carry_over: saved });
+  } catch (err: any) {
+    console.error('Annex 8 carry-over save failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to record the carry-over result.');
+  }
+});
+
+/** DELETE /api/annex8/carry-over/:id  —  take a carry-over back off the month. */
+app.delete('/api/annex8/carry-over/:id', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const id = String(req.params?.id || '').trim();
+    const { data: row } = await supabaseAdmin
+      .from('annex8_carry_over_updates').select('*').eq('id', id).maybeSingle();
+    if (!row) return apiError(res, 404, 'Carry-over not found.');
+
+    const { data: report } = await supabaseAdmin
+      .from('annex8_reports').select('id, licence_no, period_month, status, report_id')
+      .eq('id', row.report_uuid).maybeSingle();
+    if (!report) return apiError(res, 404, 'Report not found.');
+
+    const resolved = await requireAnnex8Licence(req, res, String(report.licence_no || ''));
+    if (!resolved) return;
+
+    if (!isEditableStatus(report.status)) {
+      return res.status(409).json({
+        success: false,
+        ...monthClosedError(report.period_month, String(report.status), report.report_id || null),
+      });
+    }
+
+    const { error } = await supabaseAdmin.from('annex8_carry_over_updates').delete().eq('id', id);
+    if (error) throw error;
+
+    await writeAnnex8Audit({
+      report_uuid: report.id, licence_no: String(report.licence_no), period_month: String(report.period_month),
+      entity: 'carry_over', entity_id: id, action: 'delete',
+      actor: String(resolved.userRow?.id || ''), actor_role: resolved.role,
+      old_value: row,
+    });
+
+    return apiSuccess(res, { removed: id });
+  } catch (err: any) {
+    console.error('Annex 8 carry-over delete failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to remove the carry-over result.');
   }
 });
 
@@ -4183,245 +4344,17 @@ app.put('/api/annex8/draft', async (req, res) => {
   }
 });
 
-/**
- * Submit. The server is the authority: it re-runs validation, recomputes
- * Part 2 from the submitted rows, decides on_time itself, and allocates the
- * receipt number. Nothing computed by the client is trusted.
+/*
+ * The one-shot submit endpoint, POST /api/annex8/reports, was removed here.
+ *
+ * It wrote a whole month in a single request and set the report straight to
+ * SUBMITTED, skipping OPEN and the review. It also wrote no audit entries at
+ * all, so a report filed through it left no record of who entered what —
+ * against the rule that every create, update, delete and submit is logged.
+ * Its only caller was the Full form, which is gone. Reports are now written
+ * one entry at a time through /api/annex8/entries and submitted through
+ * /api/annex8/month/submit, which validates, computes Part 2 and audits.
  */
-app.post('/api/annex8/reports', async (req, res) => {
-  try {
-    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
-
-    const role = await resolveApiRole(req);
-    if (!role) return res.status(401).json({ error: 'Authentication required.' });
-    if (!['superadmin', 'admin', 'company'].includes(role)) {
-      return res.status(403).json({ error: 'Insufficient permission to submit a report.' });
-    }
-
-    const state = req.body?.report as Annex8State | undefined;
-    if (!state?.meta?.licence_no || !state?.meta?.period_month) {
-      return apiError(res, 400, 'A report with licence_no and period_month is required.');
-    }
-
-    const licenceNo = state.meta.licence_no;
-    const period = state.meta.period_month;
-
-    // Licence facts the client cannot be trusted to supply.
-    const [scopeRes, techRes, licenceRes] = await Promise.all([
-      supabaseAdmin.from('annex8_licence_scope').select('category_code').eq('license_number', licenceNo),
-      supabaseAdmin.from('annex8_licence_technicians').select('full_name').eq('license_number', licenceNo).eq('is_active', true),
-      supabaseAdmin.from('enterprise_licenses').select('license_expiry_date').eq('license_number', licenceNo).maybeSingle(),
-    ]);
-
-    // V07 — serials and labels already recorded elsewhere in the system.
-    const serials = [
-      ...state.instruments.map((x) => x.serial_no),
-      ...state.repairs.map((x) => x.serial_no),
-    ].filter(Boolean);
-    const labels = state.instruments.map((x) => x.label_qr_no).filter(Boolean);
-
-    const [dupSerials, dupLabels] = await Promise.all([
-      serials.length
-        ? supabaseAdmin.from('annex8_report_instruments').select('serial_no').in('serial_no', serials)
-        : Promise.resolve({ data: [] as any[] }),
-      labels.length
-        ? supabaseAdmin.from('annex8_report_instruments').select('label_qr_no').in('label_qr_no', labels)
-        : Promise.resolve({ data: [] as any[] }),
-    ]);
-
-    const issues = validateAnnex8(state, {
-      licence: {
-        scope: (scopeRes.data || []).map((r: any) => r.category_code),
-        licence_valid_to: licenceRes.data?.license_expiry_date || '',
-        staff: (techRes.data || []).map((r: any) => r.full_name),
-      },
-      knownDuplicateSerials: (dupSerials.data || []).map((r: any) => r.serial_no),
-      knownDuplicateLabels: (dupLabels.data || []).map((r: any) => r.label_qr_no),
-    });
-
-    const blocking = blockingIssues(issues);
-    if (blocking.length > 0) {
-      return res.status(422).json({
-        success: false,
-        message: 'Report rejected by validation.',
-        issues: blocking.map((i) => ({ code: i.code, path: i.path, message: i.message })),
-      });
-    }
-
-    // Part 2 is recomputed here; a client-sent summary is ignored.
-    const summary = computeSummary(state);
-    const onTime = isOnTime(period);
-
-    const { data: idRow, error: idError } = await supabaseAdmin.rpc('annex8_next_report_id', { p_period: period });
-    if (idError) {
-      console.error('Annex 8 report id allocation failed:', idError.message || idError);
-      return apiError(res, 500, 'Unable to allocate a report number.');
-    }
-    const reportId = String(idRow);
-    const submittedAt = new Date().toISOString();
-
-    const { data: inserted, error: headerError } = await supabaseAdmin
-      .from('annex8_reports')
-      .insert({
-        report_id: reportId,
-        format_version: FORMAT_VERSION,
-        licence_no: licenceNo,
-        user_id: String(req.body?.user_id || ''),
-        licence_type: state.meta.licence_type,
-        enterprise_name_kh: state.meta.enterprise_name_kh,
-        enterprise_name_en: state.meta.enterprise_name_en,
-        registration_no: state.meta.registration_no,
-        licence_valid_to: state.meta.licence_valid_to || null,
-        operating_address: state.meta.operating_address,
-        period_month: period,
-        report_type: state.meta.report_type,
-        original_report_id: state.meta.original_report_id || null,
-        contact_name: state.meta.contact.name,
-        contact_position: state.meta.contact.position,
-        contact_phone: state.meta.contact.phone,
-        contact_email: state.meta.contact.email,
-        part2_summary: summary,
-        events: state.events,
-        warnings: warningIssues(issues),
-        declaration_accepted: state.declaration,
-        status: 'SUBMITTED',
-        on_time: onTime,
-        submitted_at: submittedAt,
-        submitted_by: String(req.body?.user_id || ''),
-      })
-      .select('id')
-      .single();
-
-    if (headerError || !inserted) {
-      console.error('Annex 8 report insert failed:', headerError?.message || headerError);
-      const duplicate = String(headerError?.message || '').includes('uniq_a8_report_period');
-      return apiError(res, duplicate ? 409 : 500,
-        duplicate
-          ? 'របាយការណ៍សម្រាប់ខែនេះ ត្រូវបានដាក់ជូនរួចហើយ / A report for this month has already been submitted.'
-          : 'Unable to save the report.');
-    }
-
-    const reportUuid = inserted.id;
-    const isNil = state.meta.report_type === 'NIL';
-
-    if (!isNil) {
-      if (state.instruments.length) {
-        await supabaseAdmin.from('annex8_report_instruments').insert(
-          state.instruments.map((x, i) => ({
-            report_uuid: reportUuid, row_no: i + 1,
-            op_code: x.op_code, category: x.category, category_other: x.category_other,
-            instrument_name: x.instrument_name, model: x.model, serial_no: x.serial_no,
-            manufacturer: x.manufacturer, country: x.country,
-            max_capacity: x.max, min_capacity: x.min, e_value: x.e, unit: x.unit,
-            accuracy_class: x.accuracy_class, type_approval_no: x.type_approval_no,
-            completion_date: x.completion_date || null,
-            customer_name: x.customer_name, province: x.province, address: x.address,
-            latitude: x.lat === '' ? null : Number(x.lat),
-            longitude: x.long === '' ? null : Number(x.long),
-            label_qr_no: x.label_qr_no,
-            verification_status: x.verification_status,
-            verification_cert_no: x.verification_cert_no,
-            verification_date: x.verification_date || null,
-          })),
-        );
-      }
-      if (state.modules.length) {
-        await supabaseAdmin.from('annex8_report_modules').insert(
-          state.modules.map((x, i) => ({
-            report_uuid: reportUuid, row_no: i + 1,
-            host_serial_no: x.host_serial_no, host_part: hostPart(state, x.host_serial_no) || null,
-            module_name: x.module_name, model: x.model, serial_no: x.serial_no,
-            range_e: x.range_e, manufacturer: x.manufacturer, country: x.country,
-            cert_no: x.cert_no, new_or_replacement: x.new_or_replacement,
-          })),
-        );
-      }
-      if (state.repairs.length) {
-        await supabaseAdmin.from('annex8_report_repairs').insert(
-          state.repairs.map((x, i) => ({
-            report_uuid: reportUuid, row_no: i + 1,
-            category: x.category, instrument_name: x.instrument_name, model: x.model,
-            serial_no: x.serial_no, customer_name: x.customer_name, province: x.province,
-            address: x.address,
-            latitude: x.lat === '' ? null : Number(x.lat),
-            longitude: x.long === '' ? null : Number(x.long),
-            repair_from: x.repair_from || null, repair_to: x.repair_to || null,
-            repair_description: x.repair_description,
-            seal_broken: x.seal_broken, seal_removed_no: x.seal_removed_no,
-            notification_no: x.notification_no, technician: x.technician,
-            verification_status: x.verification_status,
-            verification_cert_no: x.verification_cert_no,
-            verification_date: x.verification_date || null,
-          })),
-        );
-      }
-      if (state.standards.length) {
-        await supabaseAdmin.from('annex8_report_standards').insert(
-          state.standards.map((x, i) => ({
-            report_uuid: reportUuid, row_no: i + 1,
-            equipment: x.equipment, serial_no: x.serial_no, class_range: x.class_range,
-            cal_cert_no: x.cal_cert_no, lab: x.lab,
-            cal_date: x.cal_date || null, due_date: x.due_date || null, status: x.status,
-          })),
-        );
-      }
-    }
-
-    // Carry-over: record the update AND close out the originating row, so the
-    // item stops resurfacing next month.
-    const resolved = state.carry_over.filter((c) => c.status !== 'PENDING');
-    if (resolved.length) {
-      await supabaseAdmin.from('annex8_carry_over_updates').insert(
-        resolved.map((c) => ({
-          report_uuid: reportUuid, source_part: c.ref, source_row_id: c.source_row_id || null,
-          source_report_id: c.source_report_id || null, serial_no: c.serial_no,
-          new_status: c.status, cert_no: c.cert_no, verification_date: c.date || null,
-        })),
-      );
-
-      for (const c of resolved) {
-        if (!c.source_row_id) continue;
-        const table = c.ref === 'P4' ? 'annex8_report_repairs' : 'annex8_report_instruments';
-        await supabaseAdmin.from(table).update({
-          verification_status: c.status,
-          verification_cert_no: c.cert_no,
-          verification_date: c.date || null,
-        }).eq('id', c.source_row_id);
-      }
-    }
-
-    // The official DOCX/PDF are produced once, here, and stored in the private
-    // bucket. The report is already accepted at this point, so a render failure
-    // is recorded on the row rather than returned as a submission failure — the
-    // download route renders on demand and backfills storage.
-    let officialReady = false;
-    try {
-      const columns = await renderAndStoreOfficialDocuments(
-        supabaseAdmin, reportUuid, DEFAULT_TEMPLATE_VERSION,
-      );
-      await supabaseAdmin.from('annex8_reports').update(columns).eq('id', reportUuid);
-      officialReady = !!columns.official_pdf_path;
-    } catch (err: any) {
-      const message = err instanceof Annex8TemplateMissingError
-        ? err.message
-        : `Render: ${err?.message || err}`;
-      console.warn('Annex 8 official document not produced at submit:', message);
-      await supabaseAdmin.from('annex8_reports')
-        .update({ official_render_error: message }).eq('id', reportUuid);
-    }
-
-    return apiSuccess(res, {
-      report_id: reportId,
-      submitted_at: submittedAt,
-      on_time: onTime,
-      official_document_ready: officialReady,
-      warnings: warningIssues(issues).map((i) => ({ code: i.code, message: i.message })),
-    });
-  } catch (err: any) {
-    console.error('Annex 8 submit exception:', err?.message || err);
-    return apiError(res, 500, 'Unable to submit the report.');
-  }
-});
 
 /**
  * Official Annex 8 documents.
