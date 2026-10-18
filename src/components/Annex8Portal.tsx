@@ -26,7 +26,7 @@
  * validated, audited and reviewable.
  */
 import { Suspense, lazy, useState } from 'react';
-import { BarChart3, CalendarRange, FileText, History, Loader2 } from 'lucide-react';
+import { BarChart3, CalendarRange, FileText, History, Loader2, ShieldCheck } from 'lucide-react';
 
 import { EnterpriseLicense, MetrologyUser } from '../types';
 
@@ -35,8 +35,9 @@ const Annex8ReportSearch = lazy(() => import('./Annex8ReportSearch'));
 const Annex8MyReportsTable = lazy(() => import('./Annex8MyReportsTable'));
 const Annex8Overview = lazy(() => import('./Annex8Overview'));
 const ConsolidatedReportPage = lazy(() => import('./ConsolidatedReportPage'));
+const Annex8StaffReview = lazy(() => import('./Annex8StaffReview'));
 
-type View = 'overview' | 'month' | 'history' | 'consolidated';
+type View = 'overview' | 'review' | 'month' | 'history' | 'consolidated';
 
 /**
  * History has two levels, because they answer different questions. The
@@ -68,6 +69,17 @@ const VIEWS: Array<{
     hint: 'កាត និងក្រាហ្វិកសង្ខេបនៃរបាយការណ៍ប្រចាំខែ',
     icon: BarChart3,
     needsSave: false,
+  },
+  {
+    // NMC's review desk. Staff receive these reports, so this sits directly
+    // after the overview — it is the screen they spend their time on.
+    key: 'review',
+    kh: 'របាយការណ៍សហគ្រាស',
+    en: 'Company reports',
+    hint: 'ស្វែងរកតាមខែ ព្រីនឧបសម្ព័ន្ធទី៨ ទទួលយក ឬត្រឡប់',
+    icon: ShieldCheck,
+    needsSave: false,
+    staffOnly: true,
   },
   {
     key: 'month',
@@ -182,6 +194,10 @@ export default function Annex8Portal({ currentUser, licence, toastMsg, language 
 
       <Suspense fallback={<Spinner />}>
         {active?.key === 'overview' && <Annex8Overview currentUser={currentUser} />}
+
+        {active?.key === 'review' && isStaff && (
+          <Annex8StaffReview currentUser={currentUser} toastMsg={toastMsg} />
+        )}
         {active?.key === 'consolidated' && isStaff && <ConsolidatedReportPage currentUser={currentUser} />}
 
         {active?.key === 'month' && (

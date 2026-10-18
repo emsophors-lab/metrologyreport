@@ -8,9 +8,9 @@ import { createMysqlClient } from './src/db/mysqlClient';
 // same code the form uses, rather than a second copy that drifts out of step.
 import { validateAnnex8, blockingIssues, warningIssues, hostPart } from './src/annex8/validation';
 import { computeSummary, deadlineFor, isOnTime } from './src/annex8/summary';
-import { previousPeriod as previousConsolidatedPeriod, reportingPeriod } from './src/lib/consolidated/periods';
-import { dataProblems as consolidatedDataProblems } from './src/lib/consolidated/contract';
+import { reportingPeriod } from './src/lib/consolidated/periods';
 import type { PeriodType } from './src/lib/consolidated/periods';
+import { formatConsolidatedAggregate } from './src/lib/consolidated/aggregateResult';
 // NMC's own summary over the submissions. Deliberately separate from the
 // official annex: this one has a layout built in code, that one never does.
 import {
@@ -3630,7 +3630,18 @@ async function loadEditableEntry(req: any, res: any, part: EntryPart, id: string
   const resolved = await requireAnnex8Licence(req, res, String(report.licence_no || ''));
   if (!resolved) return null;
 
-  if (!isEditableStatus(report.status)) {
+  // NMC staff may correct a SUBMITTED report in place — they are the ones who
+  // receive it, and an obvious error should not need a round trip to fix.
+  // Every such edit is audited with the actor's role, so a change made by NMC
+  // is distinguishable from one made by the licensee.
+  //
+  // ACCEPTED is final for everyone. Accepting is NMC's own confirmation that
+  // the report is correct; editing it afterwards would quietly change
+  // something they have already signed off. To alter it, return it first.
+  const staffCorrection =
+    ['superadmin', 'admin'].includes(resolved.role) && report.status === 'SUBMITTED';
+
+  if (!isEditableStatus(report.status) && !staffCorrection) {
     res.status(409).json({
       success: false,
       ...monthClosedError(report.period_month, String(report.status), report.report_id || null),
@@ -4179,8 +4190,8 @@ async function resolveOverviewScope(req: any, res: any): Promise<
  *   superadmin / admin   every licensee, or one if they narrow to it
  *   company              its own licence, and nothing else
  */
-// Code-only integration: this reads the proposed RPC after its approved
-// migration exists. It never falls back to partial source rows or sample data.
+// Complete SQL aggregation. MySQL uses the equivalent read-only statement;
+// PostgreSQL requires the approved RPC migration. No sample-data fallback.
 app.get('/api/consolidated/preview', async (req, res) => {
   try {
     const user = await resolveApiUser(req);
@@ -4192,7 +4203,7 @@ app.get('/api/consolidated/preview', async (req, res) => {
     } catch {
       return apiError(res, 400, 'Invalid consolidated reporting period.');
     }
-    if (DB_DRIVER !== 'supabase' || !supabaseAdmin) {
+    if (!supabaseAdmin) {
       return res.status(503).json({ code: 'CONSOLIDATED_SCHEMA_PENDING', error: 'ការប្រមូលទិន្នន័យ PostgreSQL សម្រាប់របាយការណ៍សរុបមិនទាន់អាចប្រើបានទេ។' });
     }
     const { data, error } = await supabaseAdmin.rpc('mlrs_consolidated_preview', {
@@ -4204,12 +4215,11 @@ app.get('/api/consolidated/preview', async (req, res) => {
       }
       throw error;
     }
-    const problems = consolidatedDataProblems(data?.data);
-    if (problems.length || !data?.data_as_of || !Array.isArray(data?.warnings)) throw new Error('Invalid consolidated RPC response contract.');
-    return apiSuccess(res, { ...data, source: 'postgresql', period, previous: previousConsolidatedPeriod(period) });
+    const result = formatConsolidatedAggregate(data, period, DB_DRIVER === 'mysql' ? 'mysql' : 'postgresql');
+    return apiSuccess(res, result);
   } catch (err: any) {
     console.error('Consolidated preview failed:', err?.message || err);
-    return apiError(res, 500, 'មិនអាចផ្ទុកទិន្នន័យរបាយការណ៍សរុបបានទេ។');
+    return apiError(res, 500, `មិនអាចផ្ទុកទិន្នន័យរបាយការណ៍សរុបបានទេ។ ${err?.message || ''}`);
   }
 });
 
@@ -4296,6 +4306,330 @@ app.get('/api/annex8/export', async (req, res) => {
   } catch (err: any) {
     console.error('Annex 8 export failed:', err?.message || err);
     return apiError(res, 500, 'Unable to build the report.');
+  }
+});
+
+/**
+ * NMC staff only: the people who RECEIVE these reports.
+ *
+ * Sends the response and returns null when the caller is not staff.
+ */
+async function requireNmcStaff(req: any, res: any) {
+  if (!supabaseAdmin) {
+    apiError(res, 503, 'Server database provider is not configured.');
+    return null;
+  }
+  const resolved = await resolveApiUser(req);
+  if (!resolved) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return null;
+  }
+  if (!['superadmin', 'admin'].includes(resolved.role)) {
+    res.status(403).json({ error: 'NMC staff only.' });
+    return null;
+  }
+  return resolved;
+}
+
+/**
+ * GET /api/annex8/staff-reports?month=&year=&licence_no=&status=&q=
+ *
+ * Every licensee's monthly reports, for NMC to search, read, print and act
+ * on. `month` is the two-digit month on its own, because "show me everything
+ * filed for September" is the question actually asked — not a date range.
+ *
+ * Only reports that have been FILED are listed. A month a licensee is still
+ * filling in has not been reported to anyone, and NMC looking at it would be
+ * reading over their shoulder.
+ */
+app.get('/api/annex8/staff-reports', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+
+    const month = String(req.query?.month || '').trim();
+    const year = String(req.query?.year || '').trim();
+    const licenceNo = String(req.query?.licence_no || '').trim();
+    const status = String(req.query?.status || '').trim().toUpperCase();
+    const q = String(req.query?.q || '').trim().toLowerCase();
+
+    let query = supabaseAdmin.from('annex8_reports').select('*');
+    if (licenceNo) query = query.eq('licence_no', licenceNo);
+    if (status) query = query.eq('status', status);
+    const { data: all, error } = await query;
+    if (error) throw error;
+
+    const filed = (all || []).filter((r: any) => {
+      if (r.status === 'OPEN' || r.status === 'DRAFT') return false;
+      const period = String(r.period_month || '');
+      if (year && !period.startsWith(year)) return false;
+      if (month && period.slice(5, 7) !== month.padStart(2, '0')) return false;
+      return true;
+    });
+
+    // Enterprise names come from the licence register so a renamed company
+    // reads correctly in the list, while the report itself keeps the name it
+    // was filed under.
+    const { data: licences } = await supabaseAdmin
+      .from('enterprise_licenses').select('license_number, company_name, company_name_kh');
+    const nameOf = new Map<string, any>(
+      (licences || []).map((l: any) => [String(l.license_number), l]));
+
+    const ids = filed.map((r: any) => r.id);
+    const none = { data: [] as any[] };
+    const [instruments, repairs, modules] = ids.length
+      ? await Promise.all([
+          supabaseAdmin.from('annex8_report_instruments')
+            .select('report_uuid,op_code,serial_no,instrument_name,customer_name,verification_status')
+            .in('report_uuid', ids).is('deleted_at', null),
+          supabaseAdmin.from('annex8_report_repairs')
+            .select('report_uuid,serial_no,instrument_name,customer_name,verification_status')
+            .in('report_uuid', ids).is('deleted_at', null),
+          supabaseAdmin.from('annex8_report_modules')
+            .select('report_uuid').in('report_uuid', ids).is('deleted_at', null),
+        ])
+      : [none, none, none];
+
+    const tally = new Map<string, any>();
+    const bucket = (id: string) => {
+      if (!tally.has(id)) {
+        tally.set(id, {
+          manufactured: 0, installed: 0, repaired: 0,
+          passed: 0, failed: 0, pending: 0,
+          instruments: 0, repairs: 0, modules: 0, text: [] as string[],
+        });
+      }
+      return tally.get(id);
+    };
+    const judge = (t: any, s: string) => {
+      if (s === 'PASSED') t.passed++; else if (s === 'FAILED') t.failed++; else t.pending++;
+    };
+    for (const i of instruments.data || []) {
+      const t = bucket(String(i.report_uuid));
+      t.instruments++;
+      if (i.op_code === 'M') t.manufactured++; else t.installed++;
+      judge(t, String(i.verification_status || 'PENDING'));
+      t.text.push(`${i.serial_no || ''} ${i.instrument_name || ''} ${i.customer_name || ''}`.toLowerCase());
+    }
+    for (const p of repairs.data || []) {
+      const t = bucket(String(p.report_uuid));
+      t.repairs++; t.repaired++;
+      judge(t, String(p.verification_status || 'PENDING'));
+      t.text.push(`${p.serial_no || ''} ${p.instrument_name || ''} ${p.customer_name || ''}`.toLowerCase());
+    }
+    for (const m of modules.data || []) bucket(String(m.report_uuid)).modules++;
+
+    let rows = filed.map((r: any) => {
+      const t = tally.get(String(r.id)) || bucket(String(r.id));
+      const licence = nameOf.get(String(r.licence_no)) || {};
+      const { text, ...counts } = t;
+      return {
+        id: r.id,
+        licence_no: r.licence_no,
+        company_name_kh: licence.company_name_kh || r.enterprise_name_kh || '',
+        company_name: licence.company_name || r.enterprise_name_en || '',
+        period_month: r.period_month,
+        report_id: r.report_id,
+        report_type: r.report_type,
+        status: r.status,
+        on_time: r.on_time,
+        submitted_at: r.submitted_at,
+        submitted_by: r.submitted_by,
+        received_at: r.received_at,
+        reviewer: r.reviewer,
+        nmc_remarks: r.nmc_remarks,
+        returned_at: r.returned_at,
+        format_version: r.format_version,
+        counts,
+        searchText: `${r.report_id || ''} ${r.licence_no} ${licence.company_name_kh || ''} ${licence.company_name || ''} ${text.join(' ')}`.toLowerCase(),
+      };
+    });
+
+    if (q) rows = rows.filter((r: any) => r.searchText.includes(q));
+    rows.sort((a: any, b: any) =>
+      String(b.period_month).localeCompare(String(a.period_month))
+      || String(a.company_name_kh).localeCompare(String(b.company_name_kh)));
+
+    return apiSuccess(res, {
+      reports: rows.map(({ searchText, ...r }: any) => r),
+      months: Array.from(new Set(filed.map((r: any) => String(r.period_month).slice(5, 7)))).sort(),
+      years: Array.from(new Set(filed.map((r: any) => String(r.period_month).slice(0, 4)))).sort().reverse(),
+      licensees: (licences || []).map((l: any) => ({
+        licence_no: l.license_number,
+        company_name_kh: l.company_name_kh,
+        company_name: l.company_name,
+      })),
+      summary: {
+        total: rows.length,
+        submitted: rows.filter((r: any) => r.status === 'SUBMITTED').length,
+        accepted: rows.filter((r: any) => r.status === 'ACCEPTED').length,
+        returned: rows.filter((r: any) => r.status === 'RETURNED').length,
+        late: rows.filter((r: any) => r.on_time === false).length,
+      },
+    });
+  } catch (err: any) {
+    console.error('Annex 8 staff report list failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to load the reports.');
+  }
+});
+
+/**
+ * POST /api/annex8/reports/:id/review   { action: 'accept' | 'return', comment? }
+ *
+ * NMC accepts a report, or returns it to the licensee for correction.
+ *
+ * A returned report keeps its receipt number. The licensee corrects and
+ * re-submits the same report; it does not become a different one, and NMC's
+ * records should not acquire a second number for the same month's return.
+ *
+ * Returning requires a comment. "Rejected" with no reason is not something a
+ * licensee can act on, and the comment is what they are shown.
+ */
+app.post('/api/annex8/reports/:id/review', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+
+    const id = String(req.params?.id || '').trim();
+    const action = String(req.body?.action || '').trim().toLowerCase();
+    const comment = String(req.body?.comment || '').trim();
+
+    if (action !== 'accept' && action !== 'return') {
+      return apiError(res, 400, "action must be 'accept' or 'return'.");
+    }
+    if (action === 'return' && !comment) {
+      return apiError(res, 400, 'A comment is required when returning a report.');
+    }
+
+    const { data: report } = await supabaseAdmin
+      .from('annex8_reports').select('*').eq('id', id).maybeSingle();
+    if (!report) return apiError(res, 404, 'Report not found.');
+
+    if (report.status === 'OPEN' || report.status === 'DRAFT') {
+      return apiError(res, 409, 'That month has not been submitted yet.');
+    }
+
+    const now = new Date().toISOString();
+    const reviewer = String(resolved.userRow?.username || resolved.userRow?.id || '');
+
+    const patch: any = action === 'accept'
+      ? {
+          status: 'ACCEPTED',
+          received_at: report.received_at || now,
+          reviewer,
+          is_complete: true,
+          nmc_remarks: comment || report.nmc_remarks || null,
+        }
+      : {
+          status: 'RETURNED',
+          reviewer,
+          is_complete: false,
+          nmc_remarks: comment,
+          returned_at: now,
+          returned_by: reviewer,
+        };
+
+    const { data: updated, error } = await supabaseAdmin
+      .from('annex8_reports').update(patch).eq('id', id).select('*').single();
+    if (error) throw error;
+
+    await writeAnnex8Audit({
+      report_uuid: id, licence_no: report.licence_no, period_month: report.period_month,
+      entity: 'report', entity_id: id, action: action === 'accept' ? 'accept' : 'return',
+      actor: String(resolved.userRow?.id || ''), actor_role: resolved.role,
+      old_value: { status: report.status, nmc_remarks: report.nmc_remarks },
+      new_value: patch,
+    });
+
+    return apiSuccess(res, { report: updated });
+  } catch (err: any) {
+    console.error('Annex 8 review failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to record the review.');
+  }
+});
+
+/**
+ * DELETE /api/annex8/reports/:id   { reason }
+ *
+ * Removes a report and, by foreign key, its entries.
+ *
+ * This is the one genuinely destructive action in the system, so three things
+ * are true of it: only NMC staff can do it, a reason is required, and the
+ * whole report plus its counts are written into the audit log BEFORE the rows
+ * go — so what was deleted, by whom and why survives the deletion. The audit
+ * table deliberately has no foreign key to the report for exactly this case.
+ *
+ * An ACCEPTED report is refused. Accepting is NMC's own confirmation that the
+ * report is correct and complete; deleting it afterwards would erase that
+ * decision as well as the report. Return it first if it must go.
+ */
+app.delete('/api/annex8/reports/:id', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+
+    const id = String(req.params?.id || '').trim();
+    const reason = String(req.body?.reason || '').trim();
+    if (!reason) return apiError(res, 400, 'A reason is required to delete a report.');
+
+    const { data: report } = await supabaseAdmin
+      .from('annex8_reports').select('*').eq('id', id).maybeSingle();
+    if (!report) return apiError(res, 404, 'Report not found.');
+
+    if (report.status === 'ACCEPTED') {
+      return apiError(res, 409,
+        'An accepted report cannot be deleted. Return it to the licensee first.');
+    }
+
+    const entries = await loadMonthEntries(id);
+    const counts = {
+      instruments: entries.instruments.length,
+      modules: entries.modules.length,
+      repairs: entries.repairs.length,
+      standards: entries.standards.length,
+    };
+
+    // Recorded first. If the delete then fails, there is a harmless extra
+    // audit row; if the audit were written second and failed, the report
+    // would be gone with no trace of who removed it.
+    await writeAnnex8Audit({
+      report_uuid: id, licence_no: report.licence_no, period_month: report.period_month,
+      entity: 'report', entity_id: id, action: 'delete',
+      actor: String(resolved.userRow?.id || ''), actor_role: resolved.role,
+      old_value: { report, counts, reason },
+    });
+
+    const { error } = await supabaseAdmin.from('annex8_reports').delete().eq('id', id);
+    if (error) throw error;
+
+    return apiSuccess(res, { deleted: id, counts });
+  } catch (err: any) {
+    console.error('Annex 8 report delete failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to delete the report.');
+  }
+});
+
+/**
+ * GET /api/annex8/reports/:id/audit
+ *
+ * Who did what to this report. NMC reviewing a submission should be able to
+ * see the trail behind it without opening the database.
+ */
+app.get('/api/annex8/reports/:id/audit', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+
+    const id = String(req.params?.id || '').trim();
+    const { data, error } = await supabaseAdmin
+      .from('annex8_report_audit_log').select('*')
+      .eq('report_uuid', id).order('created_at', { ascending: false }).limit(200);
+    if (error) throw error;
+
+    return apiSuccess(res, { entries: data || [] });
+  } catch (err: any) {
+    console.error('Annex 8 audit read failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to load the audit trail.');
   }
 });
 
