@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js dist/server.cjs",
     "lint": "tsc --noEmit",
-    "annex8:check": "tsx scripts/annex8-check-template.ts && tsx scripts/annex8-check-db-mapping.ts"
+    "annex8:check": "tsx scripts/annex8-check-template.ts && tsx scripts/annex8-check-db-mapping.ts && tsx scripts/annex8-check-entries.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

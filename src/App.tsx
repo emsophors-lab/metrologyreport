@@ -65,6 +65,7 @@ const UserManagement = lazy(() => import('./components/UserManagement'));
 const ReportForm = lazy(() => import('./components/ReportForm'));
 const Annex8ReportForm = lazy(() => import('./components/Annex8ReportForm'));
 const Annex8ReportSearch = lazy(() => import('./components/Annex8ReportSearch'));
+const Annex8MonthWorkspace = lazy(() => import('./components/Annex8MonthWorkspace'));
 const ExcelReportUpload = lazy(() => import('./components/ExcelReportUpload'));
 const DashboardStats = lazy(() => import('./components/DashboardStats'));
 const SuperadminDashboard = lazy(() => import('./components/SuperadminDashboard'));
@@ -467,7 +468,7 @@ export default function App() {
   // 'annex8' is the new Annex 8 (A8-2026.2) wizard. It runs alongside the legacy
   // 'manual' form until the new one is signed off; neither replaces the other yet.
   /** Reports tab: how to add a report, or search the ones already filed. */
-  const [addReportMethod, setAddReportMethod] = useState<'manual' | 'annex8' | 'excel' | 'search'>('manual');
+  const [addReportMethod, setAddReportMethod] = useState<'manual' | 'annex8' | 'excel' | 'search' | 'month'>('month');
   const [selectedPrintReport, setSelectedPrintReport] = useState<MetrologyReport | null>(null);
   const [isPrintAllPreview, setIsPrintAllPreview] = useState(false);
 
@@ -2245,8 +2246,9 @@ export default function App() {
               // the old flat report shape and would only confuse the two.
               const isAnnex8Mode = addReportMethod === 'annex8' && !selectedEditReport && sessionUser.can_save;
               const isSearchMode = addReportMethod === 'search' && !selectedEditReport;
+              const isMonthMode = addReportMethod === 'month' && !selectedEditReport;
               // Both the Annex 8 wizard and the search own the whole page.
-              const hideLegacy = isAnnex8Mode || isSearchMode;
+              const hideLegacy = isAnnex8Mode || isSearchMode || isMonthMode;
               return (
               <div className="space-y-6 animate-fade-in duration-300">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -2293,6 +2295,17 @@ export default function App() {
                 {!selectedEditReport && (
                   <div className={`flex bg-slate-100 p-1 rounded-lg ${sessionUser.can_save ? 'max-w-2xl' : 'max-w-xs'}`}>
                     {sessionUser.can_save && (<>
+                    {/* The default: record work as it happens, through the month. */}
+                    <button
+                      onClick={() => setAddReportMethod('month')}
+                      className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                        addReportMethod === 'month'
+                          ? 'bg-white text-[#0B2A66] shadow-xs border border-slate-200/50'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      បញ្ចូលប្រចាំខែ / Monthly entry
+                    </button>
                     <button
                       onClick={() => setAddReportMethod('manual')}
                       className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
@@ -2340,10 +2353,14 @@ export default function App() {
                   </div>
                 )}
 
+                {isMonthMode && (
+                  <Annex8MonthWorkspace currentUser={sessionUser} toastMsg={showToast} />
+                )}
+
                 {isSearchMode && <Annex8ReportSearch currentUser={sessionUser} />}
 
                 {/* Form or Excel Upload column based on permission view */}
-                {isSearchMode ? null : selectedEditReport ? (
+                {isSearchMode || isMonthMode ? null : selectedEditReport ? (
                   <ReportForm 
                     currentUser={sessionUser}
                     selectedReport={selectedEditReport}

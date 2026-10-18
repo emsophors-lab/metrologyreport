@@ -9,6 +9,10 @@ import { validateAnnex8, blockingIssues, warningIssues, hostPart } from './src/a
 import { computeSummary, isOnTime } from './src/annex8/summary';
 import { DEADLINE_DAY, FORMAT_VERSION } from './src/annex8/constants';
 import {
+  ENTRY_CONFIG, ENTRY_PARTS, EntryPart, auditEntityFor, duplicateValues,
+  isEditableStatus, isEntryPart, monthClosedError, periodForEntry, pickEntryColumns,
+} from './src/annex8/entries';
+import {
   buildMonthlyDigest, digestFileName, normalizeLegacyPeriod, previousPeriod,
   renderDigestCaption, renderDigestHtml, renderDigestMessages,
 } from './src/annex8/monthlyDigest';
@@ -3082,6 +3086,489 @@ app.get('/api/annex8/pending', async (req, res) => {
  * licence may have exactly one report per month (uniq_a8_report_period), so
  * the calendar is the natural way to present it.
  */
+/* ====================================================================
+ *  ANNEX 8 — INCREMENTAL ENTRY API
+ *
+ *  A licensee records work as it happens. Each entry is a row from the
+ *  moment it is typed, inside that month's OPEN report, which is created
+ *  on demand. Nothing here trusts a client for which month an entry
+ *  belongs to, for Part 2 totals, or for whether a month may still be
+ *  edited.
+ * ==================================================================== */
+
+/** Resolves the caller and the licence they are allowed to work on. */
+async function requireAnnex8Licence(req: any, res: any, licenceNo: string) {
+  if (!supabaseAdmin) {
+    apiError(res, 503, 'Server database provider is not configured.');
+    return null;
+  }
+  const resolved = await resolveApiUser(req);
+  if (!resolved) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return null;
+  }
+  if (!['superadmin', 'admin', 'company'].includes(resolved.role)) {
+    res.status(403).json({ error: 'Insufficient permission.' });
+    return null;
+  }
+  if (!licenceNo) {
+    apiError(res, 400, 'licence_no is required.');
+    return null;
+  }
+  if (resolved.role === 'company') {
+    const own = String(resolved.userRow?.license_number || '').trim();
+    if (!own || own !== licenceNo) {
+      res.status(403).json({ error: 'This licence belongs to another enterprise.' });
+      return null;
+    }
+  }
+  return resolved;
+}
+
+/** Append-only; a failure to log must never lose the change it describes. */
+async function writeAnnex8Audit(entry: {
+  report_uuid?: string | null;
+  licence_no?: string | null;
+  period_month?: string | null;
+  entity: string;
+  entity_id?: string | null;
+  action: string;
+  actor?: string | null;
+  actor_role?: string | null;
+  old_value?: any;
+  new_value?: any;
+}) {
+  try {
+    await supabaseAdmin.from('annex8_report_audit_log').insert({
+      report_uuid: entry.report_uuid || null,
+      licence_no: entry.licence_no || null,
+      period_month: entry.period_month || null,
+      entity: entry.entity,
+      entity_id: entry.entity_id ? String(entry.entity_id) : null,
+      action: entry.action,
+      actor: entry.actor || null,
+      actor_role: entry.actor_role || null,
+      old_value: entry.old_value ?? null,
+      new_value: entry.new_value ?? null,
+    });
+  } catch (err: any) {
+    console.warn('Annex 8 audit write failed:', err?.message || err);
+  }
+}
+
+/**
+ * The OPEN report for a licence and month, created if it does not exist.
+ *
+ * Part 1 is snapshotted from the licence record when the month is opened, so
+ * the report still reads correctly if the licence details change later.
+ * Returns null and sends the response when the month is closed.
+ */
+async function openMonthFor(
+  req: any,
+  res: any,
+  licenceNo: string,
+  period: string,
+  actor: { id: string; role: string },
+  options: { createIfMissing?: boolean } = {},
+): Promise<any | null> {
+  const { data: existing, error } = await supabaseAdmin
+    .from('annex8_reports')
+    .select('*')
+    .eq('licence_no', licenceNo)
+    .eq('period_month', period)
+    .neq('report_type', 'AMENDMENT')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+
+  const rows = existing || [];
+  const editable = rows.find((r: any) => isEditableStatus(r.status));
+  if (editable) return editable;
+
+  const closed = rows.find((r: any) => !isEditableStatus(r.status));
+  if (closed) {
+    res.status(409).json({
+      success: false,
+      ...monthClosedError(period, String(closed.status), closed.report_id || null),
+    });
+    return null;
+  }
+
+  if (options.createIfMissing === false) return null;
+
+  // Part 1 snapshot from the licence record.
+  const [profile, licence] = await Promise.all([
+    supabaseAdmin.from('annex8_licence_profiles').select('*').eq('license_number', licenceNo).maybeSingle(),
+    supabaseAdmin.from('enterprise_licenses').select('*').eq('license_number', licenceNo).maybeSingle(),
+  ]);
+
+  const now = new Date().toISOString();
+  const { data: created, error: createError } = await supabaseAdmin
+    .from('annex8_reports')
+    .insert({
+      format_version: FORMAT_VERSION,
+      licence_no: licenceNo,
+      user_id: actor.id,
+      licence_type: profile.data?.licence_type || 'MANUF_INSTALL',
+      enterprise_name_kh: licence.data?.company_name_kh || '',
+      enterprise_name_en: licence.data?.company_name || '',
+      registration_no: profile.data?.registration_no || '',
+      licence_valid_to: licence.data?.license_expiry_date || null,
+      operating_address: profile.data?.operating_address || licence.data?.company_address || '',
+      period_month: period,
+      report_type: 'REGULAR',
+      contact_name: profile.data?.contact_name || '',
+      contact_position: profile.data?.contact_position || '',
+      contact_phone: profile.data?.contact_phone || '',
+      contact_email: profile.data?.contact_email || '',
+      status: 'OPEN',
+      declaration_accepted: false,
+      opened_at: now,
+      opened_by: actor.id,
+    })
+    .select('*')
+    .single();
+
+  if (createError || !created) {
+    // Another device opened the same month a moment earlier; the unique index
+    // did its job, so use theirs.
+    const { data: raced } = await supabaseAdmin
+      .from('annex8_reports').select('*')
+      .eq('licence_no', licenceNo).eq('period_month', period)
+      .neq('report_type', 'AMENDMENT').in('status', ['OPEN', 'DRAFT', 'RETURNED'])
+      .maybeSingle();
+    if (raced) return raced;
+    throw createError || new Error('Could not open the month.');
+  }
+
+  await writeAnnex8Audit({
+    report_uuid: created.id, licence_no: licenceNo, period_month: period,
+    entity: 'report', entity_id: created.id, action: 'open',
+    actor: actor.id, actor_role: actor.role,
+  });
+  return created;
+}
+
+/** The live entries of one report, newest row_no last, soft-deleted excluded. */
+async function loadMonthEntries(reportUuid: string) {
+  const [instruments, modules, repairs, standards] = await Promise.all(
+    ENTRY_PARTS.map((part) =>
+      supabaseAdmin
+        .from(ENTRY_CONFIG[part].table)
+        .select('*')
+        .eq('report_uuid', reportUuid)
+        .is('deleted_at', null)
+        .order('row_no', { ascending: true }),
+    ),
+  );
+  return {
+    instruments: instruments.data || [],
+    modules: modules.data || [],
+    repairs: repairs.data || [],
+    standards: standards.data || [],
+  };
+}
+
+/** Part 2 from the database, never from a client. */
+async function monthTotals(reportUuid: string) {
+  const { data, error } = await supabaseAdmin.rpc('annex8_part2_totals', { p_report_uuid: reportUuid });
+  if (error) {
+    console.warn('annex8_part2_totals failed:', error.message || error);
+    return null;
+  }
+  return data;
+}
+
+/**
+ * GET /api/annex8/month?licence_no=&period=
+ *
+ * The month dashboard: the OPEN report with its entries and live Part 2.
+ * `create=0` looks without opening a month, which is what a read-only view of
+ * an older month needs.
+ */
+app.get('/api/annex8/month', async (req, res) => {
+  try {
+    const licenceNo = String(req.query?.licence_no || '').trim();
+    const resolved = await requireAnnex8Licence(req, res, licenceNo);
+    if (!resolved) return;
+
+    const period = String(req.query?.period || '').trim() || previousPeriod();
+    if (!/^\d{4}-\d{2}$/.test(period)) return apiError(res, 400, 'period must be YYYY-MM.');
+
+    const createIfMissing = String(req.query?.create || '1') !== '0';
+
+    // A closed month is readable; only editing is refused, so look first.
+    const { data: rows, error } = await supabaseAdmin
+      .from('annex8_reports').select('*')
+      .eq('licence_no', licenceNo).eq('period_month', period)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+
+    let report = (rows || []).find((r: any) => isEditableStatus(r.status))
+      || (rows || [])[0]
+      || null;
+
+    if (!report && createIfMissing) {
+      report = await openMonthFor(req, res, licenceNo, period,
+        { id: String(resolved.userRow?.id || ''), role: resolved.role });
+      if (!report) return;   // response already sent
+    }
+
+    if (!report) {
+      return apiSuccess(res, {
+        period_month: period, report: null, entries: null, totals: null,
+        deadline: `${period}-07`, editable: false,
+      });
+    }
+
+    const [entries, totals] = await Promise.all([
+      loadMonthEntries(report.id),
+      monthTotals(report.id),
+    ]);
+
+    return apiSuccess(res, {
+      period_month: period,
+      report,
+      entries,
+      totals,
+      editable: isEditableStatus(report.status),
+      deadline: `${period}-07`,
+    });
+  } catch (err: any) {
+    console.error('Annex 8 month load failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to load the month.');
+  }
+});
+
+/**
+ * POST /api/annex8/entries
+ *   { licence_no, part, entry, period? }
+ *
+ * The month is decided here from the entry's activity date, not by the client.
+ */
+app.post('/api/annex8/entries', async (req, res) => {
+  try {
+    const licenceNo = String(req.body?.licence_no || '').trim();
+    const resolved = await requireAnnex8Licence(req, res, licenceNo);
+    if (!resolved) return;
+
+    const part = req.body?.part;
+    if (!isEntryPart(part)) return apiError(res, 400, 'part must be instrument, module, repair or standard.');
+
+    const payload = req.body?.entry;
+    if (!payload || typeof payload !== 'object') return apiError(res, 400, 'An entry is required.');
+
+    const fallback = String(req.body?.period || '').trim() || previousPeriod();
+    const period = periodForEntry(part, payload, fallback);
+    if (!/^\d{4}-\d{2}$/.test(period)) return apiError(res, 400, 'Could not determine the month for this entry.');
+
+    const actor = { id: String(resolved.userRow?.id || ''), role: resolved.role };
+    const report = await openMonthFor(req, res, licenceNo, period, actor);
+    if (!report) return;      // month closed; response already sent
+
+    const values = pickEntryColumns(part, payload);
+
+    // row_no is the entry's place in the printed annex, so it follows the
+    // highest one already used rather than the count of live rows — otherwise
+    // deleting a row would make the next entry reuse its number.
+    const { data: last } = await supabaseAdmin
+      .from(ENTRY_CONFIG[part].table)
+      .select('row_no')
+      .eq('report_uuid', report.id)
+      .order('row_no', { ascending: false })
+      .limit(1);
+    values.row_no = Number(last?.[0]?.row_no || 0) + 1;
+
+    values.report_uuid = report.id;
+    values.created_by = actor.id;
+    values.updated_by = actor.id;
+
+    const { data: created, error } = await supabaseAdmin
+      .from(ENTRY_CONFIG[part].table).insert(values).select('*').single();
+    if (error) throw error;
+
+    await writeAnnex8Audit({
+      report_uuid: report.id, licence_no: licenceNo, period_month: period,
+      entity: auditEntityFor(part), entity_id: created.id, action: 'create',
+      actor: actor.id, actor_role: actor.role, new_value: created,
+    });
+
+    return apiSuccess(res, {
+      entry: created,
+      report_uuid: report.id,
+      period_month: period,
+      totals: await monthTotals(report.id),
+    });
+  } catch (err: any) {
+    console.error('Annex 8 entry create failed:', err?.message || err);
+    return apiError(res, 500, err?.message || 'Unable to save the entry.');
+  }
+});
+
+/** Loads an entry and checks the caller may edit the month it belongs to. */
+async function loadEditableEntry(req: any, res: any, part: EntryPart, id: string) {
+  const { data: row, error } = await supabaseAdmin
+    .from(ENTRY_CONFIG[part].table).select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  if (!row) {
+    apiError(res, 404, 'Entry not found.');
+    return null;
+  }
+
+  const { data: report } = await supabaseAdmin
+    .from('annex8_reports').select('*').eq('id', row.report_uuid).maybeSingle();
+  if (!report) {
+    apiError(res, 404, 'The report this entry belongs to is missing.');
+    return null;
+  }
+
+  const resolved = await requireAnnex8Licence(req, res, String(report.licence_no || ''));
+  if (!resolved) return null;
+
+  if (!isEditableStatus(report.status)) {
+    res.status(409).json({
+      success: false,
+      ...monthClosedError(report.period_month, String(report.status), report.report_id || null),
+    });
+    return null;
+  }
+
+  return { row, report, resolved };
+}
+
+/** PUT /api/annex8/entries/:part/:id */
+app.put('/api/annex8/entries/:part/:id', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    const part = req.params.part;
+    if (!isEntryPart(part)) return apiError(res, 400, 'Unknown entry part.');
+
+    const loaded = await loadEditableEntry(req, res, part, String(req.params.id));
+    if (!loaded) return;
+    const { row, report, resolved } = loaded;
+
+    const values = pickEntryColumns(part, req.body?.entry || {});
+    delete values.row_no;                       // position is not the client's to set
+    values.updated_by = String(resolved.userRow?.id || '');
+
+    const { data: updated, error } = await supabaseAdmin
+      .from(ENTRY_CONFIG[part].table).update(values).eq('id', row.id).select('*').single();
+    if (error) throw error;
+
+    await writeAnnex8Audit({
+      report_uuid: report.id, licence_no: report.licence_no, period_month: report.period_month,
+      entity: auditEntityFor(part), entity_id: row.id, action: 'update',
+      actor: values.updated_by, actor_role: resolved.role,
+      old_value: row, new_value: updated,
+    });
+
+    return apiSuccess(res, { entry: updated, totals: await monthTotals(report.id) });
+  } catch (err: any) {
+    console.error('Annex 8 entry update failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to update the entry.');
+  }
+});
+
+/** DELETE /api/annex8/entries/:part/:id — soft, so the undo is real. */
+app.delete('/api/annex8/entries/:part/:id', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    const part = req.params.part;
+    if (!isEntryPart(part)) return apiError(res, 400, 'Unknown entry part.');
+
+    const loaded = await loadEditableEntry(req, res, part, String(req.params.id));
+    if (!loaded) return;
+    const { row, report, resolved } = loaded;
+
+    if (row.deleted_at) return apiSuccess(res, { entry: row, already_deleted: true });
+
+    const actorId = String(resolved.userRow?.id || '');
+    const { error } = await supabaseAdmin
+      .from(ENTRY_CONFIG[part].table)
+      .update({ deleted_at: new Date().toISOString(), deleted_by: actorId, updated_by: actorId })
+      .eq('id', row.id);
+    if (error) throw error;
+
+    await writeAnnex8Audit({
+      report_uuid: report.id, licence_no: report.licence_no, period_month: report.period_month,
+      entity: auditEntityFor(part), entity_id: row.id, action: 'delete',
+      actor: actorId, actor_role: resolved.role, old_value: row,
+    });
+
+    return apiSuccess(res, { id: row.id, totals: await monthTotals(report.id) });
+  } catch (err: any) {
+    console.error('Annex 8 entry delete failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to delete the entry.');
+  }
+});
+
+/**
+ * POST /api/annex8/entries/:part/:id/undelete
+ *
+ * The undo behind the ten-second toast. It is a column rather than a timer, so
+ * it still works after a reload — and a mistaken delete stays recoverable long
+ * after the toast is gone.
+ */
+app.post('/api/annex8/entries/:part/:id/undelete', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    const part = req.params.part;
+    if (!isEntryPart(part)) return apiError(res, 400, 'Unknown entry part.');
+
+    const loaded = await loadEditableEntry(req, res, part, String(req.params.id));
+    if (!loaded) return;
+    const { row, report, resolved } = loaded;
+
+    const actorId = String(resolved.userRow?.id || '');
+    const { data: restored, error } = await supabaseAdmin
+      .from(ENTRY_CONFIG[part].table)
+      .update({ deleted_at: null, deleted_by: null, updated_by: actorId })
+      .eq('id', row.id).select('*').single();
+    if (error) throw error;
+
+    await writeAnnex8Audit({
+      report_uuid: report.id, licence_no: report.licence_no, period_month: report.period_month,
+      entity: auditEntityFor(part), entity_id: row.id, action: 'undelete',
+      actor: actorId, actor_role: resolved.role, new_value: restored,
+    });
+
+    return apiSuccess(res, { entry: restored, totals: await monthTotals(report.id) });
+  } catch (err: any) {
+    console.error('Annex 8 entry undelete failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to restore the entry.');
+  }
+});
+
+/**
+ * GET /api/annex8/entries/:part/:id/duplicate
+ *
+ * Returns the values to prefill a new form, without creating anything: eight
+ * load cells on one weighbridge differ only by serial and certificate. The
+ * identity fields are deliberately left blank so a copy can never inherit
+ * another unit's serial or verification result.
+ */
+app.get('/api/annex8/entries/:part/:id/duplicate', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    const part = req.params.part;
+    if (!isEntryPart(part)) return apiError(res, 400, 'Unknown entry part.');
+
+    const { data: row, error } = await supabaseAdmin
+      .from(ENTRY_CONFIG[part].table).select('*').eq('id', String(req.params.id)).maybeSingle();
+    if (error) throw error;
+    if (!row) return apiError(res, 404, 'Entry not found.');
+
+    const { data: report } = await supabaseAdmin
+      .from('annex8_reports').select('licence_no').eq('id', row.report_uuid).maybeSingle();
+    const resolved = await requireAnnex8Licence(req, res, String(report?.licence_no || ''));
+    if (!resolved) return;
+
+    return apiSuccess(res, { values: duplicateValues(part, row) });
+  } catch (err: any) {
+    console.error('Annex 8 entry duplicate failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to copy the entry.');
+  }
+});
+
 app.get('/api/annex8/my-reports', async (req, res) => {
   try {
     if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');

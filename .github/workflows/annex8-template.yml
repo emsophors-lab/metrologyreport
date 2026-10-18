@@ -10,12 +10,14 @@ on:
       - 'public/templates/**'
       - 'src/lib/annex8/**'
       - 'src/annex8/officialDocument.ts'
+      - 'src/annex8/entries.ts'
       - 'scripts/annex8-check-*.ts'
   pull_request:
     paths:
       - 'public/templates/**'
       - 'src/lib/annex8/**'
       - 'src/annex8/officialDocument.ts'
+      - 'src/annex8/entries.ts'
       - 'scripts/annex8-check-*.ts'
   workflow_dispatch:
 
