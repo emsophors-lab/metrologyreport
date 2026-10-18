@@ -4610,6 +4610,80 @@ app.delete('/api/annex8/reports/:id', async (req, res) => {
 });
 
 /**
+ * GET /api/annex8/reports/:id/full
+ *
+ * One report, whole, for reading on screen: Part 1 through Part 7 as the
+ * annex orders them, plus the NMC block.
+ *
+ * This exists so NMC can READ a report before accepting or returning it.
+ * Downloading the Word to look at it, then coming back to the list to decide,
+ * is how reports get accepted without being read.
+ *
+ * It is a view of the stored rows, not a second rendering of the official
+ * document — the printed annex still comes only from the template. The two
+ * are driven by the same rows, so what is read here is what prints.
+ *
+ * Owner licensee or NMC staff. A licensee may read back its own submitted
+ * report; it cannot read anyone else's.
+ */
+app.get('/api/annex8/reports/:id/full', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const id = String(req.params?.id || '').trim();
+    const { data: report } = await supabaseAdmin
+      .from('annex8_reports').select('*').eq('id', id).maybeSingle();
+    if (!report) return apiError(res, 404, 'Report not found.');
+
+    const resolved = await requireAnnex8Licence(req, res, String(report.licence_no || ''));
+    if (!resolved) return;
+
+    const [entries, totals, carryOver, profile, licence] = await Promise.all([
+      loadMonthEntries(id),
+      monthTotals(id),
+      supabaseAdmin.from('annex8_carry_over_updates').select('*').eq('report_uuid', id),
+      supabaseAdmin.from('annex8_licence_profiles').select('*')
+        .eq('license_number', report.licence_no).maybeSingle(),
+      supabaseAdmin.from('enterprise_licenses').select('*')
+        .eq('license_number', report.licence_no).maybeSingle(),
+    ]);
+
+    return apiSuccess(res, {
+      report,
+      entries,
+      totals,
+      carry_over: carryOver.data || [],
+      // Part 1 and Part 7 print from the licence record, so they are sent
+      // with it rather than read a second time by the page.
+      licence: {
+        company_name_kh: licence.data?.company_name_kh || report.enterprise_name_kh || '',
+        company_name: licence.data?.company_name || report.enterprise_name_en || '',
+        address: licence.data?.company_address || '',
+        phone: licence.data?.phone_number || '',
+        email: licence.data?.email || '',
+        owner_name: licence.data?.license_owner_name || '',
+        owner_position: licence.data?.license_owner_position || '',
+        expiry: licence.data?.license_expiry_date || '',
+      },
+      profile: {
+        registration_no: profile.data?.registration_no || report.registration_no || '',
+        decision_no: profile.data?.decision_no || '',
+        operating_address: profile.data?.operating_address || report.operating_address || '',
+        contact_name: profile.data?.contact_name || report.contact_name || '',
+        contact_position: profile.data?.contact_position || report.contact_position || '',
+        legal_rep_name: profile.data?.legal_rep_name || '',
+        legal_rep_position: profile.data?.legal_rep_position || '',
+      },
+      deadline: deadlineDate(String(report.period_month || '')),
+      is_staff: ['superadmin', 'admin'].includes(resolved.role),
+    });
+  } catch (err: any) {
+    console.error('Annex 8 full report failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to load the report.');
+  }
+});
+
+/**
  * GET /api/annex8/reports/:id/audit
  *
  * Who did what to this report. NMC reviewing a submission should be able to

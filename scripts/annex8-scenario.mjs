@@ -22,7 +22,7 @@
  * It authenticates through the local development header auth, so the server
  * must be running with ALLOW_LEGACY_API_HEADER_AUTH=true. Never in production.
  */
-const BASE = 'http://localhost:3000';
+const BASE = process.env.MLRS_BASE || 'http://localhost:3000';
 const LICENCE = 'LIC-2026-001';
 const PERIOD = process.argv[2] || new Date().toISOString().slice(0, 7);
 

@@ -53,6 +53,18 @@ async function call(method, url, body, headers = STAFF) {
 (async () => {
   console.log(`\n=== NMC review desk · disposable month ${PERIOD} ===`);
 
+  // Start from a known state. A run that dies before its delete step leaves
+  // the disposable month submitted, and the next run then fails at setup for
+  // a reason that has nothing to do with the code under test.
+  const stale = await call('GET', `/api/annex8/staff-reports?month=${PERIOD.slice(5)}&year=${PERIOD.slice(0, 4)}`);
+  for (const old of (stale.json.reports || []).filter((r) => r.licence_no === LICENCE)) {
+    if (old.status === 'ACCEPTED') {
+      await call('POST', `/api/annex8/reports/${old.id}/review`,
+        { action: 'return', comment: 'clearing a previous check run' });
+    }
+    await call('DELETE', `/api/annex8/reports/${old.id}`, { reason: 'clearing a previous check run' });
+  }
+
   console.log('\nSetting up a month to act on');
   await call('GET', `/api/annex8/month?licence_no=${LICENCE}&period=${PERIOD}&create=1`, undefined, COMPANY);
   const added = await call('POST', '/api/annex8/entries', {
@@ -126,6 +138,32 @@ async function call(method, url, body, headers = STAFF) {
   const b = Buffer.from(await ownerDoc.arrayBuffer());
   ok('it is a real .docx', a[0] === 0x50 && a[1] === 0x4b);
   ok('byte-for-byte identical', a.equals(b), { nmc: a.length, licensee: b.length });
+
+  console.log('\nReading the report in full, before deciding on it');
+  const full = await call('GET', `/api/annex8/reports/${reportId}/full`);
+  ok(`NMC can read it (HTTP ${full.status})`, full.status === 200, full.json);
+  ok('the receipt number is there', full.json.report?.report_id === receipt, full.json.report?.report_id);
+  ok('Part 1 names the enterprise', !!full.json.licence?.company_name_kh, full.json.licence);
+  ok('Part 2 is computed', typeof full.json.totals?.total?.installed === 'number', full.json.totals?.total);
+  ok('Part 3 carries the entries', full.json.entries?.instruments?.length === 1);
+  ok('Parts 3ក, 4 and 5 are present',
+    ['modules', 'repairs', 'standards'].every((k) => Array.isArray(full.json.entries?.[k])));
+  ok('Part 6 events', full.json.report?.events !== undefined);
+  ok('Part 7 declaration', full.json.report?.declaration_accepted === true);
+  ok('and it tells the page the reader is staff', full.json.is_staff === true);
+  ok('Part 2 balances', (() => {
+    const t = full.json.totals.total;
+    return t.manufactured + t.installed + t.repaired === t.passed + t.failed + t.pending;
+  })(), full.json.totals?.total);
+
+  const ownerRead = await call('GET', `/api/annex8/reports/${reportId}/full`, undefined, COMPANY);
+  ok(`the licensee can read its own (HTTP ${ownerRead.status})`, ownerRead.status === 200);
+  ok('and is not handed the staff flag', ownerRead.json.is_staff === false, ownerRead.json.is_staff);
+  const anonRead = await call('GET', `/api/annex8/reports/${reportId}/full`, undefined,
+    { 'Content-Type': 'application/json' });
+  ok(`an unauthenticated reader is refused (HTTP ${anonRead.status})`, anonRead.status === 401);
+  const missing = await call('GET', '/api/annex8/reports/00000000-0000-0000-0000-000000000000/full');
+  ok(`an unknown report is 404 (HTTP ${missing.status})`, missing.status === 404);
 
   console.log('\nReturning for correction');
   const noComment = await call('POST', `/api/annex8/reports/${reportId}/review`, { action: 'return' });

@@ -13,11 +13,12 @@
  * header, same card, same 15-row pagination — so the screens read as one
  * system rather than two.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Clock,
-  Download, FileText, Loader2, RotateCcw,
+  AlertTriangle, ChevronDown, ChevronRight, Download, Eye, Loader2, RotateCcw,
 } from 'lucide-react';
+
+const Annex8ReportViewer = lazy(() => import('./Annex8ReportViewer'));
 
 import { CATEGORIES } from '../annex8/constants';
 import { khmerMonthLabel, toKhmerDigits } from '../annex8/summary';
@@ -80,7 +81,10 @@ const categoryLabel = (code: string) => {
   return c ? c.kh : code;
 };
 
-export default function Annex8MyReportsTable({ currentUser }: { currentUser: MetrologyUser }) {
+export default function Annex8MyReportsTable(
+  { currentUser, toastMsg }:
+  { currentUser: MetrologyUser; toastMsg?: (m: string, t: 'success' | 'error') => void },
+) {
   const licenceNo = String(currentUser.license_number || '').trim();
 
   const [rows, setRows] = useState<ReportRow[]>([]);
@@ -94,6 +98,9 @@ export default function Annex8MyReportsTable({ currentUser }: { currentUser: Met
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [detail, setDetail] = useState<Record<string, any>>({});
   const [detailLoading, setDetailLoading] = useState<string | null>(null);
+  /* Reading back a submitted report in full — the same view NMC sees, minus
+     the accept and return buttons, which the endpoint withholds. */
+  const [viewing, setViewing] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!licenceNo) { setError('គណនីនេះមិនមានលេខអាជ្ញាបណ្ណទេ។'); return; }
@@ -162,6 +169,16 @@ export default function Annex8MyReportsTable({ currentUser }: { currentUser: Met
     'focus:outline-none focus:ring-1 focus:ring-[#353C96] focus:bg-white';
 
   return (
+    <>
+    {viewing && (
+      <Suspense fallback={null}>
+        <Annex8ReportViewer
+          reportId={viewing}
+          toastMsg={toastMsg || (() => {})}
+          onClose={() => setViewing(null)}
+        />
+      </Suspense>
+    )}
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
       {/* Headline numbers: what the licensee wants to know at a glance. */}
       <div className="px-5 py-4 border-b border-slate-100">
@@ -292,6 +309,13 @@ export default function Annex8MyReportsTable({ currentUser }: { currentUser: Met
                       </td>
                       <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{dmy(r.submitted_at)}</td>
                       <td className="px-3 py-2 text-center">
+                        <button
+                          onClick={() => setViewing(r.id)}
+                          title="មើលរបាយការណ៍ពេញ"
+                          className="mr-1 inline-flex items-center rounded border border-[#0B2A66]/20 bg-[#0B2A66]/5 px-2 py-1 text-[9px] font-bold text-[#0B2A66] hover:bg-[#0B2A66]/10 cursor-pointer"
+                        >
+                          <Eye className="h-3 w-3" />
+                        </button>
                         {r.report_id ? (
                           <button
                             onClick={() => downloadWord(r)}
@@ -409,6 +433,7 @@ export default function Annex8MyReportsTable({ currentUser }: { currentUser: Met
         </div>
       )}
     </div>
+    </>
   );
 }
 

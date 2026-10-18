@@ -14,10 +14,13 @@
  * shoulder.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense } from 'react';
 import {
-  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Clock, Download,
-  History, Loader2, RotateCcw, Search, ShieldCheck, Trash2, Undo2,
+  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Download,
+  Eye, History, Loader2, RotateCcw, Search, Trash2, Undo2,
 } from 'lucide-react';
+
+const Annex8ReportViewer = lazy(() => import('./Annex8ReportViewer'));
 
 import { khmerMonthLabel, toKhmerDigits } from '../annex8/summary';
 import { apiRequest } from '../supabaseSync';
@@ -91,6 +94,8 @@ export default function Annex8StaffReview(
   const [detail, setDetail] = useState<Record<string, any>>({});
   const [audit, setAudit] = useState<Record<string, any[]>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  /** The report being read in full before a decision is made about it. */
+  const [viewing, setViewing] = useState<string | null>(null);
 
   /** The report a staff member is returning or deleting, and their reason. */
   const [prompt, setPrompt] = useState<
@@ -372,6 +377,13 @@ export default function Annex8StaffReview(
                         <td className="px-3 py-2">
                           <div className="flex items-center justify-center gap-1">
                             <button
+                              onClick={() => setViewing(r.id)}
+                              title="មើលរបាយការណ៍ពេញ មុននឹងសម្រេច"
+                              className="rounded border border-[#0B2A66]/20 bg-[#0B2A66]/5 p-1.5 text-[#0B2A66] hover:bg-[#0B2A66]/10"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </button>
+                            <button
                               onClick={() => void printOfficial(r)}
                               disabled={busy === `print:${r.id}`}
                               title="ទាញយកឧបសម្ព័ន្ធទី៨ផ្លូវការ (Word)"
@@ -433,6 +445,17 @@ export default function Annex8StaffReview(
           </div>
         )}
       </div>
+
+      {viewing && (
+        <Suspense fallback={null}>
+          <Annex8ReportViewer
+            reportId={viewing}
+            toastMsg={toastMsg}
+            onClose={() => setViewing(null)}
+            onReviewed={() => void load()}
+          />
+        </Suspense>
+      )}
 
       {/* Returning and deleting both need a reason, so both ask for one the
           same way rather than one being a bare confirm. */}

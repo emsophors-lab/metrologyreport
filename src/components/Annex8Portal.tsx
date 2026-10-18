@@ -228,7 +228,7 @@ export default function Annex8Portal({ currentUser, licence, toastMsg, language 
               ))}
             </div>
             {historyTab === 'register'
-              ? <Annex8MyReportsTable currentUser={currentUser} />
+              ? <Annex8MyReportsTable currentUser={currentUser} toastMsg={toastMsg} />
               : <Annex8ReportSearch currentUser={currentUser} />}
           </div>
         )}

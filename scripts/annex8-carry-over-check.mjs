@@ -13,7 +13,7 @@
  *
  * Needs the local header auth (ALLOW_LEGACY_API_HEADER_AUTH=true). Dev only.
  */
-const BASE = 'http://localhost:3000';
+const BASE = process.env.MLRS_BASE || 'http://localhost:3000';
 const LICENCE = 'LIC-2026-001';
 const H = {
   'Content-Type': 'application/json',
