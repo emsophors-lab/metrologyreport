@@ -36,7 +36,7 @@ const ok = (name: string, cond: boolean, extra?: any) => {
   ok('Khmer survives the round trip', users[0]?.company_name_kh === 'ក្រុមហ៊ុន មាត្រាសាស្ត្រ បូកគោ', users[0]?.company_name_kh);
   ok('created_at is an ISO string', typeof users[0]?.created_at === 'string' && users[0].created_at.endsWith('Z'), users[0]?.created_at);
 
-  const { data: one } = await db.from('users').select('*').eq('username', 'nmcadmin').maybeSingle();
+  const { data: one } = await db.from('users').select('*').eq('username', 'superadmin').maybeSingle();
   ok('maybeSingle returns a row', one?.role === 'superadmin');
   const { data: none } = await db.from('users').select('*').eq('username', 'nobody').maybeSingle();
   ok('maybeSingle returns null when absent', none === null);
@@ -89,6 +89,20 @@ const ok = (name: string, cond: boolean, extra?: any) => {
     }).select('*').single();
   ok('an entry row inserts', !e4 && !!entry?.id, e4);
   ok('DATE stays YYYY-MM-DD', entry?.completion_date === '2026-10-05', entry?.completion_date);
+
+  console.log('\ntimestamps');
+  // server.ts writes instants as ISO strings. MySQL rejects that format
+  // outright, so the adapter has to convert — this is what broke the first
+  // run of the sample scenario.
+  const nowIso = new Date().toISOString();
+  const { error: eIso } = await db.from('annex8_reports')
+    .update({ opened_at: nowIso, opened_by: 'user-co-001' }).eq('id', reportId);
+  ok('an ISO instant writes into a DATETIME column', !eIso, eIso);
+  const { data: tsRow } = await db.from('annex8_reports').select('*').eq('id', reportId).single();
+  ok('and reads back as the same instant',
+    tsRow?.opened_at && Math.abs(new Date(tsRow.opened_at).getTime() - new Date(nowIso).getTime()) < 1000,
+    tsRow?.opened_at);
+  ok('a plain date is left alone', tsRow?.licence_valid_to === null || typeof tsRow?.licence_valid_to === 'string');
 
   console.log('\nJSON columns');
   await db.from('annex8_reports')

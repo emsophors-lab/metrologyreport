@@ -7,7 +7,7 @@ import { createMysqlClient } from './src/db/mysqlClient';
 // Annex 8 rules live in one isomorphic module so the server validates with the
 // same code the form uses, rather than a second copy that drifts out of step.
 import { validateAnnex8, blockingIssues, warningIssues, hostPart } from './src/annex8/validation';
-import { computeSummary, isOnTime } from './src/annex8/summary';
+import { computeSummary, deadlineFor, isOnTime } from './src/annex8/summary';
 import { DEADLINE_DAY, FORMAT_VERSION } from './src/annex8/constants';
 import {
   ENTRY_CONFIG, ENTRY_PARTS, EntryPart, auditEntityFor, duplicateValues,
@@ -3187,6 +3187,19 @@ async function writeAnnex8Audit(entry: {
  * the report still reads correctly if the licence details change later.
  * Returns null and sends the response when the month is closed.
  */
+/**
+ * Article 21: a month's report is due by the 7th of the FOLLOWING month.
+ *
+ * This was `${period}-07` — the 7th of the month being reported on, which for
+ * an open month is a date that has usually not arrived yet and is always
+ * wrong. deadlineFor() is the same function the form and the validator use.
+ */
+function deadlineDate(period: string): string {
+  const due = deadlineFor(period);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${due.getFullYear()}-${pad(due.getMonth() + 1)}-${pad(due.getDate())}`;
+}
+
 async function openMonthFor(
   req: any,
   res: any,
@@ -3340,7 +3353,7 @@ app.get('/api/annex8/month', async (req, res) => {
     if (!report) {
       return apiSuccess(res, {
         period_month: period, report: null, entries: null, totals: null,
-        deadline: `${period}-07`, editable: false,
+        deadline: deadlineDate(period), editable: false,
       });
     }
 
@@ -3355,7 +3368,7 @@ app.get('/api/annex8/month', async (req, res) => {
       entries,
       totals,
       editable: isEditableStatus(report.status),
-      deadline: `${period}-07`,
+      deadline: deadlineDate(period),
     });
   } catch (err: any) {
     console.error('Annex 8 month load failed:', err?.message || err);
@@ -3910,6 +3923,130 @@ app.post('/api/annex8/month/submit', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/annex8/reports-list?licence_no=…
+ *
+ * One row per monthly report, which is the level a licensee actually asks
+ * about: "how many reports have we filed, what was in each one, and which are
+ * still open". /api/annex8/my-reports answers a different question — which of
+ * the last 13 months are still owed — and is a calendar, not a register.
+ *
+ * Counts are recomputed from the live entry rows rather than read from
+ * part2_summary, so an OPEN month shows what is in it right now and a
+ * submitted one still agrees with its own entries. Soft-deleted rows are
+ * excluded, exactly as the printed annex excludes them.
+ */
+app.get('/api/annex8/reports-list', async (req, res) => {
+  try {
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const licenceNo = String(req.query?.licence_no || '').trim();
+    const resolved = await requireAnnex8Licence(req, res, licenceNo);
+    if (!resolved) return;
+
+    const { data: reports, error } = await supabaseAdmin
+      .from('annex8_reports')
+      .select('*')
+      .eq('licence_no', licenceNo)
+      .order('period_month', { ascending: false });
+    if (error) throw error;
+
+    const rows = reports || [];
+    const ids = rows.map((r: any) => r.id).filter(Boolean);
+
+    // Two queries for every report, not two per report.
+    const empty = { data: [] as any[] };
+    const [instruments, repairs, modules, standards] = ids.length
+      ? await Promise.all([
+          supabaseAdmin.from('annex8_report_instruments')
+            .select('report_uuid,op_code,category,verification_status').in('report_uuid', ids).is('deleted_at', null),
+          supabaseAdmin.from('annex8_report_repairs')
+            .select('report_uuid,category,verification_status').in('report_uuid', ids).is('deleted_at', null),
+          supabaseAdmin.from('annex8_report_modules')
+            .select('report_uuid').in('report_uuid', ids).is('deleted_at', null),
+          supabaseAdmin.from('annex8_report_standards')
+            .select('report_uuid').in('report_uuid', ids).is('deleted_at', null),
+        ])
+      : [empty, empty, empty, empty];
+
+    const blank = () => ({
+      manufactured: 0, installed: 0, repaired: 0,
+      passed: 0, failed: 0, pending: 0,
+      instruments: 0, modules: 0, repairs: 0, standards: 0,
+      categories: new Set<string>(),
+    });
+    const tally = new Map<string, ReturnType<typeof blank>>();
+    const get = (id: string) => {
+      if (!tally.has(id)) tally.set(id, blank());
+      return tally.get(id)!;
+    };
+    const judge = (t: any, status: string) => {
+      if (status === 'PASSED') t.passed++;
+      else if (status === 'FAILED') t.failed++;
+      else t.pending++;
+    };
+
+    for (const i of instruments.data || []) {
+      const t = get(String(i.report_uuid));
+      t.instruments++;
+      if (i.op_code === 'M') t.manufactured++; else t.installed++;
+      if (i.category) t.categories.add(String(i.category));
+      judge(t, String(i.verification_status || 'PENDING'));
+    }
+    for (const p of repairs.data || []) {
+      const t = get(String(p.report_uuid));
+      t.repairs++; t.repaired++;
+      if (p.category) t.categories.add(String(p.category));
+      judge(t, String(p.verification_status || 'PENDING'));
+    }
+    for (const m of modules.data || []) get(String(m.report_uuid)).modules++;
+    for (const s of standards.data || []) get(String(s.report_uuid)).standards++;
+
+    const list = rows.map((r: any) => {
+      const t = tally.get(String(r.id)) || blank();
+      const { categories, ...counts } = t;
+      return {
+        id: r.id,
+        period_month: r.period_month,
+        report_id: r.report_id,
+        report_type: r.report_type,
+        status: r.status,
+        on_time: r.on_time,
+        submitted_at: r.submitted_at,
+        updated_at: r.updated_at,
+        format_version: r.format_version,
+        original_report_id: r.original_report_id,
+        nmc_remarks: r.nmc_remarks,
+        editable: isEditableStatus(r.status),
+        deadline: deadlineDate(String(r.period_month || '')),
+        has_document: !!(r.official_docx_path || r.report_id),
+        categories: Array.from(categories).sort(),
+        counts,
+        total_entries: counts.instruments + counts.modules + counts.repairs + counts.standards,
+      };
+    });
+
+    const filed = list.filter((r) => r.status !== 'OPEN' && r.status !== 'DRAFT');
+    return apiSuccess(res, {
+      licence_no: licenceNo,
+      reports: list,
+      summary: {
+        total: list.length,
+        filed: filed.length,
+        open: list.filter((r) => r.status === 'OPEN' || r.status === 'DRAFT').length,
+        returned: list.filter((r) => r.status === 'RETURNED').length,
+        accepted: list.filter((r) => r.status === 'ACCEPTED').length,
+        late: filed.filter((r) => r.on_time === false).length,
+        instruments: list.reduce((n, r) => n + r.counts.instruments, 0),
+        repairs: list.reduce((n, r) => n + r.counts.repairs, 0),
+      },
+    });
+  } catch (err: any) {
+    console.error('Annex 8 reports-list failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to load the report list.');
+  }
+});
+
 app.get('/api/annex8/my-reports', async (req, res) => {
   try {
     if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
@@ -4384,24 +4521,25 @@ async function serveOfficialAnnex8(req: any, res: any, ext: 'docx' | 'pdf') {
 }
 
 /** True when the requesting account holds the licence the report belongs to. */
+/**
+ * Does this request belong to the licensee it claims?
+ *
+ * This used to resolve the caller itself, from a bearer token only, and
+ * returned false when there was no token — which denied an owner their own
+ * report on every path that is not Supabase Auth, including the whole MySQL
+ * driver. It now goes through resolveApiUser(), the same resolver every other
+ * Annex 8 endpoint uses, so one definition of "who is calling" serves them
+ * all and they cannot disagree.
+ */
 async function licenceBelongsToRequester(req: any, licenceNo: string): Promise<boolean> {
-  if (!supabaseAdmin) return false;
-  const authHeader = req.headers.authorization || '';
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-  if (!token) return false;
+  if (!supabaseAdmin || !licenceNo) return false;
 
-  const { data: authData } = await supabaseAdmin.auth.getUser(token);
-  const email = String(authData?.user?.email || '').trim();
-  const userId = authData?.user?.id;
-  if (!email && !userId) return false;
+  const resolved = await resolveApiUser(req);
+  if (!resolved) return false;
+  if (['superadmin', 'admin'].includes(resolved.role)) return true;
 
-  const { data: rows } = await supabaseAdmin
-    .from('users').select('id,email,license_number')
-    .eq('license_number', licenceNo);
-
-  return (rows || []).some((u: any) =>
-    (userId && String(u.id) === String(userId)) ||
-    (email && String(u.email || '').toLowerCase() === email.toLowerCase()));
+  const own = String(resolved.userRow?.license_number || '').trim();
+  return !!own && own === String(licenceNo).trim();
 }
 
 app.get('/api/reports/:id/annex8.docx', (req, res) => serveOfficialAnnex8(req, res, 'docx'));

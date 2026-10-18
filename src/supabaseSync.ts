@@ -32,20 +32,21 @@ async function getApiJsonHeaders(): Promise<Record<string, string>> {
   };
 
   const client = getActiveSupabaseClient();
-  if (!client) return headers;
-
-  const { data } = await client.auth.getSession();
-  const token = data.session?.access_token;
+  let token: string | undefined;
+  if (client) {
+    const { data } = await client.auth.getSession();
+    token = data.session?.access_token;
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
   const viteEnv = (import.meta as any).env || {};
-  if (token) headers.Authorization = `Bearer ${token}`;
   if (
     !token &&
     viteEnv.DEV &&
     viteEnv.VITE_ALLOW_LEGACY_API_HEADER_AUTH === 'true' &&
-    typeof sessionStorage !== 'undefined'
+    (typeof sessionStorage !== 'undefined' || typeof localStorage !== 'undefined')
   ) {
     try {
-      const rawSession = sessionStorage.getItem('nmc_active_user_session');
+      const rawSession = (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('nmc_active_user_session') : null) || (typeof localStorage !== 'undefined' ? localStorage.getItem('nmc_active_user_session') : null);
       const sessionUser = rawSession ? JSON.parse(rawSession) : null;
       if (sessionUser?.id && sessionUser?.username && sessionUser?.role) {
         headers['X-NMC-User-ID'] = String(sessionUser.id);

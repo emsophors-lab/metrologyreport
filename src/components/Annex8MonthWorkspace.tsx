@@ -16,8 +16,9 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle, CalendarDays, Check, Copy, Loader2, LocateFixed,
-  Pencil, Plus, Search, Trash2, X,
+  AlertTriangle, CalendarDays, Check, CheckCircle2, Clock, Copy, FileText,
+  Layers, Loader2, LocateFixed, MapPin, Pencil, Plus, Search, ShieldCheck,
+  Sliders, Trash2, Wrench, X, XCircle,
 } from 'lucide-react';
 
 import { CATEGORIES, PROVINCES, UNITS } from '../annex8/constants';
@@ -150,6 +151,114 @@ const FIELDS: Record<Part, Field[]> = {
         { value: 'EXPIRED', label: 'ផុតកំណត់ / Expired' },
         { value: 'OUT_OF_SERVICE', label: 'ឈប់ប្រើ / Out of service' },
       ] },
+  ],
+};
+
+
+interface FormSection {
+  id: string;
+  kh: string;
+  en: string;
+  icon: 'identity' | 'specs' | 'location' | 'verification' | 'repair' | 'standards' | 'host';
+  fieldNames: string[];
+}
+
+const PART_SECTIONS: Record<Part, FormSection[]> = {
+  instrument: [
+    {
+      id: 'identity',
+      kh: '១. អត្តសញ្ញាណឧបករណ៍ និងប្រតិបត្តិការ',
+      en: 'Instrument & Operation Identity',
+      icon: 'identity',
+      fieldNames: [
+        'op_code', 'category', 'category_other', 'instrument_name',
+        'model', 'serial_no', 'type_approval_no', 'manufacturer',
+        'country', 'completion_date'
+      ],
+    },
+    {
+      id: 'specs',
+      kh: '២. លក្ខណៈបច្ចេកទេស និងកម្រិតរង្វាស់',
+      en: 'Technical Specifications & Scale',
+      icon: 'specs',
+      fieldNames: ['max_capacity', 'min_capacity', 'e_value', 'unit', 'accuracy_class'],
+    },
+    {
+      id: 'location',
+      kh: '៣. អតិថិជន និងទីតាំងដំឡើង',
+      en: 'Customer & Installation Site',
+      icon: 'location',
+      fieldNames: ['customer_name', 'province', 'address', '__gps'],
+    },
+    {
+      id: 'verification',
+      kh: '៤. លទ្ធផលផ្ទៀងផ្ទាត់ និងការបិទស្លាក',
+      en: 'Verification Result & Labeling',
+      icon: 'verification',
+      fieldNames: ['label_qr_no', 'verification_status', 'verification_cert_no', 'verification_date'],
+    },
+  ],
+  module: [
+    {
+      id: 'host',
+      kh: '១. ឧបករណ៍មេ (Host Instrument)',
+      en: 'Host Instrument Association',
+      icon: 'host',
+      fieldNames: ['host_serial_no', 'host_part'],
+    },
+    {
+      id: 'specs',
+      kh: '២. ព័ត៌មានម៉ូឌុល / គ្រឿងបន្លាស់',
+      en: 'Module & Component Specifications',
+      icon: 'specs',
+      fieldNames: ['module_name', 'model', 'serial_no', 'range_e', 'manufacturer', 'country', 'cert_no', 'new_or_replacement'],
+    },
+  ],
+  repair: [
+    {
+      id: 'identity',
+      kh: '១. ព័ត៌មានឧបករណ៍ដែលត្រូវជួសជុល',
+      en: 'Instrument Under Repair',
+      icon: 'identity',
+      fieldNames: ['category', 'instrument_name', 'model', 'serial_no'],
+    },
+    {
+      id: 'location',
+      kh: '២. អតិថិជន និងទីតាំងជួសជុល',
+      en: 'Customer & Service Location',
+      icon: 'location',
+      fieldNames: ['customer_name', 'province', 'address', '__gps'],
+    },
+    {
+      id: 'repair',
+      kh: '៣. ព័ត៌មានលម្អិតអំពីការជួសជុល',
+      en: 'Repair Execution & Protocol',
+      icon: 'repair',
+      fieldNames: ['repair_from', 'repair_to', 'technician', 'repair_description', 'seal_broken', 'seal_removed_no', 'notification_no'],
+    },
+    {
+      id: 'verification',
+      kh: '៤. លទ្ធផលផ្ទៀងផ្ទាត់ក្រោយជួសជុល',
+      en: 'Post-Repair Verification',
+      icon: 'verification',
+      fieldNames: ['verification_status', 'verification_cert_no', 'verification_date'],
+    },
+  ],
+  standard: [
+    {
+      id: 'identity',
+      kh: '១. ព័ត៌មានឧបករណ៍ស្ដង់ដារ',
+      en: 'Standard Equipment Profile',
+      icon: 'standards',
+      fieldNames: ['equipment', 'serial_no', 'class_range', 'lab'],
+    },
+    {
+      id: 'validity',
+      kh: '២. ការក្រិតតាង និងសុពលភាព',
+      en: 'Calibration & Status',
+      icon: 'specs',
+      fieldNames: ['cal_cert_no', 'cal_date', 'due_date', 'status'],
+    },
   ],
 };
 
@@ -399,7 +508,7 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
       : report.status === 'RETURNED' ? 'ត្រឡប់មកវិញ'
         : report.status === 'ACCEPTED' ? 'ទទួលយក' : 'បានដាក់ជូន';
 
-  const input = 'w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-[12px] text-slate-700 focus:border-[#C9A227] focus:outline-none focus:ring-1 focus:ring-[#C9A227]';
+  const input = 'w-full rounded-xl border border-slate-200/90 bg-slate-50/50 px-3 py-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-[#C9A227] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#C9A227]/20 shadow-xs transition-all';
 
   return (
     <div className="space-y-4">
@@ -633,79 +742,270 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
 
       {/* Entry form */}
       {form && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
-          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white sm:max-w-3xl sm:rounded-2xl">
-            <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-[#0B1A35] px-4 py-3 text-white">
-              <div>
-                <h4 className="text-[13px] font-black">
-                  {form.id ? 'កែប្រែ' : 'បន្ថែម'}{PARTS.find((p) => p.key === form.part)?.kh}
-                </h4>
-                <p className="text-[10px] text-slate-300">{PARTS.find((p) => p.key === form.part)?.en}</p>
-              </div>
-              <button type="button" onClick={() => setForm(null)} className="text-white/70 hover:text-white">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
-              {FIELDS[form.part].filter((f) => !f.when || f.when(form.values)).map((f) => (
-                <div key={f.name} className={f.wide || f.type === 'textarea' ? 'sm:col-span-2' : ''}>
-                  <label className="mb-1 block text-[11px] font-black text-slate-600" htmlFor={`a8-${f.name}`}>
-                    {f.kh} {f.required && <span className="text-red-500">*</span>}
-                    <span className="ml-1 font-bold text-slate-400">{f.en}</span>
-                  </label>
-
-                  {f.type === 'gps' ? (
-                    <div className="flex items-center gap-2">
-                      <input className={input} readOnly placeholder="latitude, longitude"
-                        value={[form.values.latitude, form.values.longitude].filter(Boolean).join(', ')} />
-                      <button type="button" onClick={captureGps}
-                        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-2 text-[11px] font-black text-slate-600 hover:bg-slate-50">
-                        <LocateFixed className="h-4 w-4" /> GPS
-                      </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 backdrop-blur-sm p-2 sm:p-4 animate-in fade-in duration-200">
+          <div className="flex flex-col w-full max-w-4xl max-h-[92vh] rounded-3xl bg-slate-50 shadow-2xl overflow-hidden border border-slate-200/90">
+            {/* Top Header */}
+            {(() => {
+              const partInfo = PARTS.find((p) => p.key === form.part);
+              return (
+                <div className="shrink-0 flex items-center justify-between border-b border-white/10 bg-gradient-to-r from-[#0B1A35] via-[#0F224A] to-[#15284d] px-6 py-4 text-white">
+                  <div className="flex items-center gap-3.5">
+                    <div className="h-10 w-10 rounded-2xl bg-white/10 border border-white/15 flex items-center justify-center text-[#E6C45A] shadow-inner">
+                      {form.part === 'instrument' ? <Sliders className="h-5 w-5" /> :
+                       form.part === 'repair' ? <Wrench className="h-5 w-5" /> :
+                       form.part === 'module' ? <Layers className="h-5 w-5" /> :
+                       <ShieldCheck className="h-5 w-5" />}
                     </div>
-                  ) : f.type === 'checkbox' ? (
-                    <label className="flex items-center gap-2 text-[12px] font-bold text-slate-700">
-                      <input id={`a8-${f.name}`} type="checkbox" className="h-4 w-4"
-                        checked={!!form.values[f.name]}
-                        onChange={(e) => setForm({ ...form, values: { ...form.values, [f.name]: e.target.checked } })} />
-                      {f.en}
-                    </label>
-                  ) : f.type === 'select' ? (
-                    <select id={`a8-${f.name}`} className={input} value={form.values[f.name] ?? ''}
-                      onChange={(e) => setForm({ ...form, values: { ...form.values, [f.name]: e.target.value } })}>
-                      <option value="">— ជ្រើសរើស —</option>
-                      {f.options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                  ) : f.type === 'textarea' ? (
-                    <textarea id={`a8-${f.name}`} className={`${input} min-h-[72px]`} value={form.values[f.name] ?? ''}
-                      onChange={(e) => setForm({ ...form, values: { ...form.values, [f.name]: e.target.value } })} />
-                  ) : (
-                    <input id={`a8-${f.name}`} type={f.type === 'date' ? 'date' : 'text'} className={input}
-                      value={form.values[f.name] ?? ''}
-                      onChange={(e) => setForm({ ...form, values: { ...form.values, [f.name]: e.target.value } })} />
-                  )}
-
-                  {f.hint && <p className="mt-0.5 text-[10px] text-slate-400">{f.hint}</p>}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-black text-white tracking-wide">
+                          {form.id ? 'កែប្រែ' : 'បន្ថែម'}{partInfo?.kh}
+                        </h3>
+                        <span className="rounded-full bg-[#C9A227]/25 border border-[#C9A227]/50 px-2.5 py-0.5 text-[10px] font-black text-[#E6C45A]">
+                          ផ្នែក {partInfo?.no}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 font-medium">
+                        {form.id ? 'Edit entry for' : 'Add new entry to'} {partInfo?.en}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setForm(null)}
+                    className="rounded-xl p-2 text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+                    title="បិទ / Close"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
                 </div>
-              ))}
+              );
+            })()}
+
+            {/* Scrollable Body */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
+              {(() => {
+                const sections = PART_SECTIONS[form.part] || [];
+                const allFields = FIELDS[form.part];
+                const fieldMap: Record<string, Field> = {};
+                allFields.forEach((f) => { fieldMap[f.name] = f; });
+
+                const getSectionIcon = (icon: string) => {
+                  switch (icon) {
+                    case 'identity': return <Sliders className="h-4 w-4 text-[#C9A227]" />;
+                    case 'specs': return <Wrench className="h-4 w-4 text-[#C9A227]" />;
+                    case 'location': return <MapPin className="h-4 w-4 text-[#C9A227]" />;
+                    case 'verification': return <ShieldCheck className="h-4 w-4 text-[#C9A227]" />;
+                    case 'repair': return <FileText className="h-4 w-4 text-[#C9A227]" />;
+                    case 'host': return <Sliders className="h-4 w-4 text-[#C9A227]" />;
+                    default: return <Sliders className="h-4 w-4 text-[#C9A227]" />;
+                  }
+                };
+
+                return sections.map((sec) => {
+                  const visibleFields = sec.fieldNames
+                    .map((name) => fieldMap[name])
+                    .filter((f): f is Field => !!f && (!f.when || f.when(form.values)));
+
+                  if (!visibleFields.length) return null;
+
+                  return (
+                    <div key={sec.id} className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs">
+                      <div className="flex items-center gap-2.5 pb-3.5 mb-4 border-b border-slate-100">
+                        <div className="h-7 w-7 rounded-lg bg-[#0B1A35]/5 border border-[#0B1A35]/10 flex items-center justify-center text-[#0B1A35]">
+                          {getSectionIcon(sec.icon)}
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-black text-slate-800">{sec.kh}</h4>
+                          <span className="text-[10px] font-semibold text-slate-400 block -mt-0.5">{sec.en}</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        {visibleFields.map((f) => {
+                          const isWide = f.wide || f.type === 'textarea' || f.name === 'verification_status' || f.name === 'seal_broken';
+                          const colSpanClass = isWide ? 'sm:col-span-2' : '';
+
+                          if (f.name === 'verification_status') {
+                            const options = [
+                              { value: 'PASSED', kh: 'ជាប់', en: 'Passed', icon: CheckCircle2, cls: 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-2 ring-emerald-500/20' },
+                              { value: 'FAILED', kh: 'ធ្លាក់', en: 'Failed', icon: XCircle, cls: 'border-rose-500 bg-rose-50 text-rose-800 ring-2 ring-rose-500/20' },
+                              { value: 'PENDING', kh: 'រង់ចាំ', en: 'Pending', icon: Clock, cls: 'border-amber-500 bg-amber-50 text-amber-800 ring-2 ring-amber-500/20' },
+                            ];
+                            const cur = form.values.verification_status || 'PENDING';
+                            return (
+                              <div key={f.name} className={colSpanClass}>
+                                <div className="mb-2 flex items-baseline justify-between">
+                                  <span className="text-xs font-black text-slate-700">
+                                    {f.kh} {f.required && <span className="text-rose-500 font-black">*</span>}
+                                  </span>
+                                  <span className="text-[10px] font-semibold text-slate-400">{f.en}</span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-2.5">
+                                  {options.map((opt) => {
+                                    const active = cur === opt.value;
+                                    const OptIcon = opt.icon;
+                                    return (
+                                      <button
+                                        key={opt.value}
+                                        type="button"
+                                        onClick={() => setForm({ ...form, values: { ...form.values, verification_status: opt.value } })}
+                                        className={`flex flex-col items-center justify-center gap-1.5 rounded-2xl border p-3 transition-all ${
+                                          active ? opt.cls : 'border-slate-200 bg-slate-50/60 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                                        }`}
+                                      >
+                                        <OptIcon className={`h-5 w-5 ${active ? '' : 'text-slate-400'}`} />
+                                        <span className="text-xs font-black">{opt.kh}</span>
+                                        <span className="text-[10px] font-semibold opacity-80">{opt.en}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          if (f.name === 'seal_broken') {
+                            return (
+                              <div key={f.name} className="sm:col-span-2 rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+                                <label className="flex items-start gap-3 cursor-pointer">
+                                  <input
+                                    id={`a8-${f.name}`}
+                                    type="checkbox"
+                                    className="mt-0.5 h-4 w-4 rounded border-amber-300 text-[#C9A227] focus:ring-[#C9A227]"
+                                    checked={!!form.values[f.name]}
+                                    onChange={(e) => setForm({ ...form, values: { ...form.values, [f.name]: e.target.checked } })}
+                                  />
+                                  <div>
+                                    <span className="text-xs font-black text-amber-900 block">
+                                      {f.kh} ({f.en})
+                                    </span>
+                                    <span className="text-[10px] text-amber-800/80 font-medium block mt-0.5">
+                                      តម្រូវឱ្យបំពេញលេខត្រាដែលបានដោះ និងលេខលិខិតជូនដំណឹងឧបសម្ព័ន្ធទី១០ (យោងប្រការ ២៥)
+                                    </span>
+                                  </div>
+                                </label>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div key={f.name} className={colSpanClass}>
+                              <div className="mb-1.5 flex items-baseline justify-between">
+                                <label className="text-xs font-bold text-slate-700 tracking-tight" htmlFor={`a8-${f.name}`}>
+                                  {f.kh} {f.required && <span className="text-rose-500 font-black">*</span>}
+                                </label>
+                                <span className="text-[10px] font-medium text-slate-400">{f.en}</span>
+                              </div>
+
+                              {f.type === 'gps' ? (
+                                <div className="flex items-center gap-2">
+                                  <div className="relative flex-1">
+                                    <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                    <input
+                                      id={`a8-${f.name}`}
+                                      className={`${input} pl-9 font-mono`}
+                                      readOnly
+                                      placeholder="Latitude, Longitude (ស្វ័យប្រវត្តិតាម GPS)"
+                                      value={[form.values.latitude, form.values.longitude].filter(Boolean).join(', ')}
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={captureGps}
+                                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-bold text-[#0B1A35] hover:bg-slate-50 shadow-xs transition-colors"
+                                  >
+                                    <LocateFixed className="h-4 w-4 text-[#C9A227]" /> ចាប់យក GPS
+                                  </button>
+                                </div>
+                              ) : f.type === 'checkbox' ? (
+                                <label className="flex items-center gap-2.5 text-xs font-bold text-slate-700 py-1">
+                                  <input
+                                    id={`a8-${f.name}`}
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-slate-300 text-[#0B1A35] focus:ring-[#C9A227]"
+                                    checked={!!form.values[f.name]}
+                                    onChange={(e) => setForm({ ...form, values: { ...form.values, [f.name]: e.target.checked } })}
+                                  />
+                                  {f.en}
+                                </label>
+                              ) : f.type === 'select' ? (
+                                <select
+                                  id={`a8-${f.name}`}
+                                  className={input}
+                                  value={form.values[f.name] ?? ''}
+                                  onChange={(e) => setForm({ ...form, values: { ...form.values, [f.name]: e.target.value } })}
+                                >
+                                  <option value="">— សូមជ្រើសរើស / Select —</option>
+                                  {f.options?.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                      {o.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : f.type === 'textarea' ? (
+                                <textarea
+                                  id={`a8-${f.name}`}
+                                  className={`${input} min-h-[80px] resize-y`}
+                                  placeholder="បំពេញព័ត៌មានលម្អិត..."
+                                  value={form.values[f.name] ?? ''}
+                                  onChange={(e) => setForm({ ...form, values: { ...form.values, [f.name]: e.target.value } })}
+                                />
+                              ) : (
+                                <input
+                                  id={`a8-${f.name}`}
+                                  type={f.type === 'date' ? 'date' : 'text'}
+                                  className={input}
+                                  value={form.values[f.name] ?? ''}
+                                  onChange={(e) => setForm({ ...form, values: { ...form.values, [f.name]: e.target.value } })}
+                                />
+                              )}
+
+                              {f.hint && (
+                                <p className="mt-1 text-[10px] font-medium text-slate-400">
+                                  {f.hint}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
             </div>
 
-            <div className="sticky bottom-0 flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-white px-4 py-3">
-              <button type="button" onClick={() => setForm(null)}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-[11px] font-black text-slate-600 hover:bg-slate-50">
-                បោះបង់
+            {/* Sticky Bottom Actions */}
+            <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white/95 backdrop-blur-md px-6 py-4 shadow-lg">
+              <button
+                type="button"
+                onClick={() => setForm(null)}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                បោះបង់ / Cancel
               </button>
-              {!form.id && (
-                <button type="button" disabled={saving} onClick={() => void saveEntry(true)}
-                  className="rounded-lg border border-[#0B1A35] px-3 py-2 text-[11px] font-black text-[#0B1A35] hover:bg-slate-50 disabled:opacity-50">
-                  រក្សាទុក និងបន្ថែមទៀត
+              <div className="flex items-center gap-2.5">
+                {!form.id && (
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void saveEntry(true)}
+                    className="rounded-xl border border-[#0B1A35] bg-white px-4 py-2.5 text-xs font-bold text-[#0B1A35] hover:bg-[#0B1A35]/5 disabled:opacity-50 transition-colors"
+                  >
+                    រក្សាទុក និងបន្ថែមទៀត / Save & Next
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void saveEntry(false)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#C9A227] to-[#E6C45A] px-5 py-2.5 text-xs font-black text-[#0B1A35] hover:brightness-105 disabled:opacity-50 shadow-sm shadow-[#C9A227]/30 transition-all"
+                >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  រក្សាទុក / Save Entry
                 </button>
-              )}
-              <button type="button" disabled={saving} onClick={() => void saveEntry(false)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#C9A227] px-4 py-2 text-[11px] font-black text-[#0B1A35] hover:bg-[#E6C45A] disabled:opacity-50">
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} រក្សាទុក
-              </button>
+              </div>
             </div>
           </div>
         </div>

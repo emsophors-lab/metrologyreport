@@ -107,14 +107,30 @@ function typeCast(field: any, next: () => any): any {
   return next();
 }
 
-/** Values going the other way: objects and arrays become JSON text. */
+/**
+ * An ISO-8601 instant, which is what the application writes into timestamp
+ * columns: '2026-10-18T06:07:49.085Z'. Plain '2026-10-05' is NOT matched —
+ * that is a DATE and MySQL takes it as it is.
+ */
+const ISO_INSTANT = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.(\d{1,3})\d*)?(Z|[+-]\d{2}:?\d{2})$/;
+
+/** Values going the other way: objects become JSON, instants become DATETIME. */
 function toParam(value: any): any {
-  if (value === undefined) return null;
-  if (value === null) return null;
-  if (value instanceof Date) return value.toISOString().slice(0, 23).replace('T', ' ');
+  if (value === undefined || value === null) return null;
+  if (value instanceof Date) return mysqlDateTime(value);
   if (typeof value === 'boolean') return value ? 1 : 0;
+  if (typeof value === 'string' && ISO_INSTANT.test(value)) {
+    // MySQL rejects the 'T' and the trailing zone outright, so an ISO string
+    // has to be converted — and converted to UTC, since that is what every
+    // column in this database holds and what typeCast reads back.
+    return mysqlDateTime(new Date(value));
+  }
   if (typeof value === 'object') return JSON.stringify(value);
   return value;
+}
+
+function mysqlDateTime(date: Date): string {
+  return date.toISOString().slice(0, 23).replace('T', ' ');
 }
 
 /**

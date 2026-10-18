@@ -59,7 +59,8 @@ const rows: Record<string, any[]> = {
     submitted_at: extra.submitted_at,
     received_at: extra.received_at,
   }],
-  annex8_report_instruments: r.part3_instruments.map((x: any, i: number) => ({
+  annex8_report_instruments: [
+    ...r.part3_instruments.map((x: any, i: number) => ({
     row_no: i + 1,
     op_code: x.op_code,
     category: x.category,
@@ -85,7 +86,26 @@ const rows: Record<string, any[]> = {
     verification_status: x.verification_status,
     verification_cert_no: x.verification_cert_no,
     verification_date: x.verification_date || null,
+    deleted_at: null,
   })),
+    // Soft-deleted entry (e.g. LC-8808) — must be excluded by .is('deleted_at', null)
+    {
+      row_no: 999,
+      op_code: 'NEW',
+      category: 'WEIGH_ELECTRONIC',
+      instrument_name: 'Deleted Scale',
+      model: 'DEL-1',
+      serial_no: 'DELETED-SN-999',
+      manufacturer: 'Deleted Corp',
+      country: 'KH',
+      accuracy_class: 'III',
+      customer_name: 'Ghost Customer',
+      province: 'ភ្នំពេញ',
+      address: 'Ghost St',
+      verification_status: 'PASS',
+      deleted_at: '2026-10-18T10:00:00.000Z',
+    },
+  ],
   annex8_report_modules: r.part3a_modules.map((x: any, i: number) => ({
     row_no: i + 1,
     host_serial_no: x.host_serial_no,
@@ -155,10 +175,14 @@ const rows: Record<string, any[]> = {
 /** Just enough of the query builder for loadAnnex8RenderInput. */
 function fakeSupabase() {
   const builder = (table: string) => {
-    const data = rows[table] || [];
+    let data = [...(rows[table] || [])];
     const api: any = {
       select: () => api,
       eq: () => api,
+      is: (col: string, val: any) => {
+        data = data.filter((r: any) => (val === null ? (r[col] === null || r[col] === undefined) : r[col] === val));
+        return api;
+      },
       order: () => Promise.resolve({ data, error: null }),
       maybeSingle: () => Promise.resolve({ data: data[0] ?? null, error: null }),
       then: (resolve: any) => resolve({ data, error: null }),

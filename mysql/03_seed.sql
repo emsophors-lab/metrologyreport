@@ -6,14 +6,21 @@
 --  standards. Nothing here is real: the enterprise, the people and the
 --  licence number are invented for development.
 --
+--  The ids, usernames and roles deliberately match INITIAL_USERS in
+--  src/demoData.ts. The local development login resolves an account from that
+--  list and then sends its id and username to the API as headers; if the
+--  database held different ids, every request after signing in would be
+--  rejected as an unknown user. Matching them means the same credentials work
+--  whether the data is coming from demo data or from this database.
+--
 --  Passwords are PBKDF2-SHA256 hashes in the format verifyUserPasswordServer()
---  expects. The plaintexts are development-only and are written here so the
---  machine that runs this file is the only place they exist:
+--  expects, over the same development plaintexts:
 --
---      nmcadmin / NmcAdmin#2026     (superadmin)
---      bokor    / Bokor#2026        (company — sees only its own data)
+--      superadmin / admin123
+--      admin      / admin123
+--      company01  / LIC001      (company — sees only its own data)
 --
---  Change both before this database is reachable by anyone else.
+--  Change all three before this database is reachable by anyone else.
 --
 --    mysql -u root mlrs < mysql/03_seed.sql
 -- =====================================================================
@@ -32,21 +39,30 @@ INSERT INTO users (
   admin_can_view_all_users, admin_can_view_licenses, is_active
 ) VALUES
 (
-  'a0000000-0000-4000-8000-000000000001',
-  'nmcadmin', 'nmcadmin@nmc.local', 'superadmin', NULL,
-  'មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ', 'National Metrology Center',
-  'រាជធានីភ្នំពេញ', '023000000',
-  'អ្នកគ្រប់គ្រងប្រព័ន្ធ', 'ប្រធានផ្នែកព័ត៌មានវិទ្យា',
-  'pbkdf2_sha256$120000$R6qLL/afncnTvdD+V9QSQg==$Q7j6rKQcdhKALcyWDhKBDLk4VIouOtpLiiAQ8NrTQzs=',
+  'user-sa-001',
+  'superadmin', 'info@nmc.gov.kh', 'superadmin', 'NMC-SA-2026',
+  'មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ (NMC)', 'National Metrology Center of Cambodia',
+  'មហាវិថីសហព័ន្ធរុស្ស៊ី ភ្នំពេញ កម្ពុជា', '023 884 123',
+  'ឯកឧត្តម ប្រធានមជ្ឈមណ្ឌល', 'អគ្គនាយក',
+  'pbkdf2_sha256$120000$4fM6Kk4S7W5KdaIiVu8qVw==$dAJXyyZ+0ddz7be0WB2LwAwA9qYjYA6oBRQmHJXvHDg=',
   1, 1, 1, 1, 1, 1, 1
 ),
 (
-  'a0000000-0000-4000-8000-000000000002',
-  'bokor', 'bokor@example.local', 'company', 'LIC-2026-001',
-  'ក្រុមហ៊ុន មាត្រាសាស្ត្រ បូកគោ', 'Bokor Metrology Co., Ltd.',
-  'ផ្ទះលេខ ១២ ផ្លូវ ២៧១ សង្កាត់ទួលទំពូង ខណ្ឌចំការមន រាជធានីភ្នំពេញ', '012345678',
-  'លោក លី ម៉េង', 'នាយកគ្រប់គ្រង',
-  'pbkdf2_sha256$120000$uZdZ6SYywxWfIs2B9SxszQ==$mH+Pv3Kn2yv6uT0AVChkZdr8vt5BxqdEp4U6HHPSqCs=',
+  'user-ad-001',
+  'admin', 'inspection@nmc.gov.kh', 'admin', 'NMC-AD-2026',
+  'នាយកដ្ឋានមាត្រាសាស្ត្រឧស្សាហកម្ម', 'Department of Industrial Metrology',
+  'មហាវិថីសហព័ន្ធរុស្ស៊ី ភ្នំពេញ កម្ពុជា', '012 345 678',
+  'លោក ប្រធាននាយកដ្ឋាន', 'ប្រធាននាយកដ្ឋាន',
+  'pbkdf2_sha256$120000$yU8blvY/O+qplmGqIeYiGg==$02dnxbCORVyDYXzoiWMHfP29D/gx20IBCcVQ5oMAc6U=',
+  1, 1, 1, 1, 1, 1, 1
+),
+(
+  'user-co-001',
+  'company01', 'contact@bokormetrology.com', 'company', 'LIC-2026-001',
+  'ក្រុមហ៊ុន មាត្រាសាស្ត្រ បូកគោ', 'Bokor Metrology Corp',
+  'ផ្ទះលេខ ១២A ផ្លូវជាតិលេខ ៣ ខេត្តកំពត', '016 999 888',
+  'លោក លី ម៉េង', 'នាយកប្រតិបត្តិ',
+  'pbkdf2_sha256$120000$87y3oPqTrEAPUFFARJCxYg==$jdgnOsQ4LMc4Ru5Ded/63miBNw7mdUY4Xlr6hQVAPzQ=',
   1, 1, 1, 1, 0, 0, 1
 )
 ON DUPLICATE KEY UPDATE username = VALUES(username);
@@ -63,8 +79,8 @@ INSERT INTO enterprise_licenses (
   created_at, updated_at
 ) VALUES (
   'b0000000-0000-4000-8000-000000000001',
-  'a0000000-0000-4000-8000-000000000002',
-  'Bokor Metrology Co., Ltd.', 'ក្រុមហ៊ុន មាត្រាសាស្ត្រ បូកគោ', 'LIC-2026-001',
+  'user-co-001',
+  'Bokor Metrology Corp', 'ក្រុមហ៊ុន មាត្រាសាស្ត្រ បូកគោ', 'LIC-2026-001',
   'ផ្ទះលេខ ១២ ផ្លូវ ២៧១ សង្កាត់ទួលទំពូង ខណ្ឌចំការមន រាជធានីភ្នំពេញ',
   'រាជធានីភ្នំពេញ', '012345678', 'bokor@example.local',
   'ផលិត ដំឡើង និងជួសជុល', 'ផលិត ដំឡើង ជួសជុល ឧបករណ៍វាស់វែង',

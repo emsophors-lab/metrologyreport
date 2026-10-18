@@ -5,13 +5,19 @@ export async function getApiAuthHeaders(): Promise<Record<string, string>> {
     'Content-Type': 'application/json',
   };
 
+  // The local header fallback must not depend on there being a Supabase
+  // client. Under DB_DRIVER=mysql there is no Supabase at all, and returning
+  // early here left every request unauthenticated — which is the one case the
+  // fallback exists for.
   const client = getActiveSupabaseClient();
-  if (!client) return headers;
+  let token: string | undefined;
+  if (client) {
+    const { data } = await client.auth.getSession();
+    token = data.session?.access_token;
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
 
-  const { data } = await client.auth.getSession();
-  const token = data.session?.access_token;
   const viteEnv = (import.meta as any).env || {};
-  if (token) headers.Authorization = `Bearer ${token}`;
   if (
     !token &&
     viteEnv.DEV &&

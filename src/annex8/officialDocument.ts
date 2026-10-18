@@ -98,10 +98,10 @@ export async function loadAnnex8RenderInput(
   if (!report) return null;
 
   const [instruments, modules, repairs, standards, carryOver, profile, licence] = await Promise.all([
-    supabaseAdmin.from('annex8_report_instruments').select('*').eq('report_uuid', reportUuid).order('row_no'),
-    supabaseAdmin.from('annex8_report_modules').select('*').eq('report_uuid', reportUuid).order('row_no'),
-    supabaseAdmin.from('annex8_report_repairs').select('*').eq('report_uuid', reportUuid).order('row_no'),
-    supabaseAdmin.from('annex8_report_standards').select('*').eq('report_uuid', reportUuid).order('row_no'),
+    supabaseAdmin.from('annex8_report_instruments').select('*').eq('report_uuid', reportUuid).is('deleted_at', null).order('row_no'),
+    supabaseAdmin.from('annex8_report_modules').select('*').eq('report_uuid', reportUuid).is('deleted_at', null).order('row_no'),
+    supabaseAdmin.from('annex8_report_repairs').select('*').eq('report_uuid', reportUuid).is('deleted_at', null).order('row_no'),
+    supabaseAdmin.from('annex8_report_standards').select('*').eq('report_uuid', reportUuid).is('deleted_at', null).order('row_no'),
     supabaseAdmin.from('annex8_carry_over_updates').select('*').eq('report_uuid', reportUuid),
     supabaseAdmin.from('annex8_licence_profiles').select('*').eq('license_number', report.licence_no).maybeSingle(),
     supabaseAdmin.from('enterprise_licenses').select('*').eq('license_number', report.licence_no).maybeSingle(),

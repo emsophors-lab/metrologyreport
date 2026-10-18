@@ -24,8 +24,16 @@ import { EnterpriseLicense, MetrologyUser } from '../types';
 const Annex8MonthWorkspace = lazy(() => import('./Annex8MonthWorkspace'));
 const Annex8ReportForm = lazy(() => import('./Annex8ReportForm'));
 const Annex8ReportSearch = lazy(() => import('./Annex8ReportSearch'));
+const Annex8MyReportsTable = lazy(() => import('./Annex8MyReportsTable'));
 
 type View = 'month' | 'form' | 'history';
+
+/**
+ * History has two levels, because they answer different questions. The
+ * register is "how many reports have we filed and what was in each"; the
+ * search is "which weighbridge failed in September".
+ */
+type HistoryTab = 'register' | 'search';
 
 interface Annex8PortalProps {
   currentUser: MetrologyUser;
@@ -80,6 +88,7 @@ export default function Annex8Portal({ currentUser, licence, toastMsg, language 
   const canSave = !!currentUser.can_save;
   const views = VIEWS.filter((v) => canSave || !v.needsSave);
   const [view, setView] = useState<View>(canSave ? 'month' : 'history');
+  const [historyTab, setHistoryTab] = useState<HistoryTab>('register');
   const active = views.find((v) => v.key === view) || views[0];
 
   return (
@@ -150,7 +159,32 @@ export default function Annex8Portal({ currentUser, licence, toastMsg, language 
             language={language}
           />
         )}
-        {active?.key === 'history' && <Annex8ReportSearch currentUser={currentUser} />}
+        {active?.key === 'history' && (
+          <div className="space-y-3">
+            <div className="flex bg-slate-100 p-1 rounded-lg max-w-md">
+              {([
+                ['register', 'តារាងរបាយការណ៍', 'My reports'],
+                ['search', 'ស្វែងរកឧបករណ៍', 'Search instruments'],
+              ] as Array<[HistoryTab, string, string]>).map(([key, kh, en]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setHistoryTab(key)}
+                  className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                    historyTab === key
+                      ? 'bg-white text-[#0B2A66] shadow-xs border border-slate-200/50'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  {kh} <span className="text-[9px] text-slate-400">{en}</span>
+                </button>
+              ))}
+            </div>
+            {historyTab === 'register'
+              ? <Annex8MyReportsTable currentUser={currentUser} />
+              : <Annex8ReportSearch currentUser={currentUser} />}
+          </div>
+        )}
       </Suspense>
     </div>
   );
