@@ -63,6 +63,8 @@ async function get(url, headers) {
     ['the register', `/api/annex8/reports-list?licence_no=${L2}`],
     ['the pending list', `/api/annex8/pending?licence_no=${L2}`],
     ['a month', `/api/annex8/month?licence_no=${L2}&period=2026-09`],
+    ['the Excel export', `/api/annex8/export?format=xlsx&licence_no=${L2}`],
+    ['the Word export', `/api/annex8/export?format=docx&licence_no=${L2}`],
   ]) {
     const r = await get(url, COMPANY1);
     ok(`${label} refuses another licence (HTTP ${r.status})`, r.status === 403, r.json);
@@ -85,9 +87,32 @@ async function get(url, headers) {
     narrowed.json.summary.filed === c1.json.summary.filed,
     { staff: narrowed.json.summary.filed, company: c1.json.summary.filed });
 
+  console.log('\nThe exports carry the same scope as the screen');
+  const xlsxAll = await fetch(BASE + '/api/annex8/export?format=xlsx', { headers: SUPERADMIN });
+  ok(`staff get a workbook (HTTP ${xlsxAll.status})`, xlsxAll.status === 200);
+  const xlsxBuf = Buffer.from(await xlsxAll.arrayBuffer());
+  ok('it is a real xlsx (PK zip signature)', xlsxBuf[0] === 0x50 && xlsxBuf[1] === 0x4b);
+  ok('named for all licensees',
+    /Annex8_NMC_Summary_ALL_/.test(xlsxAll.headers.get('content-disposition') || ''),
+    xlsxAll.headers.get('content-disposition'));
+
+  const docxOwn = await fetch(BASE + '/api/annex8/export?format=docx', { headers: COMPANY1 });
+  ok(`a company gets its own Word file (HTTP ${docxOwn.status})`, docxOwn.status === 200);
+  ok('named for that licence only',
+    (docxOwn.headers.get('content-disposition') || '').includes(L1),
+    docxOwn.headers.get('content-disposition'));
+
+  const xlsxNarrow = await fetch(BASE + `/api/annex8/export?format=xlsx&licence_no=${L1}`, { headers: SUPERADMIN });
+  ok('staff may export one licensee', xlsxNarrow.status === 200);
+
+  const badFormat = await get('/api/annex8/export?format=csv', SUPERADMIN);
+  ok(`an unknown format is refused (HTTP ${badFormat.status})`, badFormat.status === 400, badFormat.json);
+
   console.log('\nAn unauthenticated caller gets nothing');
   const anon = await get('/api/annex8/overview', { 'Content-Type': 'application/json' });
-  ok(`refused (HTTP ${anon.status})`, anon.status === 401, anon.json);
+  ok(`the overview refuses it (HTTP ${anon.status})`, anon.status === 401, anon.json);
+  const anonExport = await get('/api/annex8/export?format=xlsx', { 'Content-Type': 'application/json' });
+  ok(`so does the export (HTTP ${anonExport.status})`, anonExport.status === 401, anonExport.json);
 
   console.log('\nThe figures hold together');
   const staff = await get('/api/annex8/overview', SUPERADMIN);

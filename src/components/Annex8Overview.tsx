@@ -17,13 +17,14 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, Building2, CalendarClock, CheckCircle2, Clock,
-  Loader2, MapPin, RotateCcw, TrendingUp, XCircle,
+  AlertTriangle, Building2, CalendarClock, CheckCircle2, Clock, FileSpreadsheet,
+  FileText, Loader2, MapPin, RotateCcw, TrendingUp,
 } from 'lucide-react';
 
 import { CATEGORIES } from '../annex8/constants';
 import { khmerMonthLabel, toKhmerDigits } from '../annex8/summary';
 import { apiRequest } from '../supabaseSync';
+import { getApiAuthHeaders } from '../apiAuth';
 import { MetrologyUser } from '../types';
 
 const kh = (v: unknown) => toKhmerDigits(Number(v ?? 0));
@@ -57,24 +58,72 @@ export default function Annex8Overview({ currentUser }: { currentUser: Metrology
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [year, setYear] = useState('all');
+  const [licence, setLicence] = useState('all');
+  /* The licensee list only comes back when the scope is 'all', so it is kept
+     here — otherwise narrowing to one company would empty the picker that
+     did the narrowing. */
+  const [allLicensees, setAllLicensees] = useState<Overview['licensees']>([]);
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const qs = year === 'all' ? '' : `?year=${encodeURIComponent(year)}`;
-      setData(await apiRequest<Overview>(`/api/annex8/overview${qs}`));
+      const params = new URLSearchParams();
+      if (year !== 'all') params.set('year', year);
+      if (licence !== 'all') params.set('licence_no', licence);
+      const qs = params.toString();
+      const next = await apiRequest<Overview>(`/api/annex8/overview${qs ? `?${qs}` : ''}`);
+      setData(next);
+      if (next.scope === 'all') setAllLicensees(next.licensees || []);
     } catch (err: any) {
       setError(err?.message || 'មិនអាចផ្ទុកទិន្នន័យបានទេ។');
       setData(null);
     } finally {
       setLoading(false);
     }
-  }, [year]);
+  }, [year, licence]);
 
   useEffect(() => { void load(); }, [load]);
 
-  const isStaff = data?.scope === 'all';
+  /**
+   * Download the NMC summary. Goes through fetch rather than a plain link
+   * because the endpoint needs the auth headers, and a failure has to be
+   * shown rather than landing the browser on a JSON error page.
+   */
+  const download = async (format: 'xlsx' | 'docx' | 'pdf') => {
+    setExporting(format);
+    setExportError(null);
+    try {
+      const params = new URLSearchParams({ format });
+      if (year !== 'all') params.set('year', year);
+      if (licence !== 'all') params.set('licence_no', licence);
+
+      const res = await fetch(`/api/annex8/export?${params}`, { headers: await getApiAuthHeaders() });
+      if (!res.ok) {
+        let message = `${res.status} ${res.statusText}`;
+        try { message = (await res.json())?.error || message; } catch { /* not JSON */ }
+        throw new Error(message);
+      }
+      const blob = await res.blob();
+      const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1]
+        || `Annex8_summary.${format}`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name; a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setExportError(err?.message || 'មិនអាចបង្កើតឯកសារបានទេ។');
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  /* Named for what it actually gates: the panels that only make sense across
+     every licensee. A staff member who narrows to one enterprise sees the
+     same page a company sees of itself, which is the point. */
+  const isAllLicensees = data?.scope === 'all';
   const t = data?.totals;
 
   const verification = useMemo(() => {
@@ -115,15 +164,35 @@ export default function Annex8Overview({ currentUser }: { currentUser: Metrology
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div>
           <h4 className="text-[14px] font-black text-[#0B1A35]">
-            {isStaff ? 'ទិដ្ឋភាពរួម · សហគ្រាសទាំងអស់' : 'ទិដ្ឋភាពរួមរបស់សហគ្រាស'}
+            {data.scope === 'all' ? 'ទិដ្ឋភាពរួម · សហគ្រាសទាំងអស់'
+              : data.scope === 'licence' ? 'ទិដ្ឋភាពរួម · សហគ្រាសមួយ'
+                : 'ទិដ្ឋភាពរួមរបស់សហគ្រាស'}
           </h4>
           <p className="mt-0.5 text-[10px] font-bold text-slate-400">
-            {isStaff
+            {data.scope === 'all'
               ? `Annex 8 across every licensee · ${kh(s.licensees)} licences`
-              : `${currentUser.company_name_en || ''} · ${data.licence_no || ''}`}
+              : data.scope === 'licence'
+                ? `${allLicensees.find((l) => l.licence_no === data.licence_no)?.company_name || ''} · ${data.licence_no || ''}`
+                : `${currentUser.company_name_en || ''} · ${data.licence_no || ''}`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Staff only: narrow the whole page, and the exports with it, to
+              one enterprise. A company has nothing to choose. */}
+          {(data.scope === 'all' || data.scope === 'licence') && (
+            <select
+              value={licence}
+              onChange={(e) => setLicence(e.target.value)}
+              className="max-w-[16rem] rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-black text-[#0B1A35] focus:outline-none focus:ring-1 focus:ring-[#C9A227]"
+            >
+              <option value="all">សហគ្រាសទាំងអស់ · All licensees</option>
+              {allLicensees.map((l) => (
+                <option key={l.licence_no} value={l.licence_no}>
+                  {l.company_name_kh || l.company_name} · {l.licence_no}
+                </option>
+              ))}
+            </select>
+          )}
           <select
             value={year}
             onChange={(e) => setYear(e.target.value)}
@@ -139,6 +208,40 @@ export default function Annex8Overview({ currentUser }: { currentUser: Metrology
             <RotateCcw className="h-3 w-3" /> ផ្ទុកឡើងវិញ
           </button>
         </div>
+
+        {/* Export. This is NMC's summary of the submissions, not the official
+            Annex 8 — that one is downloaded per report from the register. */}
+        <div className="flex w-full flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+          <span className="text-[10px] font-bold text-slate-400">ទាញយករបាយការណ៍សង្ខេប៖</span>
+          {([
+            ['xlsx', 'Excel', FileSpreadsheet, 'text-emerald-600'],
+            ['docx', 'Word', FileText, 'text-blue-600'],
+            ['pdf', 'PDF', FileText, 'text-red-500'],
+          ] as const).map(([fmt, label, Icon, tone]) => (
+            <button
+              key={fmt}
+              type="button"
+              disabled={!!exporting}
+              onClick={() => void download(fmt)}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {exporting === fmt
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                : <Icon className={`h-3.5 w-3.5 ${tone}`} />}
+              {label}
+            </button>
+          ))}
+          <span className="text-[9px] font-semibold text-slate-400">
+            {data.scope === 'all' ? 'សហគ្រាសទាំងអស់' : data.licence_no}
+            {year !== 'all' ? ` · ឆ្នាំ${toKhmerDigits(year)}` : ''}
+          </span>
+        </div>
+
+        {exportError && (
+          <div className="w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[10px] font-bold text-red-700">
+            {exportError}
+          </div>
+        )}
       </div>
 
       {/* Headline cards */}
@@ -151,7 +254,7 @@ export default function Annex8Overview({ currentUser }: { currentUser: Metrology
         <Card label="ជួសជុល" en="Repaired" value={t?.repaired} tone="text-amber-700" icon={TrendingUp} />
       </div>
 
-      {isStaff && (
+      {isAllLicensees && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Card label="សហគ្រាសមានអាជ្ញាបណ្ណ" en="Licensees" value={s.licensees} tone="text-[#0B2A66]" icon={Building2} />
           <Card label="បានផ្តល់របាយការណ៍" en="Have reported" value={s.reporting_licensees} tone="text-emerald-700" icon={CheckCircle2} />
@@ -162,7 +265,7 @@ export default function Annex8Overview({ currentUser }: { currentUser: Metrology
 
       {/* NMC: who still owes the month that just ended. The most useful thing
           on this page, so it is not buried below the charts. */}
-      {isStaff && (
+      {isAllLicensees && (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -304,7 +407,7 @@ export default function Annex8Overview({ currentUser }: { currentUser: Metrology
       </div>
 
       {/* NMC: the licensee league table */}
-      {isStaff && data.licensees.length > 0 && (
+      {isAllLicensees && data.licensees.length > 0 && (
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-4 py-3">
             <h5 className="text-[12px] font-black text-[#0B1A35]">សហគ្រាសមានអាជ្ញាបណ្ណ</h5>

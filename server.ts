@@ -8,6 +8,11 @@ import { createMysqlClient } from './src/db/mysqlClient';
 // same code the form uses, rather than a second copy that drifts out of step.
 import { validateAnnex8, blockingIssues, warningIssues, hostPart } from './src/annex8/validation';
 import { computeSummary, deadlineFor, isOnTime } from './src/annex8/summary';
+// NMC's own summary over the submissions. Deliberately separate from the
+// official annex: this one has a layout built in code, that one never does.
+import {
+  buildStaffReportDocx, buildStaffReportXlsx, collectOverview, staffReportFileName,
+} from './src/annex8/staffReport';
 import { DEADLINE_DAY, FORMAT_VERSION } from './src/annex8/constants';
 import {
   ENTRY_CONFIG, ENTRY_PARTS, EntryPart, auditEntityFor, duplicateValues,
@@ -4110,184 +4115,150 @@ app.post('/api/annex8/month/submit', async (req, res) => {
  * that passes someone else's licence_no is refused rather than quietly
  * given its own — silently substituting would hide a broken client.
  */
+/**
+ * Who is asking, and what are they allowed to see?
+ *
+ * One answer, used by the dashboard and by the file exports, so the two can
+ * never disagree about scope. The scope is derived from the SIGNED-IN USER;
+ * a licence in the query string can only narrow it, never widen it.
+ *
+ * Sends the response and returns null when the request is not allowed.
+ */
+async function resolveOverviewScope(req: any, res: any): Promise<
+  { role: string; isStaff: boolean; scopeLicence: string | null; year: string | null } | null
+> {
+  if (!supabaseAdmin) {
+    apiError(res, 503, 'Server database provider is not configured.');
+    return null;
+  }
+
+  const resolved = await resolveApiUser(req);
+  if (!resolved) {
+    res.status(401).json({ error: 'Authentication required.' });
+    return null;
+  }
+  if (!['superadmin', 'admin', 'company'].includes(resolved.role)) {
+    res.status(403).json({ error: 'Insufficient permission.' });
+    return null;
+  }
+
+  const isStaff = resolved.role === 'superadmin' || resolved.role === 'admin';
+  const ownLicence = String(resolved.userRow?.license_number || '').trim();
+  const asked = String(req.query?.licence_no || '').trim();
+
+  if (!isStaff) {
+    if (!ownLicence) {
+      apiError(res, 403, 'This account has no licence number.');
+      return null;
+    }
+    // Refused rather than quietly substituted: silently handing back its own
+    // data would hide a broken client, or a deliberate attempt.
+    if (asked && asked !== ownLicence) {
+      res.status(403).json({ error: 'This licence belongs to another enterprise.' });
+      return null;
+    }
+  }
+
+  const year = String(req.query?.year || '').trim();
+  return {
+    role: resolved.role,
+    isStaff,
+    scopeLicence: isStaff ? (asked || null) : ownLicence,
+    year: /^\d{4}$/.test(year) ? year : null,
+  };
+}
+
+/**
+ * GET /api/annex8/overview?licence_no=&year=
+ *
+ * The numbers behind the Annex 8 dashboard:
+ *
+ *   superadmin / admin   every licensee, or one if they narrow to it
+ *   company              its own licence, and nothing else
+ */
 app.get('/api/annex8/overview', async (req, res) => {
   try {
-    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    const scoped = await resolveOverviewScope(req, res);
+    if (!scoped) return;
 
-    const resolved = await resolveApiUser(req);
-    if (!resolved) return res.status(401).json({ error: 'Authentication required.' });
-    if (!['superadmin', 'admin', 'company'].includes(resolved.role)) {
-      return res.status(403).json({ error: 'Insufficient permission.' });
-    }
+    const data = await collectOverview(supabaseAdmin, {
+      licenceNo: scoped.scopeLicence,
+      year: scoped.year,
+    });
 
-    const isStaff = resolved.role === 'superadmin' || resolved.role === 'admin';
-    const ownLicence = String(resolved.userRow?.license_number || '').trim();
-    const asked = String(req.query?.licence_no || '').trim();
-
-    if (!isStaff) {
-      if (!ownLicence) return apiError(res, 403, 'This account has no licence number.');
-      if (asked && asked !== ownLicence) {
-        return res.status(403).json({ error: 'This licence belongs to another enterprise.' });
-      }
-    }
-    // Staff may narrow to one licensee; a company is always its own.
-    const scopeLicence = isStaff ? (asked || null) : ownLicence;
-
-    const year = String(req.query?.year || '').trim();
-    const yearOk = /^\d{4}$/.test(year);
-
-    let reportQuery = supabaseAdmin.from('annex8_reports').select('*');
-    if (scopeLicence) reportQuery = reportQuery.eq('licence_no', scopeLicence);
-    const { data: allReports, error } = await reportQuery;
-    if (error) throw error;
-
-    const reports = (allReports || []).filter((r: any) =>
-      !yearOk || String(r.period_month || '').startsWith(year));
-
-    const filed = reports.filter((r: any) => r.status !== 'OPEN' && r.status !== 'DRAFT');
-    const ids = filed.map((r: any) => r.id);
-    const byId = new Map(filed.map((r: any) => [r.id, r]));
-
-    const none = { data: [] as any[] };
-    const [instruments, repairs] = ids.length
-      ? await Promise.all([
-          supabaseAdmin.from('annex8_report_instruments')
-            .select('report_uuid,op_code,category,province,verification_status')
-            .in('report_uuid', ids).is('deleted_at', null),
-          supabaseAdmin.from('annex8_report_repairs')
-            .select('report_uuid,category,province,verification_status')
-            .in('report_uuid', ids).is('deleted_at', null),
-        ])
-      : [none, none];
-
-    /* ---------------- aggregate ---------------- */
-
-    const totals = { manufactured: 0, installed: 0, repaired: 0, passed: 0, failed: 0, pending: 0 };
-    const byCategory = new Map<string, { manufactured: number; installed: number; repaired: number; passed: number; failed: number; pending: number }>();
-    const byProvince = new Map<string, number>();
-    const byMonth = new Map<string, { manufactured: number; installed: number; repaired: number; total: number }>();
-
-    const catBucket = (c: string) => {
-      const key = c || 'OTHER';
-      if (!byCategory.has(key)) {
-        byCategory.set(key, { manufactured: 0, installed: 0, repaired: 0, passed: 0, failed: 0, pending: 0 });
-      }
-      return byCategory.get(key)!;
-    };
-    const monthBucket = (m: string) => {
-      if (!byMonth.has(m)) byMonth.set(m, { manufactured: 0, installed: 0, repaired: 0, total: 0 });
-      return byMonth.get(m)!;
-    };
-    const judge = (bucket: any, status: string) => {
-      if (status === 'PASSED') bucket.passed++;
-      else if (status === 'FAILED') bucket.failed++;
-      else bucket.pending++;
-    };
-
-    for (const i of instruments.data || []) {
-      const report = byId.get(String(i.report_uuid));
-      if (!report) continue;
-      const made = i.op_code === 'M';
-      totals[made ? 'manufactured' : 'installed']++;
-      judge(totals, String(i.verification_status || 'PENDING'));
-      const cat = catBucket(String(i.category || ''));
-      cat[made ? 'manufactured' : 'installed']++;
-      judge(cat, String(i.verification_status || 'PENDING'));
-      if (i.province) byProvince.set(String(i.province), (byProvince.get(String(i.province)) || 0) + 1);
-      const m = monthBucket(String(report.period_month));
-      m[made ? 'manufactured' : 'installed']++; m.total++;
-    }
-
-    for (const p of repairs.data || []) {
-      const report = byId.get(String(p.report_uuid));
-      if (!report) continue;
-      totals.repaired++;
-      judge(totals, String(p.verification_status || 'PENDING'));
-      const cat = catBucket(String(p.category || ''));
-      cat.repaired++;
-      judge(cat, String(p.verification_status || 'PENDING'));
-      if (p.province) byProvince.set(String(p.province), (byProvince.get(String(p.province)) || 0) + 1);
-      const m = monthBucket(String(report.period_month));
-      m.repaired++; m.total++;
-    }
-
-    /* ------------- who has and has not reported (staff view) ------------- */
-
-    let licensees: any[] = [];
-    if (isStaff && !scopeLicence) {
-      const { data: licences } = await supabaseAdmin
-        .from('enterprise_licenses').select('license_number, company_name, company_name_kh, license_status');
-
-      const perLicence = new Map<string, { filed: number; late: number; last: string | null }>();
-      for (const r of filed) {
-        const key = String(r.licence_no);
-        if (!perLicence.has(key)) perLicence.set(key, { filed: 0, late: 0, last: null });
-        const row = perLicence.get(key)!;
-        row.filed++;
-        if (r.on_time === false) row.late++;
-        const period = String(r.period_month || '');
-        if (!row.last || period > row.last) row.last = period;
-      }
-
-      licensees = (licences || []).map((l: any) => {
-        const row = perLicence.get(String(l.license_number)) || { filed: 0, late: 0, last: null };
-        return {
-          licence_no: l.license_number,
-          company_name: l.company_name,
-          company_name_kh: l.company_name_kh,
-          licence_active: String(l.license_status || '').toLowerCase() !== 'expired',
-          reports_filed: row.filed,
-          late: row.late,
-          last_period: row.last,
-        };
-      }).sort((a: any, b: any) => b.reports_filed - a.reports_filed);
-    }
-
-    // The month that is currently owed: the one that has just ended.
-    const duePeriod = previousPeriod();
-    const submittedForDue = new Set(
-      filed.filter((r: any) => r.period_month === duePeriod).map((r: any) => String(r.licence_no)));
-    const missingForDue = isStaff && !scopeLicence
-      ? licensees.filter((l: any) => l.licence_active && !submittedForDue.has(l.licence_no))
-          .map((l: any) => ({ licence_no: l.licence_no, company_name_kh: l.company_name_kh, company_name: l.company_name }))
-      : [];
-
+    // `rows` is row-level detail for the Excel workbook. The dashboard does
+    // not need it, and sending it would make the page heavy for no gain.
+    const { rows, ...forScreen } = data;
     return apiSuccess(res, {
-      scope: isStaff ? (scopeLicence ? 'licence' : 'all') : 'own',
-      role: resolved.role,
-      licence_no: scopeLicence,
-      year: yearOk ? year : null,
-      years: Array.from(new Set((allReports || [])
-        .map((r: any) => String(r.period_month || '').slice(0, 4)).filter(Boolean))).sort().reverse(),
-      summary: {
-        reports: reports.length,
-        filed: filed.length,
-        open: reports.length - filed.length,
-        accepted: filed.filter((r: any) => r.status === 'ACCEPTED').length,
-        returned: filed.filter((r: any) => r.status === 'RETURNED').length,
-        late: filed.filter((r: any) => r.on_time === false).length,
-        on_time: filed.filter((r: any) => r.on_time === true).length,
-        nil: filed.filter((r: any) => r.report_type === 'NIL').length,
-        licensees: isStaff && !scopeLicence ? licensees.length : 1,
-        reporting_licensees: new Set(filed.map((r: any) => String(r.licence_no))).size,
-      },
-      totals,
-      due_period: duePeriod,
-      missing_for_due: missingForDue,
-      by_category: Array.from(byCategory.entries())
-        .map(([code, v]) => ({ code, ...v, total: v.manufactured + v.installed + v.repaired }))
-        .sort((a, b) => b.total - a.total),
-      by_province: Array.from(byProvince.entries())
-        .map(([province, count]) => ({ province, count }))
-        .sort((a, b) => b.count - a.count),
-      by_month: Array.from(byMonth.entries())
-        .map(([period_month, v]) => ({ period_month, ...v }))
-        .sort((a, b) => a.period_month.localeCompare(b.period_month)),
-      licensees,
+      scope: scoped.isStaff ? (scoped.scopeLicence ? 'licence' : 'all') : 'own',
+      role: scoped.role,
+      ...forScreen,
     });
   } catch (err: any) {
     console.error('Annex 8 overview failed:', err?.message || err);
     return apiError(res, 500, 'Unable to load the overview.');
+  }
+});
+
+/**
+ * GET /api/annex8/export?format=xlsx|docx|pdf&licence_no=&year=
+ *
+ * NMC's own summary of what the licensees have filed — one enterprise or all
+ * of them — as a file to keep or send on.
+ *
+ * This is NOT the official Annex 8. That comes from the template, through
+ * /api/reports/:id/annex8.docx, and its layout is never built in code. This
+ * is a management report with no prescribed form, so its layout IS built in
+ * code, in src/annex8/staffReport.ts, from the same aggregation the dashboard
+ * reads — so the file and the screen cannot disagree.
+ */
+app.get('/api/annex8/export', async (req, res) => {
+  try {
+    const scoped = await resolveOverviewScope(req, res);
+    if (!scoped) return;
+
+    const format = String(req.query?.format || 'xlsx').toLowerCase();
+    if (!['xlsx', 'docx', 'pdf'].includes(format)) {
+      return apiError(res, 400, 'format must be xlsx, docx or pdf.');
+    }
+
+    const data = await collectOverview(supabaseAdmin, {
+      licenceNo: scoped.scopeLicence,
+      year: scoped.year,
+    });
+
+    const send = (buf: Buffer, ext: string, mime: string) => {
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Content-Disposition',
+        `attachment; filename="${staffReportFileName(data, ext)}"`);
+      return res.end(buf);
+    };
+
+    if (format === 'xlsx') {
+      return send(await buildStaffReportXlsx(data), 'xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    }
+
+    const docx = await buildStaffReportDocx(data);
+    if (format === 'docx') {
+      return send(docx, 'docx',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    }
+
+    // PDF is that Word file converted by LibreOffice — the same path the
+    // official annex uses. A second PDF engine would mean a second set of
+    // opinions about how Khmer is shaped.
+    try {
+      const pdf = await convertDocxToPdf(docx, staffReportFileName(data, 'docx'));
+      return send(pdf, 'pdf', 'application/pdf');
+    } catch (err: any) {
+      console.error('Annex 8 summary PDF conversion failed:', err?.message || err);
+      return apiError(res, 503,
+        'PDF conversion is unavailable. Set GOTENBERG_URL, or download the Word file.');
+    }
+  } catch (err: any) {
+    console.error('Annex 8 export failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to build the report.');
   }
 });
 
