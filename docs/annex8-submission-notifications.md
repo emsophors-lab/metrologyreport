@@ -22,10 +22,11 @@ Audit visibility remains subject to existing account/licence authorization.
 
 ## Location And Consent
 
-Location sharing is optional and off by default. The review screen explicitly
-discloses recording and sharing the device location with the NMC Telegram group.
-After consent and the final submission confirmation, the browser requests one
-fresh geolocation fix with an eight-second timeout. There is no background
+The review screen and final submission confirmation explicitly disclose
+recording and sharing the device location with the NMC Telegram group.
+There is no separate location checkbox: confirming submission automatically
+requests one fresh geolocation fix with an eight-second timeout. Browser/OS
+location permission is still required and is never bypassed. There is no background
 tracking and no IP-location fallback. Permission denial, timeout or unavailable
 GPS never prevents submission. Non-captured records never contain coordinates.
 

@@ -45,7 +45,6 @@ export default function Annex8MonthReview({ reportUuid, onFixIssue, onSubmitted,
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<'' | 'saving' | 'submitting' | 'draft'>('');
   const [error, setError] = useState<{ kh: string; detail: string } | null>(null);
-  const [shareSubmissionLocation, setShareSubmissionLocation] = useState(false);
   const [notificationWarning, setNotificationWarning] = useState('');
 
   const load = useCallback(async () => {
@@ -109,22 +108,21 @@ export default function Annex8MonthReview({ reportUuid, onFixIssue, onSubmitted,
   const submit = async () => {
     if (busy) return;
     if (!window.confirm(
-      'ដាក់ជូនរបាយការណ៍ទៅ ម.ម.ជ?\n\nបន្ទាប់ពីដាក់ជូន របាយការណ៍នឹងចាក់សោ។ ការកែប្រែត្រូវធ្វើតាមការស្នើកែតម្រូវ។',
+      'ដាក់ជូនរបាយការណ៍ទៅ ម.ម.ជ?\n\nប្រព័ន្ធនឹងស្នើទីតាំងឧបករណ៍ពេលដាក់ជូន ដើម្បីកត់ត្រា និងភ្ជាប់ក្នុងសារ Telegram របស់ ម.ម.ជ។ Browser អាចស្នើការអនុញ្ញាត GPS។\n\nបន្ទាប់ពីដាក់ជូន របាយការណ៍នឹងចាក់សោ។ ការកែប្រែត្រូវធ្វើតាមការស្នើកែតម្រូវ។',
     )) return;
 
     setBusy('submitting');
     try {
-      const submissionLocation = await captureSubmissionLocation(shareSubmissionLocation);
+      const submissionLocation = await captureSubmissionLocation(true);
       const result = await apiRequest<any>('/api/annex8/month/submit', {
         method: 'POST', body: { report_uuid: reportUuid, submission_location: submissionLocation },
       });
       const notices = [];
       if (result.telegram_notification?.status !== 'sent') notices.push(
         'របាយការណ៍បានដាក់ជូនរួច ប៉ុន្តែសារ Telegram មិនទាន់បានផ្ញើ។ សូមទាក់ទងអ្នកគ្រប់គ្រង។ / Report submitted, but Telegram delivery was not confirmed. Contact the administrator.');
-      if (shareSubmissionLocation && result.submission_location_status !== 'captured') notices.push(
+      if (result.submission_location_status !== 'captured') notices.push(
         'មិនអាចចាប់ទីតាំងបានទេ ប៉ុន្តែរបាយការណ៍បានរក្សាទុករួច។ / Device location was unavailable; your report was saved.');
       setNotificationWarning(notices.join(' '));
-      setShareSubmissionLocation(false);
       toastMsg(`បានដាក់ជូន · ${result.report_id}${result.on_time ? ' · ទាន់ពេល' : ' · យឺត'}${result.telegram_notification?.status === 'sent' ? ' · Telegram បានផ្ញើ' : ' · Telegram មិនទាន់ផ្ញើ'}`, 'success');
       onSubmitted();
       await load();
@@ -346,13 +344,10 @@ export default function Annex8MonthReview({ reportUuid, onFixIssue, onSubmitted,
             </span>
           </label>
 
-          <label className="mt-3 flex items-start gap-2 border-t border-slate-100 pt-3 text-xs text-slate-700">
-            <input type="checkbox" className="mt-0.5 h-4 w-4" checked={shareSubmissionLocation}
-              disabled={!!busy} onChange={e => setShareSubmissionLocation(e.target.checked)} />
-            <span>ខ្ញុំអនុញ្ញាតឱ្យកត់ត្រា និងផ្ញើទីតាំងឧបករណ៍ពេលដាក់ជូន ទៅក្រុម Telegram របស់ ម.ម.ជ។
-              <span className="mt-1 block text-[11px] text-slate-500">I consent to recording this device’s submission location and sharing it with the NMC Telegram group. Optional; this does not change the company’s registered location.</span>
-            </span>
-          </label>
+          <div role="note" className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-700">
+            ទីតាំងពេលដាក់ជូន៖ ប្រព័ន្ធនឹងស្នើទីតាំងឧបករណ៍ដោយស្វ័យប្រវត្តិ ដើម្បីកត់ត្រា និងភ្ជាប់ក្នុងសារ Telegram របស់ ម.ម.ជ។ Browser អាចស្នើការអនុញ្ញាត GPS។
+            <span className="mt-1 block text-[11px] text-slate-500">At submission, this device’s location is requested automatically, recorded with the report and shared with the NMC Telegram group. Browser location permission is required. The registered company location is not changed.</span>
+          </div>
 
           <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-3">
             <button type="button" onClick={() => void downloadDraft()} disabled={busy === 'draft'}
