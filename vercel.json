@@ -28,6 +28,10 @@
   ],
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "/api"
+    },
+    {
       "source": "/verify-license/:path*",
       "destination": "/index.html"
     }
@@ -43,7 +47,7 @@
     }
   ],
   "functions": {
-    "api/[...path].ts": {
+    "api/index.ts": {
       "includeFiles": "{dist/server.cjs,dist/templates/**}"
     }
   }

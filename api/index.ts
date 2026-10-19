@@ -1,3 +1,5 @@
+// vercel.json forwards every /api/* path here. Express receives the original
+// request URL, including nested segments and query parameters.
 export default async function handler(req: any, res: any) {
   try {
     const serverModule = await import('../dist/server.cjs');
