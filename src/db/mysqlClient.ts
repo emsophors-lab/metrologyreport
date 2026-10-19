@@ -55,6 +55,9 @@
  */
 import crypto from 'crypto';
 import mysql from 'mysql2/promise';
+import { consolidatedAggregationSql } from '../lib/consolidated/aggregationSql';
+import { reportingPeriod } from '../lib/consolidated/periods';
+import type { PeriodType } from '../lib/consolidated/periods';
 
 export interface MysqlResult<T = any> {
   data: T;
@@ -489,6 +492,13 @@ export function createMysqlClient(connectionUrl: string) {
 
     async rpc(name: string, params: Record<string, any> = {}): Promise<MysqlResult> {
       try {
+        if (name === 'mlrs_consolidated_preview') {
+          const period = reportingPeriod(params.p_period_type as PeriodType, Number(params.p_year), Number(params.p_index ?? 1));
+          const sql = consolidatedAggregationSql('mysql', ['?', '?', 'UTC_TIMESTAMP(3)']);
+          const [rows] = await pool.query(sql, [period.start,period.end]);
+          const result = (rows as any[])[0]?.result;
+          return { data: typeof result === 'string' ? JSON.parse(result) : result, error:null };
+        }
         const expected = RPC_ARGUMENTS[name];
         if (!expected) throw new Error(`mysqlClient: unknown database routine "${name}"`);
         const args = expected.map((key) => toParam(params[key]));

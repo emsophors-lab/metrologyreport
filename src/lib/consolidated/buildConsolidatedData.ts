@@ -8,12 +8,12 @@ export interface ConsolidatedPreview {
   period: ReportingPeriod;
   previous: ReportingPeriod;
   data: ConsolidatedData;
-  source: 'postgresql';
+  source: 'postgresql' | 'mysql';
   data_as_of: string;
   warnings: string[];
 }
 
-/** Formatting only. All source aggregation belongs to the approved PostgreSQL RPC. */
+/** Formatting only. All source aggregation belongs to the database SQL statement. */
 export function prepareConsolidatedData(input: unknown, period: ReportingPeriod, officer: OfficerInputs = {}): ConsolidatedData {
   const problems = dataProblems(input);
   if (problems.length) throw new Error(problems.join('\n'));
@@ -57,7 +57,7 @@ export async function buildConsolidatedData(
   const { apiRequest } = await import('../../supabaseSync');
   const params = new URLSearchParams({ period_type: periodType, year: String(year), index: String(index) });
   const response = await apiRequest<ConsolidatedPreview>(`/api/consolidated/preview?${params}`);
-  if (response.source !== 'postgresql' || response.period?.key !== period.key) {
+  if (!['postgresql','mysql'].includes(response.source) || response.period?.key !== period.key || response.period?.type !== period.type) {
     throw new Error('The aggregation source or reporting period does not match the request.');
   }
   return { ...response, previous: previousPeriod(period), data: prepareConsolidatedData(

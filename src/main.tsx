@@ -13,7 +13,22 @@ try {
     }
   })();
 
-  if (!isIframe && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+  if ((import.meta as any).env?.DEV && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    // Cached Vite dependency chunks can load a second React instance after
+    // optimization/restarts. Retire only this app's development SW/cache;
+    // never touch localStorage, report drafts or production PWA behavior.
+    void navigator.serviceWorker.getRegistrations().then(async registrations => {
+      for (const registration of registrations) {
+        const script = registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL;
+        if (script && new URL(script).origin === location.origin && new URL(script).pathname === '/sw.js') {
+          await registration.unregister();
+        }
+      }
+      if ('caches' in window) {
+        for (const key of await caches.keys()) if (key.startsWith('nmc-report-pwa-')) await caches.delete(key);
+      }
+    }).catch(error => console.warn('Development PWA cache cleanup failed:', error));
+  } else if (!isIframe && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js')
         .then((reg) => {

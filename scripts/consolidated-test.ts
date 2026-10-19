@@ -119,11 +119,11 @@ fs.writeFileSync('test-output/Consolidated_validation.json', JSON.stringify({
   accepted_static_fields: ['head_name: department head is already printed in the official template, confirmed by owner'], sample_reconciliation_issues: discrepancies,
   passed: ['split-run and nested-loop tag parsing', 'period boundaries', 'previous periods across year boundaries', 'leap year', 'Khmer digits', 'empty tables', 'unknown versus zero',
     'officer fields preserved on refresh', 'valid DOCX packages', 'no unresolved tags', '80 licensees', 'category totals', 'Annex 1 internal totals'],
-  not_run: ['live PostgreSQL aggregation', 'missing/NIL/amendment source aggregation', 'historical backlog', 'persistent drafts', 'finalized snapshots'],
+  not_run: ['production Supabase RPC deployment', 'historical backlog', 'persistent drafts', 'finalized snapshots'],
 }, null, 2));
 assert.equal(hash(fs.readFileSync('public/templates/Consolidated_template_v1.docx')), TEMPLATE_SHA256);
 console.log('PASS: template integrity, periods, rendering, empty/long tables and formatting.');
 console.log('EXPECTED SAMPLE DIFFERENCE: template prints a literal signer, expected sample has a dotted name. Differing parts: ' + differentParts.join(', '));
 console.log('ACCEPTED: head_name is unused; owner confirmed the static department head in the supplied template.');
 console.log('SAMPLE RECONCILIATION ISSUES:\n' + discrepancies.join('\n'));
-console.log('NOT RUN: live source aggregation and storage/finalization; awaiting schema approval.');
+console.log('NOT RUN HERE: production Supabase deployment and storage/finalization. Local SQL aggregation is verified separately by consolidated-db-test.ts.');

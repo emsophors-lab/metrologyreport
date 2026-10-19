@@ -1,6 +1,6 @@
 # Consolidated report inspection and database approval plan
 
-Status: code-only preparation. No migration file has been written and no database has been changed. Live PostgreSQL aggregation, shared drafts and final snapshots require owner approval. The current local development environment uses MySQL; that is not evidence about production Supabase schema or data.
+Current status: the owner approved aggregation implementation and local testing on 18 October 2026. The read-only PostgreSQL RPC migration has been generated and tested in an isolated local engine; the equivalent MySQL SQL statement supports the actual local application. No production SQL has been applied. Shared drafts, final snapshots, history additions and official sequential numbering remain pending. See `LOCAL_AGGREGATION.md` for the implemented definitions, tests and limitations; the proposal below is retained as design context.
 
 ## Automatic fields approved on 18 October 2026
 

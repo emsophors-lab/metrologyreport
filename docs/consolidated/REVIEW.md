@@ -1,5 +1,7 @@
 # Consolidated report review checkpoint
 
+LATEST UPDATE: the owner approved local database aggregation/testing and requested automatic fields be hidden. The Word button now loads a fresh SQL snapshot directly. See `LOCAL_AGGREGATION.md` for the implemented PostgreSQL RPC/MySQL SQL, current tests and remaining limitations. The earlier code-only checkpoint below is retained as historical context and no longer describes aggregation availability in local MySQL.
+
 This delivery completes independent code preparation. Real PostgreSQL aggregation, database persistence and final snapshots are pending owner approval of `IMPLEMENTATION_PLAN.md`. No migration was created or applied. Nothing was committed, pushed or deployed.
 
 ## Files

@@ -12,7 +12,16 @@
  */
 import { createMysqlClient } from '../src/db/mysqlClient';
 
-const db = createMysqlClient('mysql://root@127.0.0.1:3306/mlrs');
+// These checks intentionally delete fixture months. Never run them against
+// the database that holds the user's reports.
+const testUrl = process.env.MYSQL_ADAPTER_TEST_URL;
+if (!testUrl) throw new Error('Set MYSQL_ADAPTER_TEST_URL to a prepared disposable mlrs_adapter_test_* database. Refusing to test against operational mlrs.');
+const testTarget = new URL(testUrl);
+if (!['localhost','127.0.0.1','[::1]'].includes(testTarget.hostname)
+  || !/^\/mlrs_adapter_test_[a-zA-Z0-9_]+$/.test(testTarget.pathname)) {
+  throw new Error('Adapter checks require a loopback-only disposable mlrs_adapter_test_* database; no operational database will be modified.');
+}
+const db = createMysqlClient(testUrl);
 
 let fail = 0;
 const ok = (name: string, cond: boolean, extra?: any) => {

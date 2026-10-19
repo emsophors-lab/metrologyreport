@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Download, FileCheck2, FileText, Loader2, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Download, FileCheck2, FileText, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import type { MetrologyUser } from '../types';
 import { buildConsolidatedData, prepareConsolidatedData } from '../lib/consolidated/buildConsolidatedData';
 import type { ConsolidatedPreview } from '../lib/consolidated/buildConsolidatedData';
@@ -7,15 +7,10 @@ import type { ConsolidatedData, OfficerInputs } from '../lib/consolidated/contra
 import { consolidatedFileName, downloadConsolidatedDocx } from '../lib/consolidated/consolidatedDocx';
 import { KHMER_MONTHS, periodSize, reportingPeriod } from '../lib/consolidated/periods';
 import type { PeriodType } from '../lib/consolidated/periods';
-import { analyzeConsolidatedData, automaticConsolidatedFields, automaticConsolidatedInputs } from '../lib/consolidated/automaticReport';
+import { automaticConsolidatedInputs } from '../lib/consolidated/automaticReport';
 
 const INPUT = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800';
 const BUTTON = 'inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed';
-const AUTOMATIC_FIELDS: Array<[keyof ReturnType<typeof automaticConsolidatedFields>, string]> = [
-  ['letter_no', 'លេខយោងរបាយការណ៍'], ['lunar_date_line', 'កាលបរិច្ឆេទចន្ទគតិ'],
-  ['signed_day_kh', 'ថ្ងៃចុះហត្ថលេខា'], ['signed_month_kh', 'ខែចុះហត្ថលេខា'], ['signed_year_kh', 'ឆ្នាំចុះហត្ថលេខា'],
-  ['prepared_date_kh', 'កាលបរិច្ឆេទរៀបចំ'], ['reviewed_date_kh', 'កាលបរិច្ឆេទពិនិត្យ'],
-];
 const OFFICER_FIELDS: Array<[keyof OfficerInputs, string]> = [
   ['preparer_name', 'ឈ្មោះអ្នករៀបចំ'], ['preparer_position', 'តួនាទីអ្នករៀបចំ'],
   ['reviewer_name', 'ឈ្មោះអ្នកពិនិត្យ'], ['reviewer_position', 'តួនាទីអ្នកពិនិត្យ'],
@@ -26,7 +21,6 @@ const ROW_FIELDS: Record<'actions' | 'proposals', Array<[string, string]>> = {
 };
 
 export default function ConsolidatedReportPage({ currentUser }: { currentUser: MetrologyUser }) {
-  const [generatedAt, setGeneratedAt] = useState(() => new Date());
   const [initialDate] = useState(() => new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Phnom_Penh', year: 'numeric', month: '2-digit',
   }).formatToParts(new Date()));
@@ -36,39 +30,40 @@ export default function ConsolidatedReportPage({ currentUser }: { currentUser: M
   const [officer, setOfficer] = useState<OfficerInputs>({ actions: [], proposals: [] });
   const [preview, setPreview] = useState<ConsolidatedPreview | null>(null);
   const [busy, setBusy] = useState<'load' | 'word' | 'sample' | null>(null);
+  const working = useRef(false);
   const [error, setError] = useState('');
-  const automaticFields = useMemo(() => {
-    try { return automaticConsolidatedFields(reportingPeriod(type, year, index), generatedAt); }
-    catch { return null; }
-  }, [type, year, index, generatedAt]);
-  const analysis = useMemo(() => preview ? analyzeConsolidatedData(preview.data) : null, [preview]);
   if (!['superadmin', 'admin'].includes(currentUser.role)) return null;
 
   const updatePeriod = (fn: () => void) => {
-    fn(); setPreview(null); setError(''); setGeneratedAt(new Date());
+    fn(); setPreview(null); setError('');
     setOfficer(previous => ({ ...previous, challenges: undefined, conclusion: undefined }));
   };
   const setField = (key: keyof OfficerInputs, value: string) => setOfficer(previous => ({ ...previous, [key]: value }));
   const run = async (action: 'load' | 'word' | 'sample') => {
+    if (working.current) return;
+    working.current = true;
     setBusy(action); setError('');
     try {
       const now = new Date();
-      setGeneratedAt(now);
-      if (action === 'load') setPreview(await buildConsolidatedData(type, year, index, officer, now));
+      const inputs = { ...officer, challenges: undefined, conclusion: undefined };
+      if (action === 'load') setPreview(await buildConsolidatedData(type, year, index, inputs, now));
       else if (action === 'sample') {
         const sample = (await import('../lib/consolidated/__fixtures__/consolidated-sample-data.json')).default;
         const period = reportingPeriod('SEMESTER', 2026, 1);
         const data = sample as ConsolidatedData;
         await downloadConsolidatedDocx(prepareConsolidatedData(data, period, automaticConsolidatedInputs(data, period, {}, now)),
           consolidatedFileName(period, now).replace('Consolidated_', 'Consolidated_SAMPLE_'));
-      } else if (preview) {
-        await downloadConsolidatedDocx(prepareConsolidatedData(preview.data, preview.period,
-          automaticConsolidatedInputs(preview.data, preview.period, officer, now)), consolidatedFileName(preview.period, now));
+      } else {
+        // Direct generation always reads a fresh complete SQL snapshot, even
+        // when the officer has not pressed Load or another user just submitted.
+        const fresh = await buildConsolidatedData(type, year, index, inputs, now);
+        setPreview(fresh);
+        await downloadConsolidatedDocx(fresh.data, consolidatedFileName(fresh.period, now));
       }
     } catch (err: any) {
       setError(err?.message || 'Unknown report error');
-      if (action === 'load') setPreview(null);
-    } finally { setBusy(null); }
+      if (action !== 'sample') setPreview(null);
+    } finally { working.current = false; setBusy(null); }
   };
 
   return <section className="space-y-6">
@@ -102,49 +97,23 @@ export default function ConsolidatedReportPage({ currentUser }: { currentUser: M
         {busy === 'load' ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}ផ្ទុកទិន្នន័យរបាយការណ៍
       </button>
     </div>
-    {error && <div role="alert" className="border-l-4 border-red-500 bg-red-50 p-3 text-xs text-red-800">
+    {error && <div role="alert" aria-live="assertive" className="border-l-4 border-red-500 bg-red-50 p-3 text-xs text-red-800">
       មិនអាចបង្កើត ឬផ្ទុករបាយការណ៍បានទេ។
       <details className="mt-2"><summary className="cursor-pointer font-bold">ព័ត៌មានលម្អិត</summary><p className="mt-2 whitespace-pre-wrap break-words">{error}</p></details>
     </div>}
-    {preview && <div className="overflow-x-auto border-y border-slate-200 py-4">
-      <p className="mb-3 text-sm font-bold text-[#0B2A66]">{preview.data.period_label_kh}</p>
-      <table className="w-full text-left text-xs"><thead><tr className="bg-slate-100">
-        <th className="p-2">សូចនាករ</th><th className="p-2">រយៈពេលនេះ</th><th className="p-2">រយៈពេលមុន</th><th className="p-2">ប្រែប្រួល</th>
-      </tr></thead><tbody>
-        {([['active', 'សហគ្រាសមានសុពលភាព'], ['sub_rate', 'អត្រាដាក់របាយការណ៍'], ['ontime_rate', 'អត្រាទាន់ពេល'],
-          ['mi', 'ផលិត និងដំឡើង'], ['repairs', 'ជួសជុល'], ['pass_rate', 'អត្រាជាប់'], ['backlog', 'រង់ចាំផ្ទៀងផ្ទាត់']] as const).map(([key, label]) =>
-          <tr key={key} className="border-t border-slate-100"><th className="p-2 font-semibold">{label}</th>
-            <td className="p-2">{preview.data[`kpi_${key}_cur`]}</td><td className="p-2">{preview.data[`kpi_${key}_prev`]}</td><td className="p-2">{preview.data[`kpi_${key}_chg`]}</td></tr>)}
-      </tbody></table>
-      <div className="mt-3 flex flex-wrap gap-4 text-xs">
-        {[['បានដាក់', preview.data.sub_submitted_total], ['ទាន់ពេល', preview.data.sub_ontime_total], ['យឺត', preview.data.sub_late_total],
-          ['មិនទាន់ដាក់', preview.data.sub_notsub_total], ['ផលិត', preview.data.total_m], ['ដំឡើង', preview.data.total_i],
-          ['ជាប់', preview.data.total_passed], ['ធ្លាក់', preview.data.total_failed]].map(([label, number]) => <span key={String(label)}>{label}: <strong>{number}</strong></span>)}
-      </div>
-      {preview.warnings?.length > 0 && <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-amber-800">{preview.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul>}
+    {preview && <div className="border-y border-slate-200 py-3">
+      <p role="status" className="text-xs font-bold text-emerald-800">បានផ្ទុកទិន្នន័យរបាយការណ៍រួចរាល់។</p>
+      {preview.warnings?.length > 0 && <details className="mt-2 text-xs text-amber-800">
+        <summary className="cursor-pointer font-bold">ចំណាំអំពីទិន្នន័យ ({preview.warnings.length})</summary>
+        <ul className="mt-2 list-disc space-y-1 pl-4">{preview.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul>
+      </details>}
     </div>}
     <div className="space-y-4 border-t border-slate-200 pt-5">
       <h4 className="text-sm font-bold text-[#0B2A66]">ព័ត៌មានមន្ត្រី និងហត្ថលេខា</h4>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {AUTOMATIC_FIELDS.map(([key, label]) => <label key={key} className={`space-y-1 text-xs font-bold ${key === 'lunar_date_line' ? 'sm:col-span-2' : ''}`}>{label}
-          <output aria-label={label} className="block min-h-11 w-full whitespace-pre-wrap break-words rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-normal leading-relaxed text-slate-800">
-            {automaticFields?.[key] ?? ''}</output></label>)}
-      </div>
-      <p className="text-xs leading-relaxed text-slate-500">លេខយោងតាមរយៈពេលរបាយការណ៍ មិនមែនជាលេខចេញលិខិតផ្លូវការទេ។ កាលបរិច្ឆេទតាមម៉ោងកម្ពុជា គឺថ្ងៃបង្កើតឯកសារ មិនមែនជាភស្តុតាងថាបានពិនិត្យ ឬចុះហត្ថលេខារួចទេ។</p>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {OFFICER_FIELDS.map(([key, label]) => <label key={key} className="space-y-1 text-xs font-bold">{label}
           <input className={INPUT} value={String(officer[key] || '')} onChange={e => setField(key, e.target.value)} /></label>)}
       </div>
-      {officer.challenges !== undefined && <button type="button" title="បង្កើតបញ្ហាប្រឈមឡើងវិញពីទិន្នន័យ" className={`${BUTTON} border border-slate-300`}
-        onClick={() => setOfficer(previous => ({ ...previous, challenges: undefined }))}><RotateCcw size={15} />វិភាគបញ្ហាប្រឈមឡើងវិញ</button>}
-      <label className="block space-y-1 text-xs font-bold">៥.៣ បញ្ហាប្រឈម
-        <textarea className={INPUT} rows={6} disabled={!preview} placeholder="រង់ចាំទិន្នន័យរបាយការណ៍សម្រាប់វិភាគ"
-          value={(officer.challenges ?? analysis?.challenges ?? []).map(row => row.text).join('\n')}
-          onChange={e => setOfficer(previous => ({ ...previous, challenges: e.target.value ? e.target.value.split('\n').map(text => ({ text })) : [] }))} /></label>
-      {analysis && <details className="text-xs leading-relaxed text-slate-500"><summary className="cursor-pointer font-bold">មូលដ្ឋាននៃការវិភាគ</summary>
-        <ul className="mt-2 space-y-2">{analysis.findings.map(finding => <li key={finding.rule}>{finding.text}
-          <code className="block break-words">{finding.fields.join(', ')}</code></li>)}</ul>
-      </details>}
       {(['actions', 'proposals'] as const).map(key => <div key={key} className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-xs font-bold">{key === 'actions' ? '៦.១ សកម្មភាពបានអនុវត្ត' : '៦.២ សំណើ'}</h4>
           <button type="button" title="បន្ថែមជួរ" className={`${BUTTON} bg-slate-100`} onClick={() => setOfficer(previous => ({
@@ -160,15 +129,10 @@ export default function ConsolidatedReportPage({ currentUser }: { currentUser: M
           }))}><Trash2 size={16} /></button>
         </div>)}
       </div>)}
-      {officer.conclusion !== undefined && <button type="button" title="បង្កើតសេចក្ដីសន្និដ្ឋានឡើងវិញពីទិន្នន័យ" className={`${BUTTON} border border-slate-300`}
-        onClick={() => setOfficer(previous => ({ ...previous, conclusion: undefined }))}><RotateCcw size={15} />វិភាគសេចក្ដីសន្និដ្ឋានឡើងវិញ</button>}
-      <label className="block space-y-1 text-xs font-bold">៧ សេចក្ដីសន្និដ្ឋាន
-        <textarea className={INPUT} rows={5} disabled={!preview} placeholder="រង់ចាំទិន្នន័យរបាយការណ៍សម្រាប់វិភាគ"
-          value={String(officer.conclusion ?? analysis?.conclusion ?? '')} onChange={e => setField('conclusion', e.target.value)} /></label>
     </div>
     <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 pt-4">
       <button type="button" disabled title="ការរក្សាទុក draft មិនទាន់អាចប្រើបាន" className={`${BUTTON} border border-slate-300`}><Save size={16} />រក្សាទុកព្រាង</button>
-      <button type="button" disabled={!preview || !!busy} onClick={() => void run('word')}
+      <button type="button" disabled={!!busy} onClick={() => void run('word')}
         className={`${BUTTON} bg-[#0B2A66] text-white`}>
         {busy === 'word' ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
         <span><span>បង្កើត </span><span>Word</span><span> (របាយការណ៍សរុប)</span></span>
