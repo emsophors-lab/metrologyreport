@@ -5,6 +5,8 @@ import dotenv from 'dotenv';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createMysqlClient } from './src/db/mysqlClient';
 import { accountAuthEmail, createPasswordLoginHandler } from './src/auth/passwordLogin';
+import { normalizeSubmissionLocation } from './src/annex8/submissionLocation';
+import { notifyAnnex8Submission } from './src/annex8/submissionNotification';
 // Annex 8 rules live in one isomorphic module so the server validates with the
 // same code the form uses, rather than a second copy that drifts out of step.
 import { validateAnnex8, blockingIssues, warningIssues, hostPart } from './src/annex8/validation';
@@ -274,10 +276,11 @@ async function findAuthUserByEmail(email: string) {
 /**
  * Send Message to Telegram API
  */
-async function sendTelegramMessage(botToken: string, chatId: string, text: string) {
+async function sendTelegramMessage(botToken: string, chatId: string, text: string, timeoutMs?: number) {
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
   const response = await fetch(url, {
     method: 'POST',
+    ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       chat_id: chatId,
@@ -4040,6 +4043,7 @@ app.post('/api/annex8/month/submit', async (req, res) => {
     }
 
     const submittedAt = new Date().toISOString();
+    const submissionLocation = normalizeSubmissionLocation(req.body?.submission_location);
     const { data: submitted, error } = await supabaseAdmin
       .from('annex8_reports')
       .update({
@@ -4053,15 +4057,31 @@ app.post('/api/annex8/month/submit', async (req, res) => {
         template_version: report.template_version || DEFAULT_TEMPLATE_VERSION,
       })
       .eq('id', reportUuid)
+      .eq('status', report.status)
       .select('*')
-      .single();
+      .maybeSingle();
     if (error) throw error;
+    if (!submitted) return apiError(res, 409, 'This report was already submitted or changed. Refresh before trying again.');
 
     await writeAnnex8Audit({
       report_uuid: reportUuid, licence_no: report.licence_no, period_month: report.period_month,
       entity: 'report', entity_id: reportUuid, action: 'submit',
       actor: String(resolved.userRow?.id || ''), actor_role: resolved.role,
-      new_value: { report_id: reportId, on_time: onTime, submitted_at: submittedAt },
+      new_value: { report_id: reportId, on_time: onTime, submitted_at: submittedAt,
+        submission_location: submissionLocation },
+    });
+
+    const telegramNotification = await notifyAnnex8Submission({
+      report: submitted, submittedAt, location: submissionLocation,
+    }, {
+      getBot: () => getActiveBot('report_group'),
+      send: (token, chatId, text) => sendTelegramMessage(token, chatId, text, 8000),
+    });
+    await writeAnnex8Audit({
+      report_uuid: reportUuid, licence_no: report.licence_no, period_month: report.period_month,
+      entity: 'report', entity_id: reportUuid, action: 'update',
+      actor: String(resolved.userRow?.id || ''), actor_role: resolved.role,
+      new_value: { submission_notification: telegramNotification, submitted_at: submittedAt },
     });
 
     // Resolve any carry-over items this month settled, writing the result back
@@ -4099,6 +4119,8 @@ app.post('/api/annex8/month/submit', async (req, res) => {
       submitted_at: submittedAt,
       on_time: onTime,
       official_document_ready: officialReady,
+      telegram_notification: telegramNotification,
+      submission_location_status: submissionLocation.status,
       warnings: warningIssues(issues).map((i) => ({ code: i.code, message: i.message })),
     });
   } catch (err: any) {
