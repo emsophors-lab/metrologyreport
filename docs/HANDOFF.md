@@ -4,7 +4,7 @@ Metrology License Report System, National Metrology Center (NMC), MISTI.
 Repository: `C:\github-work\metrology-report-system-github`.
 Live: https://metrologyreport.vercel.app/
 
-State as of commit `f272c6b`, 18 October 2026, pushed to `origin/main`.
+State as of commit `d6ee87d`, 19 October 2026, pushed to `origin/main`.
 
 ---
 
@@ -83,6 +83,8 @@ src/components/Annex8MonthReview.tsx     review and submit
 src/components/Annex8ReportSearch.tsx    instrument search
 src/components/Annex8MyReportsTable.tsx  the licensee's register of reports
 src/components/Annex8Overview.tsx        cards and charts, role-scoped
+src/components/Annex8StaffReview.tsx     NMC's review desk
+src/components/Annex8ReportViewer.tsx    one report, read-only, Parts 1-7
 src/annex8/staffReport.ts              one aggregation + the Word and Excel
                                        summaries NMC generates
 server.ts                              every API endpoint
@@ -155,11 +157,48 @@ the page.
 | បំពេញប្រចាំខែ | the form: Part 1, 3, 3ក, 4, 5, carry-over, then review and submit |
 | ប្រវត្តិរបាយការណ៍ | its register of filed reports, and instrument search |
 
-**NMC staff** (admin, superadmin) get two: the overview across every licensee,
-and the search. **They do not get the entry form.** Their account carries the
-Centre's own licence number, so the form invited filing an Annex 8 against NMC
-itself — which is exactly how empty reports under `NMC-SA-2026` appeared
-during testing.
+**NMC staff** (admin, superadmin) get four:
+
+| | |
+|---|---|
+| ទិដ្ឋភាពរួម | the overview across every licensee, or narrowed to one |
+| របាយការណ៍សហគ្រាស | the review desk — search, read, print, accept, return, delete |
+| ប្រវត្តិរបាយការណ៍ | instrument search across licensees |
+| របាយការណ៍សរុប | consolidated monthly/quarterly/half-year/annual (other agent's) |
+
+**They do not get the entry form.** Their account carries the Centre's own
+licence number, so the form invited filing an Annex 8 against NMC itself —
+which is exactly how empty reports under `NMC-SA-2026` appeared during
+testing.
+
+### The review desk
+
+`Annex8StaffReview.tsx` + `GET /api/annex8/staff-reports`. Filters: month,
+year, enterprise, status, free text over report numbers, serials, instruments
+and customers. Only FILED reports are listed — a month still being filled in
+has not been reported to anyone.
+
+Per report: **view** (the full viewer below), **print** the official Word,
+**accept**, **return** with a required comment, **delete** with a required
+reason.
+
+### The report viewer
+
+`Annex8ReportViewer.tsx` + `GET /api/annex8/reports/:id/full`. One report laid
+out in the annex's own order — Part 1, Part 2 computed with its balance, Parts
+3, 3ក, 4, 5, carry-over, Part 6's six questions, Part 7's declaration and both
+signatories — with the NMC block on top.
+
+Accept and return sit at the BOTTOM, after the content, so the decision
+follows the reading. Before this, the only way to read a report was to
+download the Word and open it elsewhere, which is how reports get accepted
+unread.
+
+It renders the STORED ROWS. It is not a second rendering of the official
+document: the Word button fetches the template-filled file. Both are driven by
+the same rows, so what is read is what prints.
+
+A licensee gets the same viewer for its own reports, with no decision buttons.
 
 There was a third entry mode, a 7-step "Full form". It is gone. Two ways to
 write the same annex meant two code paths, and they had drifted: the one-shot
@@ -220,17 +259,41 @@ Ministry is a discrepancy nobody can explain afterwards.
 | 3 | Month workspace | done |
 | 4 | Review, submit, lock | done |
 | 5 | Carry-over (Art. 17) | **done** |
-| 5b | **Amendment + NMC return flow** | **not started** |
-| 6 | **NMC review actions + reminders** | **not started** |
+| 5b | NMC return flow (accept / return / delete / correct) | **done** |
+| 6a | NMC review screens: search, read, print, audit trail | **done** |
+| 6b | **Reminders** | **not started** |
+| 5c | **Amendment flow** | **not started** |
 
-**Stage 5b** — amendment copies entries into a new `OPEN` report linked to the
-original, leaving the original untouched; NMC Accept, or Return with a comment
-→ `RETURNED`, keeping the same `report_no`.
+**Still to build — 6b, reminders.** Banner for the licensee from the 25th;
+banner 1st–7th for the previous month; late marked after the 7th 23:59
+Asia/Phnom_Penh, computed server-side. `annex8_is_on_time()` already exists in
+the database and is what submit uses, so the rule is settled — this is the
+surfacing of it.
 
-**Stage 6** — NMC can open a submitted report read-only with its audit log and
-Accept or Return it; plus reminders (banner from the 25th; banner 1st–7th for
-the previous month; late marked after the 7th 23:59 Asia/Phnom_Penh, computed
-server-side).
+**Still to build — 5c, amendments.** `report_type = 'AMENDMENT'`,
+`original_report_id` and a partial unique index for one open amendment per
+licence per month all exist in the schema already. What is missing is the
+flow: copy a submitted report's entries into a new `OPEN` amendment linked to
+the original, leave the original untouched, and submit it as a correction
+rather than a replacement.
+
+### What NMC can do to a report, and the rules behind it
+
+- **Accept** → `ACCEPTED`. NMC's confirmation that it is correct.
+- **Return** → `RETURNED`, comment required. "Rejected" with no reason is not
+  something a licensee can act on, and the comment is what they are shown.
+  **The receipt number is kept** — one month's return must not acquire two
+  numbers.
+- **Correct in place** — staff may edit entries of a `SUBMITTED` report,
+  audited with their role so an NMC change is distinguishable from the
+  licensee's. **`ACCEPTED` is locked for everyone, including NMC**: editing
+  what you have already signed off is how a record stops meaning anything.
+  Return it first.
+- **Delete** — reason required; refuses an `ACCEPTED` report; writes the whole
+  report plus its counts to the audit log **before** the rows go, in that
+  order, so a failure leaves a harmless extra audit row rather than a report
+  that vanished without trace. The audit table has no foreign key to the
+  report for exactly this case.
 
 ## 9. Checks
 
@@ -242,10 +305,22 @@ npm run mysql:check       # adapter against a real database
 npm run annex8:scenario   # the full filing scenario
 npm run annex8:carry-over # Article 17, end to end
 npm run annex8:scope      # who can see what
+npm run annex8:review     # the NMC review desk, end to end
 ```
 
-The last four need a database and a running server. Locally that means
+The last five need a database and a running server. Locally that means
 `.\scripts\mysql-local.ps1 start` and `DB_DRIVER=mysql` in `.env`.
+
+They take `MLRS_BASE` (default `http://localhost:3000`), because there is
+often more than one dev server against this database.
+
+`npm run mysql:check` additionally requires `MYSQL_ADAPTER_TEST_URL` pointing
+at a disposable loopback `mlrs_adapter_test_*` database. It deletes fixture
+months, and it refuses to touch the operational one.
+
+**`tsx server.ts` does not reload server code.** Any time an endpoint is added
+or changed, a server already running keeps answering `API route not found`
+until it is restarted. That has caused a bug report once already.
 
 `annex8:scenario` is the one that matters most: three sessions in one month
 adding a weighbridge with eight load cells, an electronic scale and a sealed
@@ -305,7 +380,13 @@ rather than translated, and each was silent when wrong:
 **Working, and run end to end against a real database:** open a month, add
 entries across several sessions, edit, delete with undo, carry-over, review,
 submit, lock, download the official Word; the overview for both roles; the
-Excel and Word summaries.
+Excel and Word summaries; and NMC's review desk — search, read the report in
+full, print, accept, return, correct in place, delete with the audit trail
+surviving.
+
+One check worth keeping: the official Word NMC prints is compared
+**byte-for-byte** with the licensee's download. The regulator and the
+enterprise looking at different paper would be worse than either having none.
 
 **Written but never executed:**
 
@@ -314,6 +395,9 @@ Excel and Word summaries.
   unset and the route answers 503 with instructions.
 - **The monthly Telegram digest**, for the same reason plus `CRON_SECRET`.
 - **Supabase Auth sign-in**, since local development uses the header auth.
+- **The consolidated report** (the other agent's work, `d6ee87d`). It
+  typechecks and builds — that is all I verified before pushing it. Its four
+  check scripts have not been run by me.
 
 **The one real gap in the MySQL work:** the server does not yet issue its own
 session tokens, so under `DB_DRIVER=mysql` sign-in works only through the
@@ -338,6 +422,40 @@ MySQL is not usable by anyone but a local developer until it is.
   monthly cron schedule `0 1 8 * *`.
 - Migrating real data Supabase → MySQL is **not** attempted; `pg_dump` output
   is not MySQL input. Notes in `mysql/README.md`.
-- `3805b20` bundles three files edited by another tool working in this same
-  checkout, under a commit message that does not mention them. Now pushed, so
-  it stands. **Give a second agent its own worktree.**
+- **Two agents share this checkout.** A second agent has been building the
+  consolidated report in the same working tree throughout. `3805b20` bundles
+  three of its files under a commit message that does not mention them —
+  pushed, so it stands. `d6ee87d` is the rest of its work, committed
+  deliberately and labelled as not mine.
+
+  Consequences worth knowing:
+  - **Never `git add -A` here.** Stage explicit paths. That is how `3805b20`
+    happened.
+  - Both agents edit `server.ts`. Small targeted edits only; re-read before
+    editing anything whose surroundings matter.
+  - **Give the next agent its own git worktree.** This has cost real time.
+
+## 13. If you are picking this up
+
+Read sections 2 and 7 first — the template rules and the two-documents
+distinction are the two things that are expensive to get wrong.
+
+Then, in order:
+
+1. Start the database and a server:
+   `.\scripts\mysql-local.ps1 start`, then `npm run dev` with
+   `DB_DRIVER=mysql` in `.env`.
+2. Run `npm run annex8:scenario` and `npm run annex8:review`. Between them
+   they exercise most of the system, and watching them pass is the fastest way
+   to understand what it does.
+3. Sign in as `company01/LIC001` and as `superadmin/admin123` and look at both
+   sides of the Annex 8 tab.
+
+The next pieces of work are **6b reminders** and **5c amendments**, both
+described in section 8. The schema already carries what each one needs, so
+neither starts with a migration.
+
+Two standing instructions from the project owner that outlive any one task:
+**never modify the template or build the official report's layout in code**,
+and **do not deploy without confirmation** — note that pushing to `main`
+deploys to production via Vercel.
