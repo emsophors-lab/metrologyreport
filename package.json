@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js dist/server.cjs",
     "lint": "tsc --noEmit",
+    "auth:check": "tsx scripts/auth-login-check.ts",
     "annex8:check": "tsx scripts/annex8-check-template.ts && tsx scripts/annex8-check-db-mapping.ts && tsx scripts/annex8-check-entries.ts",
     "mysql:check": "tsx scripts/mysql-adapter-check.ts",
     "annex8:scenario": "node scripts/annex8-scenario.mjs",
@@ -19,7 +20,8 @@
     "consolidated:test": "tsx scripts/consolidated-test.ts && tsx scripts/consolidated-automatic-test.ts && tsx scripts/consolidated-db-test.ts",
     "consolidated:mysql-test": "tsx scripts/consolidated-db-test.ts --mysql",
     "consolidated:api-check": "tsx scripts/consolidated-api-check.ts",
-    "annex8:review": "node scripts/annex8-staff-review-check.mjs"
+    "annex8:review": "node scripts/annex8-staff-review-check.mjs",
+    "annex8:check:sql": "node scripts/annex8-check-supabase-sql.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
