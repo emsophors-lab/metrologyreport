@@ -10,7 +10,7 @@ export async function signInWithServer(
   password: string,
   request: typeof fetch = fetch,
 ): Promise<MetrologyUser> {
-  const response = await request('/api/auth/login', {
+  const response = await request('/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     cache: 'no-store',

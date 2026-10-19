@@ -701,7 +701,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.post('/api/auth/login', createPasswordLoginHandler({
+app.post('/api/login', createPasswordLoginHandler({
   db: DB_DRIVER === 'supabase' ? supabaseAdmin : null,
   // A separate client per attempt: never put a user's session on the shared
   // service-role client used by every API request.

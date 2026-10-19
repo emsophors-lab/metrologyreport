@@ -24,7 +24,7 @@ const db = { from: (table: string) => {
 } };
 const app = express();
 app.use(express.json());
-app.post('/api/auth/login', createPasswordLoginHandler({
+app.post('/api/login', createPasswordLoginHandler({
   db,
   signIn: async (email, password) => {
     signIns++; seenEmail = email;
@@ -39,7 +39,7 @@ const address = server.address();
 assert.ok(address && typeof address !== 'string');
 const base = `http://127.0.0.1:${address.port}`;
 const request: typeof fetch = (url, options) => fetch(base + url, options);
-const post = (body: any) => request('/api/auth/login', { method: 'POST',
+const post = (body: any) => request('/api/login', { method: 'POST',
   headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 let savedSession: any = null;
 const client = { auth: { setSession: async (session: any) => {
