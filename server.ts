@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createMysqlClient } from './src/db/mysqlClient';
+import { accountAuthEmail, createPasswordLoginHandler } from './src/auth/passwordLogin';
 // Annex 8 rules live in one isomorphic module so the server validates with the
 // same code the form uses, rather than a second copy that drifts out of step.
 import { validateAnnex8, blockingIssues, warningIssues, hostPart } from './src/annex8/validation';
@@ -248,15 +249,7 @@ function verifyUserPasswordServer(password: string, userRow: any): boolean {
 }
 
 function normalizeAuthEmail(username: string, userRow: any): string {
-  const rawEmail = String(userRow?.email || '').trim().toLowerCase();
-  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) return rawEmail;
-
-  const safeUsername = String(username || userRow?.username || 'user')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._+-]/g, '_')
-    .replace(/^_+|_+$/g, '') || 'user';
-  return `${safeUsername}@nmc.gov.kh`;
+  return accountAuthEmail({ ...userRow, username: username || userRow?.username });
 }
 
 async function findAuthUserByEmail(email: string) {
@@ -707,6 +700,17 @@ app.get('/api/health', (req, res) => {
     time: new Date().toISOString()
   });
 });
+
+app.post('/api/auth/login', createPasswordLoginHandler({
+  db: DB_DRIVER === 'supabase' ? supabaseAdmin : null,
+  // A separate client per attempt: never put a user's session on the shared
+  // service-role client used by every API request.
+  signIn: (email, password) => createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  }).auth.signInWithPassword({ email, password }),
+  publicUser: publicUserRow,
+  verifyLegacyPassword: verifyUserPasswordServer,
+}));
 
 app.post('/api/provision-auth-session', async (req, res) => {
   try {

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { MetrologyUser } from '../types';
 import nmcLoginLogo from './NMClogo-standard.png';
-import { apiRequest, getActiveSupabaseClient } from '../supabaseSync';
+import { getActiveSupabaseClient } from '../supabaseSync';
+import { LoginFailure, signInWithServer } from '../auth/browserLogin';
 import { isDemoLoginAllowed, INITIAL_USERS } from '../demoData';
 import { verifyUserPassword } from '../utils/passwordUtils';
 import LoginMetrologyAnimation from './LoginMetrologyAnimation';
@@ -35,388 +36,52 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
   const limitedConnectionNotice = 'ប្រព័ន្ធកំពុងដំណើរការក្នុងរបៀបមានកំណត់។ សូមពិនិត្យការតភ្ជាប់ ឬទាក់ទងអ្នកគ្រប់គ្រងប្រព័ន្ធ។ / Limited connection mode. Please check your connection or contact the system administrator.';
   const setupNotice = 'ប្រព័ន្ធមិនទាន់មានគណនីអ្នកប្រើប្រាស់សម្រាប់ចូលប្រើ។ សូមទាក់ទងអ្នកគ្រប់គ្រងប្រព័ន្ធ។ / User access is not ready. Please contact the system administrator.';
 
-  const cloudAuthRequiredNotice = 'Cloud synchronization is not ready for this account. Please log in again after the administrator verifies the account email/password and server environment. Reports cannot be added safely until cloud sync is active.';
-
   const showLoginNotice = (message: string, tone: 'error' | 'warning' = 'error') => {
     setNoticeTone(tone);
     setErrorMessage(message);
   };
 
-  const clearLoginNotice = () => {
-    setErrorMessage('');
-    setNoticeTone('error');
-  };
-
-  const logTechnicalIssue = (label: string, detail: unknown) => {
-    if ((import.meta as any).env?.DEV) {
-      console.warn(label, detail);
-    }
-  };
-
-  const getAuthEmail = (matchedUser: MetrologyUser) => {
-    const rawEmail = String(matchedUser.email || '').trim().toLowerCase();
-    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) return rawEmail;
-    const safeUsername = String(matchedUser.username || 'user')
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9._+-]/g, '_')
-      .replace(/^_+|_+$/g, '') || 'user';
-    return `${safeUsername}@nmc.gov.kh`;
-  };
-
-  // Server-authenticated actions (Telegram webhook setup, test-send) require a
-  // Supabase Auth session token; a local users-table match alone is not enough.
-  const establishServerAuthSession = async (
-    client: NonNullable<ReturnType<typeof getActiveSupabaseClient>>,
-    matchedUser: MetrologyUser,
-    plainPassword: string
-  ): Promise<boolean> => {
-    const authEmail = getAuthEmail(matchedUser);
-
-    let authResult = await client.auth.signInWithPassword({
-      email: authEmail,
-      password: plainPassword
-    });
-
-    if (authResult.error) {
-      // Sign-in can fail because the auth account does not exist yet, is unconfirmed,
-      // or has a stale password. The server verifies the users-table credentials and
-      // creates/repairs the pre-confirmed Supabase Auth account, then we retry.
-      logTechnicalIssue('Requesting server auth account provisioning for configured user:', matchedUser.username);
-      try {
-        const provisionResponse = await fetch('/api/provision-auth-session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            username: matchedUser.username,
-            password: plainPassword
-          })
-        });
-
-        if (provisionResponse.ok) {
-          const provisionData = await provisionResponse.json().catch(() => null);
-          authResult = await client.auth.signInWithPassword({
-            email: provisionData?.email || authEmail,
-            password: plainPassword
-          });
-        } else {
-          const provisionError = await provisionResponse.json().catch(() => null);
-          logTechnicalIssue('Server auth account provisioning rejected:', provisionError || provisionResponse.status);
-        }
-      } catch (provisionErr) {
-        logTechnicalIssue('Server auth account provisioning failed:', provisionErr);
-      }
-    }
-
-    if (authResult.error || !authResult.data.session) {
-      logTechnicalIssue('Server auth session unavailable:', authResult.error);
-      return false;
-    }
-
-    return true;
-  };
-
-  // Warning effect to handle Database Connection failed or empty fallbacks
-  useEffect(() => {
-    if (!isUsersLoading) {
-      const client = getActiveSupabaseClient();
-      const isDemoAllowed = isDemoLoginAllowed();
-      const hasSupabase = !!client;
-      const dbIsEmpty = usersList.length === 0;
-
-      if (hasSupabase && dbIsEmpty) {
-        if (isDemoAllowed) {
-          showLoginNotice(limitedConnectionNotice, 'warning');
-        } else {
-          showLoginNotice(setupNotice, 'warning');
-        }
-      } else if (!hasSupabase) {
-        if (isDemoAllowed) {
-          showLoginNotice(limitedConnectionNotice, 'warning');
-        }
-      }
-    }
-  }, [isUsersLoading, usersList]);
-
-  // Login authentication and form submit handler
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!username.trim() || !password.trim()) {
+    if (!username.trim() || !password) {
       showLoginNotice('សូមបំពេញឈ្មោះគណនី និងលេខសំងាត់របស់អ្នក!');
       return;
     }
-
-    // Ensure users are loaded before login validation
-    if (isUsersLoading) {
-      showLoginNotice('កំពុងផ្ទុកគណនីអ្នកប្រើប្រាស់... សូមរង់ចាំមួយភ្លែត! / Loading user accounts... Please wait a moment!', 'warning');
-      return;
-    }
-
+    if (isAuthenticating) return;
     setIsAuthenticating(true);
-    clearLoginNotice();
-
-    const inputUser = username.trim().toLowerCase();
-    const inputPass = password;
-    const isDemoAllowed = isDemoLoginAllowed();
-
-    // Look up in the passed usersList (or INITIAL_USERS as a fallback if usersList is empty and demo is allowed)
-    const effectiveUsers = (usersList && usersList.length > 0) 
-      ? usersList 
-      : (isDemoAllowed ? INITIAL_USERS : []);
-
-    let localMatched: MetrologyUser | undefined;
-    for (const candidate of effectiveUsers) {
-      if (candidate.username.toLowerCase() === inputUser && await verifyUserPassword(inputPass, candidate)) {
-        localMatched = candidate;
-        break;
-      }
-    }
-
+    setErrorMessage('');
     try {
       const client = getActiveSupabaseClient();
-      const hasSupabase = !!client;
-      const dbIsEmpty = usersList.length === 0;
-
-      if (isDemoAllowed && localMatched && !hasSupabase) {
-        // If it's an allowed demo user without Supabase, log them in directly in testing mode.
-        // When Supabase exists, continue into the configured-user path below so
-        // report saves and Telegram notifications get a real server auth token.
-        logTechnicalIssue('Development login path used:', localMatched.username);
-        onLoginSuccess(localMatched);
-        setIsAuthenticating(false);
-        return;
-      }
-
-      // If we are in production and db is empty or supabase not there, show clear error
-      if (!isDemoAllowed && (!hasSupabase || dbIsEmpty)) {
-        showLoginNotice(setupNotice, 'warning');
-        setIsAuthenticating(false);
-        return;
-      }
-
-      if (localMatched) {
-        if (localMatched.is_active === false) {
-          showLoginNotice('គណនីរបស់លោកអ្នកត្រូវផ្អាកបណ្តោះអាសន្ន! / This account has been deactivated!');
-          setIsAuthenticating(false);
-          return;
-        }
-
-        if (client) {
-          try {
-            const serverAuthReady = await establishServerAuthSession(client, localMatched, password);
-            if (!serverAuthReady) {
-              showLoginNotice(cloudAuthRequiredNotice, 'warning');
-              setIsAuthenticating(false);
-              return;
-            }
-          } catch (authErr) {
-            logTechnicalIssue('Server auth session setup failed:', authErr);
-            showLoginNotice(cloudAuthRequiredNotice, 'warning');
-            setIsAuthenticating(false);
-            return;
-          }
-        }
-
-        clearLoginNotice();
-        onLoginSuccess(localMatched);
-        setIsAuthenticating(false);
-        return;
-      }
-
       if (client) {
-        // Active Supabase connection configured! Use Production Supabase Auth.
-        const usernameOrEmail = username.trim();
-        let finalEmail = usernameOrEmail;
-        if (!usernameOrEmail.includes('@')) {
-          // Resolve email from user list username or fallback to domain prefix
-          finalEmail = localMatched?.email || `${usernameOrEmail.toLowerCase()}@nmc.gov.kh`;
-        }
-
-        let authResult = await client.auth.signInWithPassword({
-          email: finalEmail,
-          password: password
-        });
-
-        // Smart onboarding experience: if this matches a default demo user and they don't exist in the custom Supabase Auth register, register them automatically!
-        if (authResult.error && (
-          authResult.error.message.includes('Invalid login credentials') || 
-          authResult.error.message.includes('invalid_credentials') ||
-          authResult.error.message.includes('Email not confirmed')
-        )) {
-          if (localMatched) {
-            logTechnicalIssue('Attempting automatic auth profile registration for configured user:', localMatched.username);
-            const { data: signUpData, error: signUpError } = await client.auth.signUp({
-              email: finalEmail,
-              password: password,
-              options: {
-                data: {
-                  username: localMatched.username
-                }
-              }
-            });
-
-            if (!signUpError && signUpData.user) {
-              const newUserRecord = {
-                id: signUpData.user.id,
-                license_number: localMatched.license_number,
-                company_name_kh: localMatched.company_name_kh,
-                company_name_en: localMatched.company_name_en,
-                address: localMatched.address,
-                phone: localMatched.phone,
-                email: localMatched.email,
-                legal_representative: localMatched.legal_representative,
-                representative_position: localMatched.representative_position,
-                username: localMatched.username,
-                password: localMatched.password,
-                password_hash: localMatched.password_hash || null,
-                password_updated_at: localMatched.password_updated_at || null,
-                must_change_password: localMatched.must_change_password ?? false,
-                last_password_change_by: localMatched.last_password_change_by || null,
-                role: localMatched.role,
-                can_view: localMatched.can_view,
-                can_edit: localMatched.can_edit,
-                can_save: localMatched.can_save,
-                can_delete: localMatched.can_delete,
-                is_active: localMatched.is_active ?? true,
-                created_at: localMatched.created_at || new Date().toISOString()
-              };
-
-              // Through our own API, like every other write.
-              await apiRequest('/api/users', { method: 'POST', body: { user: newUserRecord } });
-
-              // Attempt login once more
-              authResult = await client.auth.signInWithPassword({
-                email: finalEmail,
-                password: password
-              });
-            }
-          }
-        }
-
-        if (authResult.error) {
-          logTechnicalIssue('Authentication provider error:', authResult.error);
-          
-          // Fallback to local demo login if we are in testing mode and get a Supabase Auth error
-          if (isDemoAllowed && localMatched) {
-            logTechnicalIssue('Development fallback login path used after auth provider rejection:', localMatched.username);
-            onLoginSuccess(localMatched);
-            setIsAuthenticating(false);
-            return;
-          }
-
-          if (authResult.error.message.includes('Invalid login credentials') || authResult.error.message.includes('invalid_credentials')) {
-            showLoginNotice('ឈ្មោះគណនី/អុីម៉ែល ឬ លេខសំងាត់មិនត្រឹមត្រូវឡើយ។ សូមព្យាយាមម្តងទៀត!');
-          } else {
-            showLoginNotice(limitedConnectionNotice, 'warning');
-          }
-          setIsAuthenticating(false);
-          return;
-        }
-
-        if (authResult.data.user) {
-          // The account row comes from our own API, which returns only the
-          // caller's row and never any password material.
-          let profile: any = null;
-          let pErr: any = null;
-          try {
-            profile = (await apiRequest<{ user: any }>('/api/users/me')).user;
-          } catch (err) {
-            pErr = err;
-          }
-
-          if (pErr || !profile) {
-            logTechnicalIssue('Profile loading error:', pErr);
-            
-            // If demo mode is allowed and it's a demo account, we can still fall back
-            if (isDemoAllowed && localMatched) {
-              onLoginSuccess(localMatched);
-              setIsAuthenticating(false);
-              return;
-            }
-
-            // Fallback user if profile table doesn't have it yet: construct from auth user details
-            const defaultUser: MetrologyUser = {
-              id: authResult.data.user.id,
-              username: authResult.data.user.email?.split('@')[0] || 'user',
-              email: authResult.data.user.email || '',
-              role: 'company',
-              company_name_kh: 'ក្រុមហ៊ុនសហគ្រាសសេវាកម្ម',
-              company_name_en: 'Service Enterprise',
-              license_number: 'NMC-LICENSE',
-              address: 'Phnom Penh, Cambodia',
-              phone: '000000000',
-              legal_representative: 'Legal Representative',
-              representative_position: 'Director',
-              can_view: true,
-              can_edit: true,
-              can_save: true,
-              can_delete: true,
-              created_at: new Date().toISOString()
-            };
-            onLoginSuccess(defaultUser);
-          } else {
-            if (profile.is_active === false) {
-              showLoginNotice('គណនីរបស់លោកអ្នកត្រូវផ្អាកបណ្តោះអាសន្ន! / This account has been deactivated!');
-              setIsAuthenticating(false);
-              return;
-            }
-            
-            // Map table values back to MetrologyUser format
-            const mappedUser: MetrologyUser = {
-              id: profile.id,
-              username: profile.username,
-              email: profile.email,
-              role: profile.role,
-              company_name_kh: profile.company_name_kh || 'ក្រុមហ៊ុនសហគ្រាសសេវាកម្ម',
-              company_name_en: profile.company_name_en || 'Service Enterprise',
-              license_number: profile.license_number || 'NMC-LICENSE',
-              address: profile.address || 'Cambodia',
-              phone: profile.phone || '',
-              legal_representative: profile.legal_representative || '',
-              representative_position: profile.representative_position || '',
-              can_view: profile.can_view ?? true,
-              can_edit: profile.can_edit ?? true,
-              can_save: profile.can_save ?? true,
-              can_delete: profile.can_delete ?? true,
-              admin_can_add_company_user: profile.admin_can_add_company_user ?? false,
-              admin_can_add_admin_user: profile.admin_can_add_admin_user ?? false,
-              admin_can_edit_users: profile.admin_can_edit_users ?? false,
-              admin_can_deactivate_users: profile.admin_can_deactivate_users ?? false,
-              admin_can_view_all_users: profile.admin_can_view_all_users ?? false,
-              password_hash: profile.password_hash || null,
-              password_updated_at: profile.password_updated_at || null,
-              must_change_password: profile.must_change_password ?? false,
-              last_password_change_by: profile.last_password_change_by || null,
-              is_active: profile.is_active ?? true,
-              created_at: profile.created_at || new Date().toISOString()
-            };
-            onLoginSuccess(mappedUser);
-          }
-        }
-      } else {
-        // Fallback Database offline simulations if not configured
-        if (localMatched) {
-          if (localMatched.is_active === false) {
-            showLoginNotice('គណនីរបស់លោកអ្នកត្រូវផ្អាកបណ្តោះអាសន្ន! / This account has been deactivated!');
-            setIsAuthenticating(false);
-            return;
-          }
-          clearLoginNotice();
-          onLoginSuccess(localMatched);
-        } else {
-          showLoginNotice('ឈ្មោះគណនី ឬ លេខសំងាត់មិនត្រឹមត្រូវឡើយ។ សូមព្យាយាមម្តងទៀត!');
-        }
-      }
-    } catch (err: any) {
-      logTechnicalIssue('Login verification exception:', err);
-      if (isDemoAllowed && localMatched) {
-        logTechnicalIssue('Development fallback login path used after auth exception:', localMatched.username);
-        onLoginSuccess(localMatched);
-        setIsAuthenticating(false);
+        // Cloud login never depends on a cached/public registry or local hashes.
+        const user = await signInWithServer(client, username, password);
+        onLoginSuccess(user);
         return;
       }
-      showLoginNotice(limitedConnectionNotice, 'warning');
+
+      // Preserve the explicitly enabled local demo/MySQL development workflow.
+      if (!isDemoLoginAllowed()) {
+        showLoginNotice(setupNotice, 'warning');
+        return;
+      }
+      const candidates = usersList.length ? usersList : INITIAL_USERS;
+      const candidate = candidates.find(user =>
+        user.username.toLowerCase() === username.trim().toLowerCase());
+      if (!candidate || candidate.is_active === false || !await verifyUserPassword(password, candidate)) {
+        showLoginNotice('ឈ្មោះគណនី/អុីម៉ែល ឬ លេខសំងាត់មិនត្រឹមត្រូវឡើយ។ សូមព្យាយាមម្តងទៀត!');
+        return;
+      }
+      onLoginSuccess(candidate);
+    } catch (error) {
+      if (error instanceof LoginFailure && error.code === 'INVALID_CREDENTIALS') {
+        showLoginNotice('ឈ្មោះគណនី/អុីម៉ែល ឬ លេខសំងាត់មិនត្រឹមត្រូវឡើយ។ សូមព្យាយាមម្តងទៀត!');
+      } else if (error instanceof LoginFailure && error.code === 'AUTH_ACCOUNT_NOT_READY') {
+        showLoginNotice('ពាក្យសម្ងាត់ចាស់ត្រូវបានផ្ទៀងផ្ទាត់ ប៉ុន្តែគណនីចូលប្រើត្រូវការការពិនិត្យពីអ្នកគ្រប់គ្រង។ / Your legacy password was verified, but the sign-in account needs administrator review. No password was changed.', 'warning');
+      } else if (error instanceof LoginFailure && error.code === 'TOO_MANY_ATTEMPTS') {
+        showLoginNotice('សូមរង់ចាំបន្តិច រួចព្យាយាមម្តងទៀត។ / Too many attempts. Please wait and try again.', 'warning');
+      } else {
+        showLoginNotice(limitedConnectionNotice, 'warning');
+      }
     } finally {
       setIsAuthenticating(false);
     }
@@ -1223,10 +888,10 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
             </div>
 
             {/* Form submit response errors display box */}
-            {isUsersLoading && (
+            {isAuthenticating && (
               <div className="nmc-loading-box" style={{ padding: '12px', background: 'rgba(217, 119, 6, 0.15)', border: '1px solid #d97706', borderRadius: '10px', color: '#ffd700', fontSize: '12px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
                 <span style={{ display: 'inline-block' }}>🌀</span>
-                <span>កំពុងផ្ទុកគណនីអ្នកប្រើប្រាស់... / Loading user accounts...</span>
+                <span>កំពុងចូលប្រើ... / Signing in...</span>
               </div>
             )}
 
@@ -1315,7 +980,7 @@ export default function LoginScreen({ onLoginSuccess, usersList, isUsersLoading 
               </div>
 
               {/* Primary action call button */}
-              <button type="submit" className="nmc-action-btn">
+              <button type="submit" className="nmc-action-btn" disabled={isAuthenticating} aria-busy={isAuthenticating}>
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                   <path d="M7 11V7a5 5 0 0 1 10 0v4" />

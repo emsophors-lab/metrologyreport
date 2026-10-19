@@ -48,6 +48,7 @@ import {
 import { getSupabaseClient } from './supabaseClient';
 import { 
   getActiveSupabaseConfig,
+  getActiveSupabaseClient,
   fetchUsersFromSupabase,
   saveUserToSupabase,
   deleteUserFromSupabase,
@@ -664,8 +665,8 @@ export default function App() {
       }
     }
 
-    // Load only the user registry before login. Dashboard/report/license data is
-    // synced after a session exists so the login page stays lightweight.
+    // The registry is private. Only restore it for an authenticated session;
+    // username/password sign-in resolves the account on the server instead.
     const loadInitialUserRegistry = async () => {
       const activeCfg = getActiveSupabaseConfig();
       setDbConfig(activeCfg);
@@ -676,6 +677,9 @@ export default function App() {
       }
 
       try {
+        const client = getActiveSupabaseClient();
+        const session = client ? (await client.auth.getSession()).data.session : null;
+        if (!session) return;
         setIsUsersLoading(true);
         // Sync users registry from Supabase
         const cloudUsers = await fetchUsersFromSupabase();
