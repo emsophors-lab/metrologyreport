@@ -118,9 +118,9 @@ export interface MonthlyDigest {
 const nameOf = (l: DigestLicence) =>
   String(l.company_name_kh || l.company_name || l.license_number || '').trim() || l.license_number;
 
-/** A report counts as submitted once it is out of DRAFT. */
+/** OPEN is incremental work, not a submission. Returned receipts still count. */
 const isSubmitted = (r: DigestAnnex8Report) =>
-  String(r.status || '').toUpperCase() !== 'DRAFT';
+  ['SUBMITTED', 'RETURNED', 'ACCEPTED'].includes(String(r.status || '').toUpperCase());
 
 export function buildMonthlyDigest(input: {
   period: string;
@@ -129,12 +129,13 @@ export function buildMonthlyDigest(input: {
   legacyReports?: DigestLegacyReport[];
 }): MonthlyDigest {
   const { period, licences } = input;
+  const activeLicences = new Set(licences.map(l => String(l.license_number || '').trim()));
 
   const byLicence = new Map<string, DigestAnnex8Report>();
   for (const r of input.annex8Reports) {
     if (!isSubmitted(r)) continue;
     const key = String(r.licence_no || '').trim();
-    if (!key) continue;
+    if (!key || !activeLicences.has(key)) continue;
     // An amendment supersedes the original; keep the latest submission.
     const prev = byLicence.get(key);
     if (!prev || String(r.submitted_at || '') > String(prev.submitted_at || '')) byLicence.set(key, r);
@@ -197,7 +198,7 @@ export function buildMonthlyDigest(input: {
 
   return {
     period,
-    deadline: `${period}-${String(DEADLINE_DAY).padStart(2, '0')}`,
+    deadline: new Date(Date.UTC(Number(period.slice(0, 4)), Number(period.slice(5, 7)), DEADLINE_DAY)).toISOString().slice(0, 10),
     licensees: licences.length,
     submitted,
     onTime: submitted.filter((e) => e.on_time === true),

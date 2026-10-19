@@ -2378,20 +2378,18 @@ app.post('/api/license-reminders', async (req, res) => {
  * is not sent again unless `?force=1` — a cron that fires twice must not post
  * the roll call twice.
  */
-app.post('/api/monthly-report-digest', async (req, res) => {
+const runMonthlyReportDigest: express.RequestHandler = async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   try {
     // Either the cron secret, or a signed-in superadmin/admin.
     const cronSecret = process.env.CRON_SECRET;
     const authHeader = req.headers.authorization || '';
-    const reqSecret = authHeader ? authHeader.replace(/^Bearer\s+/i, '') : req.query.secret;
+    const reqSecret = authHeader.replace(/^Bearer\s+/i, '');
     const secretOk = !!cronSecret && reqSecret === cronSecret;
 
     if (!secretOk) {
       const role = await resolveApiRole(req);
       if (!role || !['superadmin', 'admin'].includes(role)) {
-        if (supabaseAdmin && !cronSecret) {
-          return res.status(500).json({ error: 'CRON_SECRET is required before the monthly digest can run in production.' });
-        }
         return res.status(401).json({ error: 'Unauthorized: cron secret or NMC staff sign-in required.' });
       }
     }
@@ -2403,20 +2401,21 @@ app.post('/api/monthly-report-digest', async (req, res) => {
     const dryRun = String(req.query.dry_run || '') === '1';
     const force = String(req.query.force || '') === '1';
     const requested = String(req.query.period || '').trim();
-    if (requested && !/^\d{4}-\d{2}$/.test(requested)) {
+    if (requested && !/^\d{4}-(0[1-9]|1[0-2])$/.test(requested)) {
       return apiError(res, 400, 'period must be YYYY-MM.');
     }
     const period = requested || previousPeriod();
 
     // Already sent? A cron retry must not repost the roll call.
-    if (!dryRun && !force) {
-      const { data: already } = await supabaseAdmin
+    if (!dryRun) {
+      const { data: already, error: logError } = await supabaseAdmin
         .from('monthly_report_digest_logs')
         .select('id, sent_at, send_status')
         .eq('period_month', period)
         .eq('send_status', 'Sent')
         .limit(1);
-      if (already && already.length) {
+      if (logError) return apiError(res, 503, 'Monthly digest delivery log is unavailable. No Telegram message was sent.');
+      if (!force && already && already.length) {
         return res.json({
           status: 'Skipped',
           message: `The digest for ${period} was already sent on ${already[0].sent_at}. Use force=1 to send it again.`,
@@ -2425,36 +2424,31 @@ app.post('/api/monthly-report-digest', async (req, res) => {
       }
     }
 
-    const [licenceRes, annex8Res, legacyRes] = await Promise.all([
-      supabaseAdmin
-        .from('enterprise_licenses')
-        .select('license_number, company_name, company_name_kh')
-        .in('license_status', ['Active', 'Expiring Soon']),
-      supabaseAdmin
-        .from('annex8_reports')
-        .select('licence_no, report_id, status, on_time, report_type, submitted_at, part2_summary')
-        .eq('period_month', period),
-      // The frozen legacy form still counts as having reported. report_month is
-      // a loose string so it cannot be filtered here; the year narrows it and
-      // normalizeLegacyPeriod does the rest.
-      supabaseAdmin
-        .from('reports')
-        .select('license_number, report_month, report_year')
-        .eq('report_year', period.slice(0, 4)),
-    ]);
-
-    if (licenceRes.error) throw licenceRes.error;
-    if (annex8Res.error) throw annex8Res.error;
+    const licences = await selectAllRows('enterprise_licenses', q =>
+      q.in('license_status', ['Active', 'Expiring Soon']).order('id', { ascending: true }));
+    const annex8Reports = await selectAllRows('annex8_reports', q =>
+      q.eq('period_month', period).order('id', { ascending: true }));
+    // The legacy form still counts; its loose month strings are normalized below.
+    let legacyReports: any[] = [];
+    try {
+      legacyReports = await selectAllRows('reports', q =>
+        q.eq('report_year', period.slice(0, 4)).order('id', { ascending: true }));
+    } catch { /* The legacy table is optional for Annex 8 installations. */ }
 
     const digest = buildMonthlyDigest({
       period,
-      licences: licenceRes.data || [],
-      annex8Reports: annex8Res.data || [],
+      licences,
+      annex8Reports,
       // A missing legacy table is not fatal: the digest is about Annex 8.
-      legacyReports: legacyRes.error ? [] : (legacyRes.data || []),
+      legacyReports,
     });
 
     const messages = renderDigestMessages(digest);
+
+    // A preview is read-only: no Telegram request, PDF service call or log write.
+    if (dryRun) {
+      return res.json({ status: 'DryRun', period, ...digestCounts(digest), messages });
+    }
 
     // The group gets the digest as a PDF. If Gotenberg is unreachable the
     // numbers still have to arrive, so the text messages are the fallback
@@ -2468,17 +2462,6 @@ app.post('/api/monthly-report-digest', async (req, res) => {
       console.warn('Monthly digest PDF not produced, sending text only:', pdfError);
     }
 
-    if (dryRun) {
-      return res.json({
-        status: 'DryRun',
-        period,
-        ...digestCounts(digest),
-        pdf_bytes: pdf?.length ?? 0,
-        pdf_error: pdfError,
-        messages,
-      });
-    }
-
     const activeBot = await getActiveBot('report_group');
     if (!activeBot) {
       return res.status(400).json({ status: 'Skipped', message: getPurposeMissingMessage('report_group'), period });
@@ -2490,6 +2473,11 @@ app.post('/api/monthly-report-digest', async (req, res) => {
         message: 'No Telegram group chat id is configured for the report group bot.',
         period,
       });
+    }
+
+    if ((req.body?.expected_bot_id && req.body.expected_bot_id !== activeBot.id)
+      || (req.body?.expected_group_chat_id && req.body.expected_group_chat_id !== chatId)) {
+      return apiError(res, 409, 'Telegram destination changed. Refresh the settings before sending.');
     }
 
     let sent = 0;
@@ -2524,7 +2512,7 @@ app.post('/api/monthly-report-digest', async (req, res) => {
       }
     }
 
-    await supabaseAdmin.from('monthly_report_digest_logs').insert({
+    const { error: deliveryLogError } = await supabaseAdmin.from('monthly_report_digest_logs').insert({
       period_month: period,
       telegram_bot_setting_id: activeBot.id !== 'env-fallback' ? activeBot.id : null,
       telegram_chat_id: chatId,
@@ -2540,6 +2528,11 @@ app.post('/api/monthly-report-digest', async (req, res) => {
       error_message: failure,
       sent_at: new Date().toISOString(),
     });
+
+    if (deliveryLogError) {
+      return res.status(202).json({ status: 'Unlogged', period, sent_messages: sent,
+        message: 'Delivery was attempted but its log could not be saved. Check the Telegram group before resending.' });
+    }
 
     if (failure) {
       return res.status(502).json({
@@ -2560,6 +2553,48 @@ app.post('/api/monthly-report-digest', async (req, res) => {
     console.error('Monthly digest failed:', err);
     return res.status(500).json({ error: err?.message || 'Monthly digest failed.' });
   }
+};
+
+app.post('/api/monthly-report-digest', runMonthlyReportDigest);
+// Vercel invokes cron jobs with GET. A browser GET without the cron secret
+// must never send a digest; staff use the explicit POST action instead.
+app.get('/api/monthly-report-digest', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.headers.authorization !== `Bearer ${secret}`) {
+    return res.status(401).json({ error: 'A valid cron authorization header is required.' });
+  }
+  if (req.query.force || req.query.period || req.query.dry_run) {
+    return apiError(res, 400, 'Scheduled runs always report the previous month without forcing a resend.');
+  }
+  return runMonthlyReportDigest(req, res, () => {});
+});
+
+app.get('/api/monthly-report-digest/settings', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const resolved = await resolveApiUser(req);
+  if (!resolved || !['superadmin', 'admin'].includes(resolved.role)) {
+    return apiError(res, resolved ? 403 : 401, 'NMC staff authentication required.');
+  }
+  if (!supabaseAdmin) return apiError(res, 503, 'Database is not configured.');
+  try {
+    const bot = await getActiveBot('report_group');
+    const { data: logs, error } = await supabaseAdmin.from('monthly_report_digest_logs')
+      .select('id,period_month,send_status,sent_at,submitted_count,missing_count,compliance_rate')
+      .order('sent_at', { ascending: false }).limit(10);
+    return apiSuccess(res, {
+      schedule: { day: 8, hour: 8, minute: 0, timezone: 'Asia/Phnom_Penh', cron: '0 1 8 * *' },
+      default_period: previousPeriod(),
+      cron_secret_configured: !!process.env.CRON_SECRET,
+      hosted_scheduler: process.env.VERCEL === '1',
+      pdf_configured: !!process.env.GOTENBERG_URL,
+      delivery_log_ready: !error,
+      bot: bot ? { id: bot.id, name: bot.bot_name || bot.bot_display_name || bot.bot_username || 'Telegram bot',
+        username: bot.bot_username || '', group_chat_id: getBotGroupChatId(bot),
+        token_configured: !!String(bot.bot_token_encrypted || '').trim() && !isProtectedSecretValue(bot.bot_token_encrypted) } : null,
+      logs: error ? [] : (logs || []),
+    });
+  } catch { return apiError(res, 500, 'Unable to load monthly digest settings.'); }
 });
 
 /** The headline numbers, for the API response and the logs. */

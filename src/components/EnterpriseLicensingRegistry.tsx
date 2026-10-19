@@ -65,6 +65,7 @@ import html2canvas from 'html2canvas';
 import { BusinessLocationMap } from './BusinessLocationMap';
 import { EnterpriseLicenseMapView } from './EnterpriseLicenseMapView';
 import { MiniLocationMap } from './MiniLocationMap';
+import MonthlyDigestSettings from './MonthlyDigestSettings';
 
 
 const LICENSING_SQL_MIGRATION = `-- =========================================================================
@@ -4072,6 +4073,11 @@ export default function EnterpriseLicensingRegistry({
               </button>
             </div>
             
+            <MonthlyDigestSettings
+              configurationKey={JSON.stringify(botSettings.map(bot => [bot.id, bot.is_active, bot.bot_purpose, bot.default_group_chat_id, bot.default_chat_id]))}
+              onConfigureBot={id => handleOpenBotModal(botSettings.find(bot => bot.id === id) || null)}
+            />
+
             {/* Security Warning Notice */}
             <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-xl text-amber-900 leading-relaxed text-[11.5px] flex items-start gap-3 shadow-3xs font-medium">
               <span className="text-lg text-amber-500 font-bold shrink-0">⚠️</span>

@@ -10,6 +10,7 @@ process.env.DB_DRIVER = 'supabase';
 process.env.VITE_SUPABASE_URL = 'https://routing-check.invalid.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'routing-check-placeholder-not-a-real-key';
 process.env.ALLOW_LEGACY_API_HEADER_AUTH = 'false';
+process.env.CRON_SECRET = 'routing-test-only-not-a-real-secret';
 
 const config = JSON.parse(fs.readFileSync('vercel.json', 'utf8'));
 assert.deepEqual(config.rewrites[0], { source: '/api/:path*', destination: '/api' });
@@ -45,6 +46,8 @@ try {
     '/api/users/me',
     '/api/annex8/my-reports',
     '/api/consolidated/preview?period_type=MONTH&year=2026&index=4',
+    '/api/monthly-report-digest/settings',
+    '/api/monthly-report-digest',
   ]) {
     const response = await fetch(base + path);
     assert.equal(response.status, 401, `${path}: ${await response.text()}`);
@@ -52,6 +55,12 @@ try {
   const review = await fetch(base + '/api/annex8/month/review?period_month=2026-10');
   assert.equal(review.status, 400);
   assert.equal((await review.json()).error, 'report_uuid is required.');
+  const unauthorizedDigest = await fetch(base + '/api/monthly-report-digest', { method: 'POST' });
+  assert.equal(unauthorizedDigest.status, 401);
+  const forcedCron = await fetch(base + '/api/monthly-report-digest?force=1', {
+    headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
+  });
+  assert.equal(forcedCron.status, 400);
   const login = await fetch(base + '/api/login', { method: 'POST',
     headers: { 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal(login.status, 400);
