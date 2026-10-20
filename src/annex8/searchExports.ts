@@ -163,10 +163,14 @@ export function buildSearchPrintHtml(rows: ActivityRow[], context: SearchExportC
 export async function exportSearchResults(
   format: 'docx' | 'xlsx' | 'pdf', rows: ActivityRow[], context: SearchExportContext, printWindow: Window | null,
 ) {
+  const { issuedExportBlob } = await import('../reports/issuedExportClient');
+  const issued = await issuedExportBlob({ kind: 'search', format: format === 'pdf' ? 'html' : format,
+    ids: rows.map(row => row.row_id), keys: rows.map(row => `${row.format_version}/${row.row_id}`), context });
+  if (issued && format !== 'pdf') { save(issued, fileName(format)); return; }
   if (format === 'pdf') {
     if (!printWindow || printWindow.closed) throw new Error('Please allow pop-ups to print or save this report as PDF.');
     printWindow.document.open();
-    printWindow.document.write(buildSearchPrintHtml(rows, context));
+    printWindow.document.write(issued ? await issued.text() : buildSearchPrintHtml(rows, context));
     printWindow.document.close();
     if (printWindow.document.readyState !== 'complete') {
       await new Promise<void>(resolve => printWindow.addEventListener('load', () => resolve(), { once: true }));

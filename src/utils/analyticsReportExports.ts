@@ -210,7 +210,8 @@ function getOfficialDateBlock(data: AnalyticsExportData) {
   });
 }
 
-export async function generateAnalyticsDocxReport(data: AnalyticsExportData) {
+export async function generateAnalyticsDocxReport(data: AnalyticsExportData, serverRender = false): Promise<Blob | void> {
+  if (!serverRender && await (await import('../reports/issuedExportClient')).downloadIssuedExport({ kind: 'analytics', format: 'docx', data }, `nmc-data-analytics-${todaySlug()}.docx`)) return;
   const officialDate = getOfficialDateBlock(data);
   const doc = new Document({
     creator: NMC_EN,
@@ -354,6 +355,7 @@ export async function generateAnalyticsDocxReport(data: AnalyticsExportData) {
   });
 
   const blob = await Packer.toBlob(doc);
+  if (serverRender) return blob;
   downloadBlob(blob, `nmc-data-analytics-${todaySlug()}.docx`);
 }
 
@@ -372,7 +374,8 @@ function pdfAddHeader(pdf: jsPDF, title: string, page: number) {
   pdf.setTextColor(31, 41, 55);
 }
 
-export function generateAnalyticsPdfReport(data: AnalyticsExportData) {
+export async function generateAnalyticsPdfReport(data: AnalyticsExportData, serverRender = false): Promise<ArrayBuffer | void> {
+  if (!serverRender && await (await import('../reports/issuedExportClient')).downloadIssuedExport({ kind: 'analytics', format: 'pdf', data }, `nmc-data-analytics-${todaySlug()}.pdf`)) return;
   const officialDate = getOfficialDateBlock(data);
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
   let y = 86;
@@ -503,6 +506,7 @@ export function generateAnalyticsPdfReport(data: AnalyticsExportData) {
   pdf.setFont('helvetica', 'bold');
   pdf.text('Prepared by / អ្នករៀបចំរបាយការណ៍', 552, y, { align: 'right' });
 
+  if (serverRender) return pdf.output('arraybuffer');
   pdf.save(`nmc-data-analytics-${todaySlug()}.pdf`);
 }
 
@@ -556,9 +560,14 @@ function addRowsSlide(pptx: pptxgen, title: string, rows: AnalyticsTableRow[], n
   if (note) slide.addText(note, { x: 0.75, y: 6.35, w: 11.6, h: 0.35, fontSize: 11, color: '64748B', italic: true });
 }
 
-export async function generateAnalyticsPptxBriefing(data: AnalyticsExportData) {
+export async function generateAnalyticsPptxBriefing(data: AnalyticsExportData, seal?: import('../reports/issuance').ReportSeal): Promise<ArrayBuffer | void> {
+  if (!seal) {
+    const { downloadIssuedExport } = await import('../reports/issuedExportClient');
+    if (await downloadIssuedExport({ kind: 'analytics', format: 'pptx', data }, `nmc-data-analytics-summary-${todaySlug()}.pptx`)) return;
+  }
   const officialDate = getOfficialDateBlock(data);
-  const pptx = new pptxgen();
+  const PptxConstructor = (typeof pptxgen === 'function' ? pptxgen : (pptxgen as any).default) as typeof pptxgen;
+  const pptx = new PptxConstructor();
   pptx.layout = 'LAYOUT_WIDE';
   pptx.author = NMC_EN;
   pptx.company = NMC_EN;
@@ -627,7 +636,15 @@ export async function generateAnalyticsPptxBriefing(data: AnalyticsExportData) {
   pptBullets(slide, RECOMMENDATIONS, 0.65, 1.35, 11.9, 4.9);
   slide.addText(officialDate.fullText, { x: 6.6, y: 6.35, w: 5.75, h: 0.42, fontSize: 8.5, color: BLUE, align: 'right', fit: 'shrink' });
 
+  if (seal) {
+    const verification = pptx.addSlide();
+    verification.addText('NMC Report Issuance', { x: 0.6, y: 0.5, w: 11, h: 0.5, fontSize: 24, color: BLUE });
+    verification.addImage({ data: `data:image/png;base64,${seal.png.toString('base64')}`, x: 0.6, y: 1.4, w: 2, h: 2 });
+    verification.addText([seal.id, seal.issuedAt, seal.details.basis, seal.url].join('\n'),
+      { x: 0.6, y: 3.8, w: 11.5, h: 2, fontSize: 14, breakLine: false, color: TEXT, fit: 'shrink' });
+  }
   const output = await pptx.write({ outputType: 'arraybuffer' });
+  if (seal) return output as ArrayBuffer;
   const blob = new Blob([output as ArrayBuffer], {
     type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
   });

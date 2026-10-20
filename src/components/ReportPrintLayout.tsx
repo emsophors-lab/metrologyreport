@@ -10,6 +10,7 @@ import {
   generateLocalBarcode 
 } from '../exportUtils';
 import { formatKhmerOfficialDateBlock } from '../utils/khmerOfficialDate';
+import { issuedExportBlob, qrExportsEnabled } from '../reports/issuedExportClient';
 
 interface ReportPrintLayoutProps {
   reports: MetrologyReport[];
@@ -24,7 +25,34 @@ interface ReportPrintLayoutProps {
   isPublicVerify?: boolean;
 }
 
-export default function ReportPrintLayout({ 
+export default function ReportPrintLayout(props: ReportPrintLayoutProps) {
+  return qrExportsEnabled() && !props.isPublicVerify ? <IssuedPrintLayout {...props} /> : <LegacyReportPrintLayout {...props} />;
+}
+
+function IssuedPrintLayout({ reports, title, onClose }: ReportPrintLayoutProps) {
+  const [html, setHtml] = React.useState('');
+  const [error, setError] = React.useState('');
+  const frame = React.useRef<HTMLIFrameElement>(null);
+  const selectedIds = JSON.stringify(reports.map(row => row.id));
+  React.useEffect(() => {
+    let active = true;
+    issuedExportBlob({ kind: 'legacy', format: 'html', ids: JSON.parse(selectedIds), title })
+      .then(async blob => { const text = await blob!.text(); if (active) setHtml(text); })
+      .catch(err => { if (active) setError(err.message); });
+    return () => { active = false; };
+  }, [selectedIds, title]);
+  return <div className="fixed inset-0 z-[9999] bg-white flex flex-col">
+    <div className="flex justify-end gap-3 p-3 border-b">
+      <button type="button" disabled={!html} onClick={() => frame.current?.contentWindow?.print()} className="flex gap-2 items-center"><Printer size={18} />Print / PDF</button>
+      <button type="button" onClick={onClose} title="Close"><X size={20} /></button>
+    </div>
+    {error ? <p role="alert" className="p-4 text-red-700">{error}</p> : html
+      ? <iframe ref={frame} title="Issued report print preview" srcDoc={html} className="w-full flex-1 border-0" />
+      : <p role="status" className="p-4">Preparing report...</p>}
+  </div>;
+}
+
+function LegacyReportPrintLayout({
   reports, 
   selectedUser, 
   currentUser, 

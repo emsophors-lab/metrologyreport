@@ -35,6 +35,8 @@ export function consolidatedFileName(period: ReportingPeriod, now = new Date()) 
 }
 
 export async function downloadConsolidatedDocx(data: ConsolidatedData, filename: string): Promise<void> {
+  const { downloadIssuedExport } = await import('../../reports/issuedExportClient');
+  if (await downloadIssuedExport({ kind: 'consolidated', format: 'docx', data, sample: filename.includes('SAMPLE') }, filename)) return;
   const blob = await renderConsolidatedDocx(data);
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');

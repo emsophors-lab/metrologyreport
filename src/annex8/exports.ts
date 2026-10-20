@@ -20,7 +20,12 @@ import { computeSummary } from './summary';
 const catLabel = (code: string) =>
   CATEGORIES[code as keyof typeof CATEGORIES]?.kh || code || '—';
 
-export async function exportAnnex8Excel(state: Annex8State) {
+export async function exportAnnex8Excel(state: Annex8State, serverRender = false): Promise<ArrayBuffer | void> {
+  if (!serverRender) {
+    const { downloadIssuedExport } = await import('../reports/issuedExportClient');
+    if (await downloadIssuedExport({ kind: 'annex8-draft', format: 'xlsx', state },
+      `Annex8_${state.meta.licence_no || 'report'}_${state.meta.period_month}.xlsx`)) return;
+  }
   const XLSX = await import('xlsx');
   const summary = computeSummary(state);
   const m = state.meta;
@@ -102,5 +107,6 @@ export async function exportAnnex8Excel(state: Annex8State) {
     ['សេចក្ដីប្រកាសអះអាង | Declaration', state.declaration ? 'ACCEPTED' : 'NOT ACCEPTED'],
   ]), 'Part 6-7');
 
+  if (serverRender) return XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   XLSX.writeFile(wb, `Annex8_${m.licence_no || 'report'}_${m.period_month}.xlsx`);
 }

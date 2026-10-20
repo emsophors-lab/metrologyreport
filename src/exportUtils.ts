@@ -121,6 +121,8 @@ export function getReportQRCodeUrl(
 
 // Export data directly to Excel (using SheetJS)
 export async function exportReportsToExcel(reports: MetrologyReport[], title: string = 'របាយការណ៍មាត្រាសាស្ត្រ') {
+  const { downloadIssuedExport } = await import('./reports/issuedExportClient');
+  if (await downloadIssuedExport({ kind: 'legacy', format: 'xlsx', ids: reports.map(row => row.id), title }, `${title}.xlsx`)) return;
   const XLSX = await import('xlsx');
   const officialDate = formatKhmerOfficialDateBlock(new Date(), { location: 'រាជធានីភ្នំពេញ' });
   const formattedData = reports.map((r, i) => ({
@@ -172,6 +174,9 @@ export async function exportToWordDoc(
   searchQuery?: string
 ) {
   const now = new Date();
+  const { downloadIssuedExport } = await import('./reports/issuedExportClient');
+  if (await downloadIssuedExport({ kind: 'legacy', format: 'docx', ids: reports.map(row => row.id) },
+    `NMC_Report_${now.toISOString().slice(0, 10)}.docx`)) return;
   
   // Detached report indicators
   const isTotalReport = !selectedUser;

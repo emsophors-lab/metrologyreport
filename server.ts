@@ -5,6 +5,9 @@ import dotenv from 'dotenv';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createMysqlClient } from './src/db/mysqlClient';
 import { accountAuthEmail, createPasswordLoginHandler } from './src/auth/passwordLogin';
+import { createIssuedExport, IssuedExportError } from './src/reports/issuedExports';
+import { issueReportArtifact, lookupIssuance, verificationPage } from './src/reports/issuance';
+import { sealDocx, sealPdf, sealXlsx } from './src/reports/sealArtifacts';
 import { normalizeSubmissionLocation } from './src/annex8/submissionLocation';
 import { notifyAnnex8Submission } from './src/annex8/submissionNotification';
 // Annex 8 rules live in one isomorphic module so the server validates with the
@@ -45,8 +48,10 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
 // Body parsing middleware
+app.use('/api/report-issuance/export', express.json({ limit: '2mb' }));
 app.use(express.json());
 app.use((err: any, req: any, res: any, next: any) => {
+  if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'Report request is too large. Export a smaller selection.' });
   if (err instanceof SyntaxError && 'body' in err) {
     return res.status(400).json({
       success: false,
@@ -703,6 +708,56 @@ app.get('/api/health', (req, res) => {
     supabase: supabaseAdmin ? 'connected' : 'unconfigured_fallback',
     time: new Date().toISOString()
   });
+});
+
+async function sealServerReport(bytes: Buffer, details: import('./src/reports/issuance').IssuanceDetails) {
+  if (process.env.REPORT_QR_ENABLED !== 'true') return bytes;
+  const result = await issueReportArtifact(supabaseAdmin, details, seal => {
+    if (details.format === 'docx') return sealDocx(bytes, seal);
+    if (details.format === 'pdf') return sealPdf(bytes, seal);
+    if (details.format === 'xlsx') return sealXlsx(bytes, seal);
+    throw new Error('Unsupported issued report format.');
+  });
+  return result.bytes;
+}
+
+app.get('/api/report-issuance/check/:token', (req, res) => {
+  const nonce = crypto.randomBytes(18).toString('base64');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'`);
+  res.type('html').send(verificationPage(req.params.token, nonce));
+});
+
+app.get('/api/report-issuance/verify/:token', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  if (!supabaseAdmin) return res.status(503).json({ error: 'Verification unavailable.' });
+  try {
+    const digest = req.query.sha256 === undefined ? undefined : String(req.query.sha256);
+    const result = await lookupIssuance(supabaseAdmin, req.params.token, digest);
+    return res.status(result.status).json(result.body);
+  } catch { return res.status(503).json({ error: 'Verification unavailable.' }); }
+});
+
+app.post('/api/report-issuance/export', async (req, res) => {
+  const access = await requireRegistryAccess(req, res);
+  if (!access) return;
+  res.setHeader('Cache-Control', 'no-store');
+  if (process.env.REPORT_QR_ENABLED !== 'true') return res.status(503).json({ error: 'Report QR issuance is not enabled. Complete the approved database setup first.' });
+  try {
+    const result = await createIssuedExport(supabaseAdmin, String(access.userRow?.id || ''), ownLicenceNumbers(access), req.body);
+    const mime: Record<string, string> = { docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pdf: 'application/pdf', html: 'text/html; charset=utf-8',
+      pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' };
+    res.setHeader('Content-Type', mime[req.body.format]);
+    res.setHeader('X-NMC-Issuance-ID', result.seal.id);
+    res.setHeader('Content-Disposition', `attachment; filename="NMC-${result.seal.id}.${req.body.format}"`);
+    return res.end(result.bytes);
+  } catch (error: any) {
+    return res.status(error instanceof IssuedExportError ? error.status : 503).json({ error: error?.message || 'Report issuance failed.' });
+  }
 });
 
 app.post('/api/login', createPasswordLoginHandler({
@@ -2462,6 +2517,8 @@ const runMonthlyReportDigest: express.RequestHandler = async (req, res) => {
       pdfError = err?.message || String(err);
       console.warn('Monthly digest PDF not produced, sending text only:', pdfError);
     }
+    if (pdf) pdf = await sealServerReport(pdf, { kind: 'monthly-digest', format: 'pdf',
+      title: 'NMC Monthly Telegram Digest', period, issuer: 'monthly-digest-service', basis: 'database', snapshot: digest });
 
     const activeBot = await getActiveBot('report_group');
     if (!activeBot) {
@@ -4350,21 +4407,25 @@ app.get('/api/annex8/export', async (req, res) => {
       year: scoped.year,
     });
 
-    const send = (buf: Buffer, ext: string, mime: string) => {
+    const send = async (buf: Buffer, ext: 'docx' | 'pdf' | 'xlsx', mime: string) => {
+      const resolved = await resolveApiUser(req);
+      const issued = await sealServerReport(buf, { kind: 'annex8-overview', format: ext,
+        title: 'NMC Monthly Report Overview', issuer: String(resolved?.userRow?.id || ''),
+        licence: scoped.scopeLicence || '', period: String(scoped.year || ''), basis: 'database', snapshot: data });
       res.setHeader('Content-Type', mime);
       res.setHeader('Content-Disposition',
         `attachment; filename="${staffReportFileName(data, ext)}"`);
-      return res.end(buf);
+      return res.end(issued);
     };
 
     if (format === 'xlsx') {
-      return send(await buildStaffReportXlsx(data), 'xlsx',
+      return await send(await buildStaffReportXlsx(data), 'xlsx',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     }
 
     const docx = await buildStaffReportDocx(data);
     if (format === 'docx') {
-      return send(docx, 'docx',
+      return await send(docx, 'docx',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     }
 
@@ -4373,7 +4434,7 @@ app.get('/api/annex8/export', async (req, res) => {
     // opinions about how Khmer is shaped.
     try {
       const pdf = await convertDocxToPdf(docx, staffReportFileName(data, 'docx'));
-      return send(pdf, 'pdf', 'application/pdf');
+      return await send(pdf, 'pdf', 'application/pdf');
     } catch (err: any) {
       console.error('Annex 8 summary PDF conversion failed:', err?.message || err);
       return apiError(res, 503,
@@ -5080,6 +5141,12 @@ async function serveOfficialAnnex8(req: any, res: any, ext: 'docx' | 'pdf') {
     }
 
     const fileName = officialFileName(report, ext);
+    const sealDownload = async (bytes: Buffer) => {
+      const resolved = await resolveApiUser(req);
+      return sealServerReport(bytes, { kind: 'annex8', format: ext, title: 'NMC Monthly Report',
+        issuer: String(resolved?.userRow?.id || ''), licence: report.licence_no, period: report.period_month,
+        basis: ['OPEN', 'DRAFT'].includes(report.status) ? 'draft' : 'database', snapshot: report });
+    };
     // Render with the template the report was submitted under, never the latest.
     const version = report.template_version || DEFAULT_TEMPLATE_VERSION;
 
@@ -5092,7 +5159,7 @@ async function serveOfficialAnnex8(req: any, res: any, ext: 'docx' | 'pdf') {
           ? 'application/pdf'
           : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
         res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-        return res.end(buf);
+        return res.end(await sealDownload(buf));
       }
       console.warn(`Stored Annex 8 ${ext} missing from ${OFFICIAL_BUCKET}, re-rendering: ${storedPath}`);
     }
@@ -5132,7 +5199,7 @@ async function serveOfficialAnnex8(req: any, res: any, ext: 'docx' | 'pdf') {
       ? 'application/pdf'
       : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    return res.end(body);
+    return res.end(await sealDownload(body));
   } catch (err: any) {
     console.error(`Annex 8 ${ext} render failed:`, err?.message || err);
     return apiError(res, 500, `Unable to produce the Annex 8 ${ext.toUpperCase()}.`);

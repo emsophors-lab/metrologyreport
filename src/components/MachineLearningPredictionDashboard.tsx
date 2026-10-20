@@ -20,6 +20,7 @@ import { generatePredictions } from '../services/mlPredictionService';
 import { MlPredictionBundle, MlPredictionResult, MlRiskLevel, parseDate } from '../utils/mlRiskFeatures';
 import { formatKhmerOfficialDateBlock } from '../utils/khmerOfficialDate';
 import PredictionExplanationPanel from './PredictionExplanationPanel';
+import { runReportExport } from '../reports/issuedExportClient';
 
 interface MachineLearningPredictionDashboardProps {
   currentUser: MetrologyUser;
@@ -573,7 +574,7 @@ export default function MachineLearningPredictionDashboard({
   const exportPayload = () => buildExportPayload(bundle, licenses, filteredReports);
   const exportPdf = async () => {
     const { generateAnalyticsPdfReport } = await import('../utils/analyticsReportExports');
-    generateAnalyticsPdfReport(exportPayload());
+    await generateAnalyticsPdfReport(exportPayload());
   };
   const exportWord = async () => {
     const { generateAnalyticsDocxReport } = await import('../utils/analyticsReportExports');
@@ -601,7 +602,10 @@ export default function MachineLearningPredictionDashboard({
     }))), 'Risk Analytics');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(bundle.topRiskFactors), 'Top Risk Factors');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(bundle.provinceRiskForecast), 'Province Forecast');
-    XLSX.writeFile(workbook, `nmc-ml-predictions-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    const filename = `nmc-ml-predictions-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const { downloadIssuedWorkbook } = await import('../reports/issuedExportClient');
+    if (await downloadIssuedWorkbook(workbook, 'NMC Prediction Analytics', filename)) return;
+    XLSX.writeFile(workbook, filename);
   };
 
   const handleTrain = () => {
@@ -828,11 +832,11 @@ export default function MachineLearningPredictionDashboard({
               <p className="text-xs font-semibold text-slate-300">Reports & Export</p>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
-              <button type="button" onClick={exportWord} className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-xs font-black hover:bg-white/15"><FileText className="h-5 w-5 text-blue-300" /> Word Report .docx</button>
-              <button type="button" onClick={exportPdf} className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-xs font-black hover:bg-white/15"><Download className="h-5 w-5 text-red-300" /> PDF Report .pdf</button>
-              <button type="button" onClick={exportExcel} className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-xs font-black hover:bg-white/15"><FileSpreadsheet className="h-5 w-5 text-green-300" /> Excel Report .xlsx</button>
-              <button type="button" onClick={exportPowerPoint} className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-xs font-black hover:bg-white/15"><Presentation className="h-5 w-5 text-orange-300" /> PowerPoint .pptx</button>
-              <button type="button" onClick={exportWord} className="inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-3 text-xs font-black hover:bg-white/10"><Database className="h-5 w-5" /> Generate Full Analytics Report</button>
+              <button type="button" onClick={() => void runReportExport(exportWord)} className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-xs font-black hover:bg-white/15"><FileText className="h-5 w-5 text-blue-300" /> Word Report .docx</button>
+              <button type="button" onClick={() => void runReportExport(exportPdf)} className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-xs font-black hover:bg-white/15"><Download className="h-5 w-5 text-red-300" /> PDF Report .pdf</button>
+              <button type="button" onClick={() => void runReportExport(exportExcel)} className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-xs font-black hover:bg-white/15"><FileSpreadsheet className="h-5 w-5 text-green-300" /> Excel Report .xlsx</button>
+              <button type="button" onClick={() => void runReportExport(exportPowerPoint)} className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-xs font-black hover:bg-white/15"><Presentation className="h-5 w-5 text-orange-300" /> PowerPoint .pptx</button>
+              <button type="button" onClick={() => void runReportExport(exportWord)} className="inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-3 text-xs font-black hover:bg-white/10"><Database className="h-5 w-5" /> Generate Full Analytics Report</button>
             </div>
           </div>
         </section>

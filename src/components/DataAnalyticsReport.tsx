@@ -29,6 +29,7 @@ import {
 } from '../supabaseSync';
 import { formatKhmerOfficialDateBlock } from '../utils/khmerOfficialDate';
 import { generatePredictions } from '../services/mlPredictionService';
+import { runReportExport } from '../reports/issuedExportClient';
 
 interface DataAnalyticsReportProps {
   currentUser: MetrologyUser;
@@ -466,7 +467,7 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
 
   const exportPdf = async () => {
     const { generateAnalyticsPdfReport } = await import('../utils/analyticsReportExports');
-    generateAnalyticsPdfReport(exportPayload());
+    await generateAnalyticsPdfReport(exportPayload());
   };
 
   const exportExcel = async () => {
@@ -509,7 +510,10 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.mlSummary.expiryForecast), 'ML Expiry Forecast');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(analytics.filteredReports), 'Reports');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(analytics.filteredLicenses), 'Licenses');
-    XLSX.writeFile(workbook, `nmc-data-analytics-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    const filename = `nmc-data-analytics-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const { downloadIssuedWorkbook } = await import('../reports/issuedExportClient');
+    if (await downloadIssuedWorkbook(workbook, 'NMC Data Analytics', filename)) return;
+    XLSX.writeFile(workbook, filename);
   };
 
   const exportWord = async () => {
@@ -560,10 +564,10 @@ export default function DataAnalyticsReport({ currentUser, reports, users, initi
 
         <div className="analytics-actions">
           <button type="button" onClick={handleGenerateAnalytics} disabled={loading}><RefreshCw />{loading ? 'Generating...' : 'Generate Analytics'}</button>
-          <button type="button" onClick={exportPdf}><Download />Export PDF</button>
-          <button type="button" onClick={exportWord}><FileText />Export Word</button>
-          <button type="button" onClick={exportExcel}><FileSpreadsheet />Export Excel</button>
-          <button type="button" onClick={exportPowerPoint}><Presentation />Export PowerPoint Summary</button>
+          <button type="button" onClick={() => void runReportExport(exportPdf)}><Download />Export PDF</button>
+          <button type="button" onClick={() => void runReportExport(exportWord)}><FileText />Export Word</button>
+          <button type="button" onClick={() => void runReportExport(exportExcel)}><FileSpreadsheet />Export Excel</button>
+          <button type="button" onClick={() => void runReportExport(exportPowerPoint)}><Presentation />Export PowerPoint Summary</button>
         </div>
 
         {loading && <div className="analytics-note">Loading analytics data...</div>}

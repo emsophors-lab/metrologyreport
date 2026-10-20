@@ -155,7 +155,13 @@ export default function Annex8ReportViewer({ reportId, onClose, onReviewed, toas
               </button>
             )}
             <button
-              onClick={() => window.print()}
+              onClick={async () => {
+                try {
+                  const { printIssuedReport } = await import('../reports/issuedExportClient');
+                  await printIssuedReport({ kind: 'annex8', id: report?.id });
+                } catch (err: any) { toastMsg(err.message || 'Print failed', 'error'); }
+              }}
+              disabled={!report}
               className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-[11px] font-bold hover:bg-white/20"
             >
               <Printer className="h-3.5 w-3.5" /> បោះពុម្ព

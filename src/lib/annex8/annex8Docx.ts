@@ -372,6 +372,9 @@ export async function downloadAnnex8Docx(
   extra: Annex8Extra = {},
   options: { version?: string; fileName?: string } = {},
 ): Promise<string> {
+  const { downloadIssuedExport } = await import('../../reports/issuedExportClient');
+  const issuedName = options.fileName || annex8FileName(payload, extra);
+  if (await downloadIssuedExport({ kind: 'annex8-draft', format: 'docx', state: payload, extra }, issuedName)) return issuedName;
   const blob = await renderAnnex8Docx(payload, extra, { version: options.version });
   const fileName = options.fileName || annex8FileName(payload, extra);
 

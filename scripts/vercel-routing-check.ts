@@ -41,6 +41,14 @@ try {
   const health = await fetch(base + '/api/health');
   assert.equal(health.status, 200);
   assert.equal((await health.json()).status, 'ok');
+  const qrPage = await fetch(base + '/api/report-issuance/check/' + 'a'.repeat(43));
+  assert.equal(qrPage.status, 200, 'Direct scanned QR URLs must reach the API on Vercel');
+  assert.match(qrPage.headers.get('content-security-policy') || '', /frame-ancestors 'none'/);
+  assert.equal(qrPage.headers.get('cache-control'), 'no-store');
+  assert.ok((await qrPage.text()).includes('Check Downloaded File'));
+  assert.equal((await fetch(base + '/api/report-issuance/verify/invalid')).status, 400);
+  assert.equal((await fetch(base + '/api/report-issuance/export', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'legacy', format: 'docx', ids: [] }) })).status, 401);
   for (const path of [
     '/api/annex8/overview?year=2026',
     '/api/users/me',
