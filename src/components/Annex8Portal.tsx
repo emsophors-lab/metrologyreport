@@ -29,6 +29,7 @@ import { Suspense, lazy, useState } from 'react';
 import { BarChart3, CalendarRange, FileText, History, Loader2, ShieldCheck } from 'lucide-react';
 
 import { EnterpriseLicense, MetrologyUser } from '../types';
+import './Annex8Portal.css';
 
 const Annex8MonthWorkspace = lazy(() => import('./Annex8MonthWorkspace'));
 const Annex8ReportSearch = lazy(() => import('./Annex8ReportSearch'));
@@ -132,17 +133,17 @@ export default function Annex8Portal({ currentUser, licence, toastMsg, language 
   return (
     <div className="space-y-5 animate-fade-in duration-300">
       {/* Page identity: this is the official annex, not the legacy report. */}
-      <div className="rounded-xl bg-[#0B2A66] text-white px-5 py-4 shadow-sm">
+      <div className="nmc-monthly-report-banner rounded-xl bg-[#0B2A66] text-white px-5 py-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <h3 className="font-extrabold text-lg">របាយការណ៍ប្រចាំខែ ឧបសម្ព័ន្ធទី៨</h3>
-          <span className="px-2 py-0.5 rounded-full bg-[#C9A227] text-[#0B2A66] text-[10px] font-extrabold tracking-wide">
+          <h3 className="nmc-monthly-report-banner__title">របាយការណ៍ប្រចាំខែ</h3>
+          <span className="border border-white/40 px-2 py-0.5 rounded-full bg-white/10 text-white text-[10px] font-extrabold">
             A8-2026.2
           </span>
         </div>
-        <p className="text-[11px] text-white/70 mt-1">
+        <p className="text-[11px] text-white mt-1">
           Monthly Report on Manufacture, Installation and Repair of Measuring Instruments
         </p>
-        <p className="text-[11px] text-white/80 mt-2 leading-relaxed">
+        <p className="text-[11px] text-white mt-2 leading-relaxed">
           សហគ្រាសដែលទទួលបានអាជ្ញាបណ្ណ ត្រូវដាក់បញ្ជូនរបាយការណ៍នេះមកមជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ
           យ៉ាងយូរបំផុតត្រឹមថ្ងៃទី៧ នៃខែបន្ទាប់ (មាត្រា២១)។
         </p>
