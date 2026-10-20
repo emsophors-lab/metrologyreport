@@ -6,6 +6,7 @@ import { PDFDocument } from 'pdf-lib';
 import { Document, Paragraph, Packer } from 'docx';
 import { Jimp } from 'jimp';
 import jsQR from 'jsqr';
+import { DOMParser } from '@xmldom/xmldom';
 import { issueReportArtifact, lookupIssuance, sha256, verificationPage, verificationOrigin } from '../src/reports/issuance';
 import { sealDocx, sealPdf, sealXlsx } from '../src/reports/sealArtifacts';
 import { createIssuedExport, IssuedExportError } from '../src/reports/issuedExports';
@@ -56,6 +57,12 @@ async function decode(png: Buffer) {
   assert.equal(qr?.data, artifact.seal.url, 'Embedded QR decodes to the issuance URL');
 }
 const docx = new PizZip(artifact.bytes);
+const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const WP = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing';
+const documentXml = (bytes: Buffer) => new DOMParser().parseFromString(new PizZip(bytes).file('word/document.xml')!.asText(), 'application/xml');
+const paragraphs = (bytes: Buffer): any[] => Array.from(documentXml(bytes).getElementsByTagNameNS(W, 'body')[0].childNodes)
+  .filter((node: any) => node.localName === 'p');
+assert.ok(paragraphs(artifact.bytes)[0].getElementsByTagNameNS(WP, 'docPr')[0].getAttribute('descr')!.includes(artifact.seal.id), 'Generic Word QR is first');
 assert.ok(docx.file('word/document.xml')!.asText().includes('Original report content'));
 assert.ok(docx.file('word/document.xml')!.asText().includes(artifact.seal.id));
 await decode(docx.file(`word/media/mlrs-qr-${artifact.seal.id}.png`)!.asNodeBuffer());
@@ -68,12 +75,19 @@ assert.equal(checked.getWorksheet('Original')!.getCell('A1').value, 'Original va
 assert.equal(checked.getWorksheet('Original')!.getCell('A1').font.bold, true);
 assert.equal((checked.getWorksheet('Original')!.getCell('B1').value as any).formula, '1+2');
 assert.ok(checked.getWorksheet('NMC Verification'));
+assert.equal(checked.worksheets[0].name, 'NMC Verification', 'Excel opens with the top QR sheet');
+assert.equal(checked.getWorksheet('NMC Verification')!.getImages()[0].range.tl.nativeRow, 0);
 const xzip = new PizZip(xlsx);
 const png = Object.keys(xzip.files).find(name => name.startsWith('xl/media/') && name.endsWith('.png'))!;
 await decode(xzip.file(png)!.asNodeBuffer());
-const pdf = await PDFDocument.create(); pdf.addPage().drawText('Original PDF content');
+const pdf = await PDFDocument.create();
+const pdfPage = pdf.addPage([595, 842]);
+pdfPage.drawText('Original report title', { x: 40, y: 790, size: 18 });
+pdfPage.drawText('Original PDF content', { x: 40, y: 640, size: 12 });
+pdfPage.drawText('Original report footer', { x: 40, y: 30, size: 10 });
 const sealedPdf = await sealPdf(Buffer.from(await pdf.save()), artifact.seal);
-assert.equal((await PDFDocument.load(sealedPdf)).getPageCount(), 2);
+assert.equal((await PDFDocument.load(sealedPdf)).getPageCount(), 1, 'PDF QR does not add an appendix page');
+assert.deepEqual((await PDFDocument.load(sealedPdf)).getPage(0).getSize(), pdf.getPage(0).getSize());
 const sample = JSON.parse(fs.readFileSync('src/lib/consolidated/__fixtures__/consolidated-sample-data.json', 'utf8'));
 const master = fs.readFileSync('public/templates/Consolidated_template_v1.docx');
 const masterHash = sha256(master);
@@ -83,8 +97,15 @@ const annexDraft = await createIssuedExport(db, 'local-test', [annexSample.repor
 });
 assert.equal(annexDraft.seal.details.basis, 'draft');
 assert.ok(new PizZip(annexDraft.bytes).file('word/document.xml')!.asText().includes('WB-26-0012'), 'Draft export preserves mapped instrument rows');
+assert.ok(paragraphs(annexDraft.bytes)[3].getElementsByTagNameNS(WP, 'docPr')[0].getAttribute('descr')!.includes(annexDraft.seal.id), 'Annex QR follows its three motto lines');
 const consolidated = await createIssuedExport(db, 'local-test', null, { kind: 'consolidated', format: 'docx', data: sample, sample: true });
 assert.equal(consolidated.seal.details.basis, 'draft');
+const letterhead = paragraphs(consolidated.bytes)[0];
+const drawings = Array.from(letterhead.getElementsByTagNameNS(WP, 'docPr')) as any[];
+const qrAnchor = drawings.find(node => node.getAttribute('descr')?.includes(consolidated.seal.id))!.parentNode;
+assert.equal(qrAnchor.localName, 'anchor');
+assert.equal(qrAnchor.getElementsByTagNameNS(WP, 'positionH')[0].getAttribute('relativeFrom'), 'column');
+assert.ok(Number(qrAnchor.getElementsByTagNameNS(WP, 'positionV')[0].textContent) > 700000, 'Consolidated QR sits below motto, in the letterhead');
 assert.equal(sha256(fs.readFileSync('public/templates/Consolidated_template_v1.docx')), masterHash);
 await assert.rejects(createIssuedExport(db, 'company', ['OWN'], { kind: 'consolidated', format: 'docx', data: sample }),
   (error: any) => error instanceof IssuedExportError && error.status === 403);
@@ -102,13 +123,17 @@ for (const format of ['docx', 'pdf', 'pptx']) {
   assert.equal((await lookupIssuance(db, output.seal.url.split('/').pop()!, sha256(output.bytes))).body.file_match, true);
   if (format === 'pptx') {
     const slides = new PizZip(output.bytes);
-    assert.ok(Object.keys(slides.files).filter(name => /^ppt\/slides\/slide\d+\.xml$/.test(name))
-      .some(name => slides.file(name)!.asText().includes(output.seal.id)));
+    assert.ok(slides.file('ppt/slides/slide1.xml')!.asText().includes(output.seal.id), 'Presentation QR is on the cover slide');
   }
 }
+const htmlReport = await createIssuedExport(db, 'local-test', null, { kind: 'legacy', format: 'html', ids: [] });
+const html = htmlReport.bytes.toString();
+assert.ok(html.indexOf('aria-label="Report verification"') < html.indexOf('<h1>'), 'Print view QR precedes report content');
 fs.mkdirSync('test-output/report-issuance', { recursive: true });
 fs.writeFileSync('test-output/report-issuance/test.docx', artifact.bytes);
 fs.writeFileSync('test-output/report-issuance/test.xlsx', xlsx);
 fs.writeFileSync('test-output/report-issuance/test.pdf', sealedPdf);
 fs.writeFileSync('test-output/report-issuance/consolidated.docx', consolidated.bytes);
-console.log('PASS: issuance hashes, QR decoding in DOCX/XLSX, PDF appendix, private metadata, revocation, tampering, failed writes, staff scope, template unchanged.');
+fs.writeFileSync('test-output/report-issuance/annex8.docx', annexDraft.bytes);
+fs.writeFileSync('test-output/report-issuance/print-view.html', htmlReport.bytes);
+console.log('PASS: top-of-report QR in Word/PDF/Excel/HTML/PowerPoint, hashes, QR decoding, private metadata, revocation, tampering, failed writes, staff scope, master template unchanged.');

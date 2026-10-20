@@ -2,8 +2,8 @@
 
 ## Rollout
 
-This feature is implemented behind two flags, off by default. Production has
-not been migrated or enabled. Existing downloads continue working while off.
+This feature uses two rollout flags. They default to off in new installations;
+production was activated on 20 October 2026 after owner approval.
 
 1. Back up the database. Obtain approval before production changes.
 2. Supabase uses PostgreSQL: apply `supabase_report_issuances.sql` in its SQL
@@ -33,9 +33,15 @@ files. Disabling issuance does not disable verification of existing records.
 | Data/predictive analytics | Word, PDF, Excel, PowerPoint | Staff-prepared analytical snapshot |
 | Monthly Telegram digest | PDF | Database aggregation; text fallback is not a file |
 
-The approved master templates are unchanged. Verification is appended to filled
-outputs. Excel has a verification worksheet; presentations have a verification
-slide. Import templates, backups and account/license screens are not report
+The approved master templates are unchanged. Generated Word outputs put the QR
+at the upper right, using the consolidated letterhead's reserved motto column
+or a right-aligned flow block for other layouts. PDFs reserve a top band on the
+first page and proportionally fit the original first-page content beneath it
+without adding an appendix page; later pages are unchanged. Print views put
+the QR before the report body. Excel opens on a verification sheet with its QR
+at the top right, leaving original data cells and formulas in place.
+Presentations put the QR at the top right of their cover slide.
+Import templates, backups and account/license screens are not report
 exports. License certificates retain their separate license-verification flow.
 
 Already-downloaded files are not retroactively changed. Regenerate them after

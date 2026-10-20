@@ -584,6 +584,11 @@ export async function generateAnalyticsPptxBriefing(data: AnalyticsExportData, s
   slide.addText(REPORT_TITLE_EN, { x: 0.7, y: 1.4, w: 11.8, h: 0.55, fontSize: 30, bold: true, color: 'FFFFFF', align: 'center' });
   slide.addText(REPORT_TITLE_KH, { x: 0.7, y: 2.08, w: 11.8, h: 0.4, fontSize: 18, bold: true, color: 'F8E7B3', align: 'center', fit: 'shrink' });
   slide.addText(`${NMC_EN}\n${MINISTRY_EN}\n${officialDate.fullText}`, { x: 1.25, y: 3.05, w: 10.8, h: 1.55, fontSize: 15, color: 'FFFFFF', align: 'center', breakLine: false, fit: 'shrink' });
+  if (seal) {
+    slide.addImage({ data: `data:image/png;base64,${seal.png.toString('base64')}`, x: 11.6, y: 0.15, w: 1.1, h: 1.1,
+      altText: `NMC report ${seal.id}`, hyperlink: { url: seal.url } });
+    slide.addText('Verify report', { x: 11.6, y: 1.26, w: 1.1, h: 0.12, fontSize: 7, color: 'FFFFFF', align: 'center' });
+  }
 
   slide = pptx.addSlide();
   addPptHeader(slide, 'Executive Summary');
@@ -636,13 +641,6 @@ export async function generateAnalyticsPptxBriefing(data: AnalyticsExportData, s
   pptBullets(slide, RECOMMENDATIONS, 0.65, 1.35, 11.9, 4.9);
   slide.addText(officialDate.fullText, { x: 6.6, y: 6.35, w: 5.75, h: 0.42, fontSize: 8.5, color: BLUE, align: 'right', fit: 'shrink' });
 
-  if (seal) {
-    const verification = pptx.addSlide();
-    verification.addText('NMC Report Issuance', { x: 0.6, y: 0.5, w: 11, h: 0.5, fontSize: 24, color: BLUE });
-    verification.addImage({ data: `data:image/png;base64,${seal.png.toString('base64')}`, x: 0.6, y: 1.4, w: 2, h: 2 });
-    verification.addText([seal.id, seal.issuedAt, seal.details.basis, seal.url].join('\n'),
-      { x: 0.6, y: 3.8, w: 11.5, h: 2, fontSize: 14, breakLine: false, color: TEXT, fit: 'shrink' });
-  }
   const output = await pptx.write({ outputType: 'arraybuffer' });
   if (seal) return output as ArrayBuffer;
   const blob = new Blob([output as ArrayBuffer], {

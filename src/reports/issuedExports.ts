@@ -156,6 +156,6 @@ export async function createIssuedExport(db: any, issuer: string, scope: string[
     if (request.format === 'docx') return sealDocx(bytes, seal);
     if (request.format === 'pdf') return sealPdf(bytes, seal);
     if (request.format === 'xlsx') return sealXlsx(bytes, seal);
-    return Buffer.from(bytes.toString('utf8').replace('</body>', `${sealHtml(seal)}</body>`));
+    return Buffer.from(bytes.toString('utf8').replace('<body>', `<body>${sealHtml(seal)}`));
   });
 }

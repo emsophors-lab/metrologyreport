@@ -63,10 +63,10 @@ export async function lookupIssuance(db: any, token: string, digest?: string) {
 }
 
 export function sealHtml(seal: ReportSeal) {
-  return `<section style="break-inside:avoid;margin-top:24px;border-top:1px solid #999;padding-top:12px;color:#111;font:12px Arial">
-    <img alt="Report verification QR" width="128" height="128" src="data:image/png;base64,${seal.png.toString('base64')}">
-    <p>Report issuance ${escapeHtml(seal.id)}</p><p>${escapeHtml(seal.issuedAt)} · ${escapeHtml(seal.details.basis)}</p>
-    <p style="overflow-wrap:anywhere">${escapeHtml(seal.url)}</p></section>`;
+  return `<section aria-label="Report verification" style="break-inside:avoid;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin:0 0 20px;border-bottom:1px solid #999;padding:0 0 12px;color:#111;font:12px Arial">
+    <div style="min-width:0;overflow-wrap:anywhere"><p>NMC Report Verification</p><p>${escapeHtml(seal.id)}</p>
+    <p>${escapeHtml(seal.issuedAt)} · ${escapeHtml(seal.details.basis)}</p><a href="${escapeHtml(seal.url)}" rel="noreferrer">Verify report</a></div>
+    <img alt="Report verification QR" width="112" height="112" style="flex:none" src="data:image/png;base64,${seal.png.toString('base64')}"></section>`;
 }
 
 export function verificationPage(token: string, nonce: string) {
