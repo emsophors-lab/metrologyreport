@@ -24,6 +24,7 @@
     "consolidated:test": "tsx scripts/consolidated-test.ts && tsx scripts/consolidated-automatic-test.ts && tsx scripts/consolidated-db-test.ts",
     "consolidated:mysql-test": "tsx scripts/consolidated-db-test.ts --mysql",
     "consolidated:api-check": "tsx scripts/consolidated-api-check.ts",
+    "consolidated:officer-check": "tsx scripts/consolidated-officer-drafts-check.ts",
     "annex8:review": "node scripts/annex8-staff-review-check.mjs",
     "annex8:check:sql": "node scripts/annex8-check-supabase-sql.mjs"
   },

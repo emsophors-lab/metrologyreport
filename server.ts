@@ -14,6 +14,7 @@ import { computeSummary, deadlineFor, isOnTime } from './src/annex8/summary';
 import { reportingPeriod } from './src/lib/consolidated/periods';
 import type { PeriodType } from './src/lib/consolidated/periods';
 import { formatConsolidatedAggregate } from './src/lib/consolidated/aggregateResult';
+import { actionWindow, draftRecordedActions } from './src/lib/consolidated/officerDrafts';
 // NMC's own summary over the submissions. Deliberately separate from the
 // official annex: this one has a layout built in code, that one never does.
 import {
@@ -4277,6 +4278,20 @@ app.get('/api/consolidated/preview', async (req, res) => {
       throw error;
     }
     const result = formatConsolidatedAggregate(data, period, DB_DRIVER === 'mysql' ? 'mysql' : 'postgresql');
+    // Optional evidence must never turn unavailable audit history into invented actions.
+    try {
+      const window = actionWindow(period, result.data_as_of);
+      const audits = await selectAllRows('annex8_report_audit_log', query => query
+        .eq('entity', 'report').in('actor_role', ['admin', 'superadmin']).in('action', ['accept', 'return'])
+        .gte('created_at', window.start).lt('created_at', window.end).lte('created_at', window.cutoff)
+        .order('created_at', { ascending: true }).order('id', { ascending: true }));
+      if (audits.length >= 50000) throw new Error('Audit evidence exceeds the complete-read limit.');
+      result.data.actions = draftRecordedActions(audits, period, result.data_as_of, result.data.licensees);
+      if (!result.data.actions.length) result.warnings.push('៦.១៖ មិនមានកំណត់ត្រាសកម្មភាពទទួលយក ឬបញ្ជូនត្រឡប់របស់មន្ត្រីក្នុងរយៈពេលនេះទេ។ អាចបំពេញបន្ថែមតាមភស្តុតាងពិត។');
+    } catch {
+      result.data.actions = [];
+      result.warnings.push('៦.១៖ មិនអាចផ្ទៀងផ្ទាត់ប្រវត្តិសកម្មភាពមន្ត្រីបានទេ។ មិនបានបង្កើតសកម្មភាពសន្មតឡើយ។');
+    }
     return apiSuccess(res, result);
   } catch (err: any) {
     console.error('Consolidated preview failed:', err?.message || err);

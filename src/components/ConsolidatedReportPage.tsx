@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Download, Eye, FileCheck2, FileText, Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import { Download, Eye, FileCheck2, FileText, Loader2, Plus, Save, Trash2, WandSparkles } from 'lucide-react';
 import type { MetrologyUser } from '../types';
 import { buildConsolidatedData, prepareConsolidatedData } from '../lib/consolidated/buildConsolidatedData';
 import type { ConsolidatedPreview } from '../lib/consolidated/buildConsolidatedData';
@@ -28,7 +28,7 @@ export default function ConsolidatedReportPage({ currentUser }: { currentUser: M
   const [type, setType] = useState<PeriodType>('MONTH');
   const [year, setYear] = useState(Number(initialDate.find(part => part.type === 'year')!.value));
   const [index, setIndex] = useState(Number(initialDate.find(part => part.type === 'month')!.value));
-  const [officer, setOfficer] = useState<OfficerInputs>({ actions: [], proposals: [] });
+  const [officer, setOfficer] = useState<OfficerInputs>({});
   const [preview, setPreview] = useState<ConsolidatedPreview | null>(null);
   const [busy, setBusy] = useState<'load' | 'word' | 'sample' | null>(null);
   const working = useRef(false);
@@ -37,20 +37,27 @@ export default function ConsolidatedReportPage({ currentUser }: { currentUser: M
 
   const updatePeriod = (fn: () => void) => {
     fn(); setPreview(null); setError('');
-    setOfficer(previous => ({ ...previous, challenges: undefined, conclusion: undefined }));
+    setOfficer(previous => ({ ...previous, challenges: undefined, conclusion: undefined, actions: undefined, proposals: undefined }));
   };
   const changeOfficer = (update: (previous: OfficerInputs) => OfficerInputs) => {
     setOfficer(update); setPreview(null);
   };
   const setField = (key: keyof OfficerInputs, value: string) => changeOfficer(previous => ({ ...previous, [key]: value }));
-  const run = async (action: 'load' | 'word' | 'sample') => {
+  const run = async (action: 'load' | 'word' | 'sample', regenerate = false) => {
     if (working.current) return;
+    if (regenerate && (officer.actions || officer.proposals) && !window.confirm('តើបង្កើតព្រាង ៦.១ និង ៦.២ ឡើងវិញឬ? ការកែសម្រួលក្នុងផ្នែកទាំងពីរនឹងត្រូវជំនួស។')) return;
     working.current = true;
     setBusy(action); setError('');
     try {
       const now = new Date();
-      const inputs = { ...officer, challenges: undefined, conclusion: undefined };
-      if (action === 'load') setPreview(await buildConsolidatedData(type, year, index, inputs, now));
+      const inputs = { ...officer, challenges: undefined, conclusion: undefined,
+        ...(regenerate ? { actions: undefined, proposals: undefined } : {}),
+      };
+      const showDraft = (fresh: ConsolidatedPreview) => {
+        setPreview(fresh);
+        setOfficer(previous => ({ ...previous, actions: fresh.data.actions, proposals: fresh.data.proposals }));
+      };
+      if (action === 'load') showDraft(await buildConsolidatedData(type, year, index, inputs, now));
       else if (action === 'sample') {
         const sample = (await import('../lib/consolidated/__fixtures__/consolidated-sample-data.json')).default;
         const period = reportingPeriod('SEMESTER', 2026, 1);
@@ -60,7 +67,7 @@ export default function ConsolidatedReportPage({ currentUser }: { currentUser: M
       } else {
         // Export the reviewed snapshot; edits invalidate it before export.
         const fresh = preview || await buildConsolidatedData(type, year, index, inputs, now);
-        setPreview(fresh);
+        showDraft(fresh);
         await downloadConsolidatedDocx(fresh.data, consolidatedFileName(fresh.period, now));
       }
     } catch (err: any) {
@@ -117,14 +124,22 @@ export default function ConsolidatedReportPage({ currentUser }: { currentUser: M
         {OFFICER_FIELDS.map(([key, label]) => <label key={key} className="space-y-1 text-xs font-bold">{label}
           <input className={INPUT} disabled={!!busy} value={String(officer[key] || '')} onChange={e => setField(key, e.target.value)} /></label>)}
       </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-xs font-bold text-amber-800">៦.១ និង ៦.២៖ ព្រាងសម្រាប់មន្ត្រីពិនិត្យ</span>
+        <button type="button" disabled={!!busy} onClick={() => void run('load', true)} className={`${BUTTON} border border-slate-300 bg-white`}>
+          <WandSparkles size={16} />បង្កើតព្រាង ៦.១ និង ៦.២
+        </button>
+      </div>
       {(['actions', 'proposals'] as const).map(key => <div key={key} className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-xs font-bold">{key === 'actions' ? '៦.១ សកម្មភាពបានអនុវត្ត' : '៦.២ សំណើ'}</h4>
           <button type="button" title="បន្ថែមជួរ" disabled={!!busy} className={`${BUTTON} bg-slate-100`} onClick={() => changeOfficer(previous => ({
             ...previous, [key]: [...(previous[key] || []), Object.fromEntries([['no', (previous[key]?.length || 0) + 1], ...ROW_FIELDS[key].map(([field]) => [field, ''])])],
           }))}><Plus size={15} />បន្ថែម</button></div>
+        {key === 'actions' && preview?.warnings.filter(warning => warning.startsWith('៦.១៖')).map(warning =>
+          <p key={warning} role="status" className="text-xs text-amber-800">{warning}</p>)}
         {(officer[key] || []).map((row, i) => <div key={i} className="flex items-start gap-2">
-          <div className="grid flex-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">{ROW_FIELDS[key].map(([field, label]) => <label key={field} className="space-y-1 text-xs">{label}
-            <input className={INPUT} disabled={!!busy} value={String((row as any)[field] || '')} onChange={e => changeOfficer(previous => ({
+          <div className={`grid min-w-0 flex-1 gap-2 sm:grid-cols-2 ${key === 'proposals' ? 'lg:grid-cols-[2fr_1fr]' : 'lg:grid-cols-4'}`}>{ROW_FIELDS[key].map(([field, label]) => <label key={field} className="min-w-0 space-y-1 text-xs">{label}
+            <textarea className={INPUT} rows={field === 'date' ? 1 : key === 'proposals' ? 4 : 3} disabled={!!busy} value={String((row as any)[field] || '')} onChange={e => changeOfficer(previous => ({
               ...previous, [key]: previous[key]?.map((old, n) => n === i ? { ...old, [field]: e.target.value } : old),
             }))} /></label>)}</div>
           <button type="button" title="លុបជួរ" aria-label="លុបជួរ" disabled={!!busy} className="mt-6 p-2 text-red-700" onClick={() => changeOfficer(previous => ({

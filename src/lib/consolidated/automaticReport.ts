@@ -13,6 +13,7 @@ export interface ConsolidatedAnalysis {
   challenges: Array<{ text: string }>;
   conclusion: string;
   findings: AnalysisFinding[];
+  proposals: ConsolidatedData['proposals'];
 }
 
 /** Formatted aggregate values only; absent/unknown values never become zero. */
@@ -107,7 +108,27 @@ export function analyzeConsolidatedData(data: ConsolidatedData): ConsolidatedAna
   if (priorities.length) conclusion.push('គួរផ្ដល់អាទិភាពលើការតាមដានចំណុចដែលបានរកឃើញក្នុងផ្នែកបញ្ហាប្រឈម។');
   if (unknownFields.length || inconsistent.length || submissionMismatch) conclusion.push('ត្រូវបំពេញ និងផ្ទៀងផ្ទាត់ទិន្នន័យដែលមិនពេញលេញ ឬមិនត្រូវគ្នា មុនការបញ្ជាក់លទ្ធផលចុងក្រោយ។');
   if (!conclusion.length) conclusion.push('មិនទាន់មានទិន្នន័យគ្រប់គ្រាន់សម្រាប់បង្កើតសេចក្ដីសន្និដ្ឋាន។');
-  return { findings, challenges: findings.map(({ text }) => ({ text })), conclusion: conclusion.join('\n') };
+  const recommendations: Record<string, string> = {
+    'missing-reports': 'ស្នើឱ្យតាមដានសហគ្រាសដែលមិនទាន់ដាក់របាយការណ៍គ្រប់ខែ និងផ្ទៀងផ្ទាត់ការទទួលរបាយការណ៍។',
+    'late-reports': 'ស្នើឱ្យរំលឹកសហគ្រាសដែលដាក់របាយការណ៍យឺត អំពីកាលកំណត់ដាក់របាយការណ៍។',
+    'failed-verification': 'ស្នើឱ្យតាមដានការកែតម្រូវឧបករណ៍ដែលមានលទ្ធផលមិនជាប់ មុនបញ្ជាក់លទ្ធផលបន្ទាប់។',
+    'pending-at-period-end': 'ស្នើឱ្យរៀបចំផែនការដោះស្រាយការងារផ្ទៀងផ្ទាត់ដែលកំពុងរង់ចាំ។',
+    'pending-over-30-days': 'ស្នើឱ្យផ្ដល់អាទិភាពលើការងាររង់ចាំលើស ៣០ ថ្ងៃ និងពិនិត្យមូលហេតុយឺតយ៉ាវ។',
+    'expired-standards': 'ស្នើឱ្យពិនិត្យសុពលភាពបទដ្ឋានខ្នាតដែលផុតកំណត់ និងតាមដានការព្យាសកម្ម។',
+    'standards-due-soon': 'ស្នើឱ្យរៀបចំកាលវិភាគព្យាសកម្មបទដ្ឋានខ្នាតដែលជិតដល់កំណត់។',
+    'licences-expiring': 'ស្នើឱ្យជូនដំណឹង និងតាមដានការបន្តសុពលភាពអាជ្ញាបណ្ណដែលជិតផុតកំណត់។',
+    'scope-review': 'ស្នើឱ្យផ្ទៀងផ្ទាត់កំណត់ត្រាដែលមានសញ្ញាត្រូវពិនិត្យវិសាលភាពអាជ្ញាបណ្ណ មុនសន្និដ្ឋាន។',
+    'submission-rate-decreased': 'ស្នើឱ្យពិនិត្យមូលហេតុនៃការថយចុះអត្រាដាក់របាយការណ៍ និងរៀបចំការតាមដាន។',
+    'annex-totals-mismatch': 'ស្នើឱ្យផ្ទៀងផ្ទាត់ចំនួនសរុបតាមសកម្មភាពជាមួយបញ្ជីសហគ្រាស មុនបញ្ជាក់របាយការណ៍។',
+    'submission-totals-mismatch': 'ស្នើឱ្យផ្ទៀងផ្ទាត់ចំណាត់ថ្នាក់ខ្វះ យឺត និងទាន់ពេល ជាមួយចំនួនសហគ្រាសសរុប។',
+    'incomplete-data': 'ស្នើឱ្យបំពេញ និងផ្ទៀងផ្ទាត់ទិន្នន័យដែលខ្វះ មុនធ្វើការវាយតម្លៃចុងក្រោយ។',
+  };
+  const proposals = findings.filter(finding => recommendations[finding.rule]).map((finding, i) => ({
+    no: i + 1, proposal: `${finding.text}\n${recommendations[finding.rule]}`,
+    // No approved legal-reference catalogue exists. Officers supply verified references.
+    legal_basis: '',
+  }));
+  return { findings, challenges: findings.map(({ text }) => ({ text })), conclusion: conclusion.join('\n'), proposals };
 }
 
 export function automaticConsolidatedFields(period: ReportingPeriod, now = new Date()) {
@@ -141,5 +162,7 @@ export function automaticConsolidatedInputs(
     ...officer, ...automaticConsolidatedFields(period, now),
     challenges: officer.challenges ?? analysis.challenges,
     conclusion: officer.conclusion ?? analysis.conclusion,
+    actions: officer.actions ?? data.actions,
+    proposals: officer.proposals ?? analysis.proposals,
   };
 }
