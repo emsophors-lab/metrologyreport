@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   BarChart3,
@@ -9,9 +9,7 @@ import {
   FileSpreadsheet,
   FileText,
   Presentation,
-  RefreshCw,
   ShieldAlert,
-  Sparkles,
   TrendingUp,
   Users
 } from 'lucide-react';
@@ -21,6 +19,11 @@ import { MlPredictionBundle, MlPredictionResult, MlRiskLevel, parseDate } from '
 import { formatKhmerOfficialDateBlock } from '../utils/khmerOfficialDate';
 import PredictionExplanationPanel from './PredictionExplanationPanel';
 import { runReportExport } from '../reports/issuedExportClient';
+import ModelHealthPanel, { type ModelHealth } from './ModelHealthPanel';
+import { installLifecycleModel } from '../services/mlModelRegistry';
+import MlAuditExportControls from './MlAuditExportControls';
+import MlExecutiveBriefing from './MlExecutiveBriefing';
+import type { AuditFilters } from '../ml/auditTypes';
 
 interface MachineLearningPredictionDashboardProps {
   currentUser: MetrologyUser;
@@ -325,7 +328,8 @@ function ModelConfidenceCard({
   const circumference = Math.PI * radius;
   const visible = (confidence / 100) * circumference;
   const confidenceLabel = confidence >= 75 ? 'High Confidence' : confidence >= 55 ? 'Medium Confidence' : 'Low Confidence';
-  const hasLearnedWeights = !!bundle.modelMetadata.learnedWeights;
+  const hasServerModel = bundle.modelMetadata.modelName.startsWith('Server RandomForest');
+  const hasLearnedWeights = !!bundle.modelMetadata.learnedWeights || hasServerModel;
 
   return (
     <div className="space-y-4">
@@ -341,14 +345,14 @@ function ModelConfidenceCard({
       <div className="space-y-3 text-xs font-semibold text-slate-600">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Analyzed Records</span><strong className="mt-1 block break-words text-lg text-[#0B2A66]">{bundle.modelMetadata.recordCount}</strong></div>
-          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Engine Type</span><strong className="mt-1 block break-words text-sm leading-snug text-[#0B2A66]">{hasLearnedWeights ? 'Rules + learned calibration' : 'Transparent rules'}</strong></div>
+          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Engine Type</span><strong className="mt-1 block break-words text-sm leading-snug text-[#0B2A66]">{hasServerModel ? 'Rules + server RandomForest' : hasLearnedWeights ? 'Rules + learned calibration' : 'Transparent rules'}</strong></div>
           <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Engine Version</span><strong className="mt-1 block break-words text-sm leading-snug text-[#0B2A66]">{bundle.modelMetadata.modelVersion}</strong></div>
-          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Last Calibrated</span><strong className="mt-1 block break-words text-sm leading-snug text-[#0B2A66]">{formatUpdatedAt(new Date(trainedAt || bundle.modelMetadata.trainedAt))}</strong></div>
+          <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-400">Last Server Training</span><strong className="mt-1 block break-words text-sm leading-snug text-[#0B2A66]">{trainedAt ? formatUpdatedAt(new Date(trainedAt)) : 'Not trained yet'}</strong></div>
         </div>
         <div className="rounded-lg bg-amber-50 p-3 text-amber-900">
           {hasLearnedWeights
-            ? 'The risk engine has calibrated its weighting against historical license/report data. Scoring remains rule-based and transparent; predictions are advisory and require official verification.'
-            : 'Insufficient historical data for calibration. The system is using transparent rule-based scoring until more data is available.'}
+            ? 'This analytics view includes learned calibration. Browser baseline calibration is not evidence of a trained server model; server status and evaluation metrics are shown in Server Model Health. Predictions are advisory and require official verification.'
+            : 'This analytics view uses transparent rule-based scoring. Server model availability and evaluation metrics are shown separately in Server Model Health.'}
         </div>
         <div className="text-[11px] font-bold text-slate-500">Data quality: {bundle.dataQuality.score}% · {bundle.dataQuality.totalIssues} issue(s)</div>
       </div>
@@ -467,13 +471,26 @@ export default function MachineLearningPredictionDashboard({
   const [ancillaryRenewals, setAncillaryRenewals] = useState<LicenseRenewalHistory[]>(renewals);
   const [ancillaryReminders, setAncillaryReminders] = useState<LicenseReminderLog[]>(reminders);
   const [page, setPage] = useState(1);
-  const [aiSummary, setAiSummary] = useState('');
-  const [isTraining, setIsTraining] = useState(false);
-  const [trainingNote, setTrainingNote] = useState('');
+  const [modelRevision, setModelRevision] = useState(0);
+  const lifecycleSignatureRef = useRef<string | undefined>(undefined);
+  useEffect(() => () => installLifecycleModel(null), [currentUser.id]);
+  const handleHealthFetch = useCallback((health: ModelHealth) => {
+    installLifecycleModel(health.activeModel || null);
+    setTrainedAt(health.lastTrainedAt || null);
+    const signature = JSON.stringify(health.activeModel || null);
+    if (signature !== lifecycleSignatureRef.current) {
+      lifecycleSignatureRef.current = signature;
+      setModelRevision(revision => revision + 1);
+    }
+  }, []);
   const predictionListRef = useRef<HTMLElement | null>(null);
   const now = new Date();
   const [startDate, setStartDate] = useState(formatDateInput(new Date(now.getFullYear(), now.getMonth() - 1, 1)));
   const [endDate, setEndDate] = useState(formatDateInput(now));
+  const [currentAuditScope, setCurrentAuditScope] = useState<AuditFilters>(() => ({ from: startDate, to: endDate }));
+  const handleAuditScopeChange = useCallback((scope: AuditFilters) => {
+    setCurrentAuditScope(previous => JSON.stringify(previous) === JSON.stringify(scope) ? previous : scope);
+  }, []);
   const canAccess = currentUser.role === 'superadmin' || currentUser.role === 'admin';
 
   useEffect(() => {
@@ -515,7 +532,7 @@ export default function MachineLearningPredictionDashboard({
 
   const bundle: MlPredictionBundle = useMemo(
     () => generatePredictions({ licenses, reports: filteredReports, renewals: ancillaryRenewals, reminders: ancillaryReminders }),
-    [licenses, filteredReports, ancillaryRenewals, ancillaryReminders, trainedAt]
+    [licenses, filteredReports, ancillaryRenewals, ancillaryReminders, trainedAt, modelRevision]
   );
 
   const analytics = useMemo(() => {
@@ -608,29 +625,11 @@ export default function MachineLearningPredictionDashboard({
     XLSX.writeFile(workbook, filename);
   };
 
-  const handleTrain = () => {
-    setIsTraining(true);
-    try {
-      const trained = generatePredictions({ licenses, reports: filteredReports, renewals: ancillaryRenewals, reminders: ancillaryReminders, train: true });
-      setTrainedAt(trained.modelMetadata.trainedAt);
-      setTrainingNote(`Model updated successfully at ${formatUpdatedAt(new Date(trained.modelMetadata.trainedAt))}. Training records: ${trained.modelMetadata.recordCount}.`);
-    } finally {
-      window.setTimeout(() => setIsTraining(false), 350);
-    }
-  };
-
   const handleViewAll = () => {
     setPage(1);
     window.setTimeout(() => {
       predictionListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 50);
-  };
-
-  const handleAiSummary = () => {
-    const topFactor = bundle.topRiskFactors[0]?.label || 'limited historical data';
-    const topCluster = bundle.clusters[0]?.clusterNameEn || 'no dominant behavior cluster';
-    const anomalyCount = bundle.anomalies.length;
-    setAiSummary(`The risk engine estimates ${analytics.likelyMiss.length} companies may miss the next monthly report and ${analytics.highRisk.length} companies are recommended for review. Main driver: ${topFactor}. Behavior grouping found ${bundle.clusters.length} group(s), led by ${topCluster}, and ${anomalyCount} anomaly finding(s). Focus on report reminders, renewal verification, GPS cleanup, anomaly review, and high-risk inspection planning.`);
   };
 
   if (!canAccess) {
@@ -656,7 +655,7 @@ export default function MachineLearningPredictionDashboard({
                 ផ្ទាំងនេះផ្តល់ការតាមដានព្យាករណ៍ជាជំនួយ សម្រាប់អាជ្ញាបណ្ណ របាយការណ៍ប្រចាំខែ ហានិភ័យតាមខេត្ត និងបន្ទុកការងារ។ Predictions are advisory and require official NMC verification.
               </p>
               <p className="mt-2 max-w-4xl rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold leading-relaxed text-[#0B2A66]">
-                Transparent rule-based risk scoring with statistical trend forecasting and a learned baseline calibration. Behavior groups and anomaly findings come from explainable rules — full machine-learning models are a planned future phase. All results are advisory and subject to official review by NMC.
+                Advisory risk scoring and statistical forecasting. Server model availability, training progress, and evaluation metrics are reported separately below. Browser baseline calibration does not indicate that a server model has been trained. All results require official review by NMC.
               </p>
               <p className="mt-1 text-xs font-semibold text-slate-400">{officialDate.fullText}</p>
             </div>
@@ -666,17 +665,14 @@ export default function MachineLearningPredictionDashboard({
                 <label className="text-xs font-bold text-slate-600"><input type="date" value={endDate} onChange={event => setEndDate(event.target.value)} className="rounded border border-slate-200 px-2 py-1" /></label>
               </div>
               <span className="text-xs font-bold text-slate-500">Data updated: {formatUpdatedAt(new Date())}</span>
-              <button type="button" onClick={handleTrain} disabled={isTraining} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#0B2A66] px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-[#062B5F] disabled:cursor-wait disabled:opacity-70">
-                <RefreshCw className={`h-4 w-4 ${isTraining ? 'animate-spin' : ''}`} /> {isTraining ? 'Recalibrating...' : 'Recalibrate Analytics'}
-              </button>
-              {trainingNote && (
-                <span className="rounded-lg border border-green-100 bg-green-50 px-3 py-2 text-xs font-bold text-green-700">
-                  {trainingNote}
-                </span>
-              )}
             </div>
           </div>
+          <MlAuditExportControls currentUser={currentUser} licenses={licenses} startDate={startDate} endDate={endDate} onScopeChange={handleAuditScopeChange} />
         </section>
+
+        <MlExecutiveBriefing currentUser={currentUser} scope={{ ...currentAuditScope, from: startDate, to: endDate }} />
+
+        <ModelHealthPanel currentUser={currentUser} onHealthFetch={handleHealthFetch} />
 
         <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
           <KpiCard icon={<ShieldAlert className="h-5 w-5" />} kh="ក្រុមហ៊ុនមានហានិភ័យខ្ពស់" en="High Risk Companies" value={analytics.highRisk.length} change={null} color="#EF4444" values={analytics.spark(analytics.highRisk.length)} />
@@ -737,26 +733,17 @@ export default function MachineLearningPredictionDashboard({
           </Panel>
         </section>
 
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <Panel titleKh="កត្តាហានិភ័យសំខាន់ៗ" titleEn="Top Risk Factors">
             <BarChart color="#EF4444" rows={bundle.topRiskFactors.map(row => ({ label: row.label, value: row.count, tooltip: row.tooltip }))} />
           </Panel>
           <Panel titleKh="ទំនុកចិត្តនៃការវិភាគ" titleEn="Analytics Confidence">
             <ModelConfidenceCard confidence={analytics.confidence} bundle={bundle} trainedAt={trainedAt} />
           </Panel>
-          <Panel titleKh="ការសង្ខេបស្វ័យប្រវត្តិ" titleEn="Automated Summary">
-            <div className="rounded-lg bg-purple-50 p-4 text-sm font-semibold leading-relaxed text-[#0B1A35]">
-              <Sparkles className="mb-2 h-7 w-7 text-purple-600" />
-              <p>{aiSummary || 'Click Generate Summary to create a plain-language overview from the aggregated analytics results. The summary is generated locally from the numbers shown on this page.'}</p>
-              <button type="button" onClick={handleAiSummary} className="mt-4 inline-flex items-center gap-2 rounded-lg border border-purple-200 bg-white px-4 py-2 text-xs font-black text-purple-700">
-                <Sparkles className="h-4 w-4" /> បង្កើតសង្ខេប / Generate Summary
-              </button>
-            </div>
-          </Panel>
         </section>
 
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-          <Panel titleKh="ក្រុមលំនាំក្រុមហ៊ុន" titleEn="Company Behavior Groups (Rule-Based)">
+          <Panel titleKh="ក្រុមលំនាំក្រុមហ៊ុន" titleEn={bundle.modelMetadata.modelName.startsWith('Server RandomForest') ? 'Company Behavior Groups (KMeans)' : 'Company Behavior Groups (Rule-Based)'}>
             <BarChart color="#2563EB" rows={bundle.clusters.map(cluster => ({
               label: cluster.clusterNameEn,
               value: cluster.companyCount,

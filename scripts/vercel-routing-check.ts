@@ -73,6 +73,9 @@ try {
     headers: { 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal(login.status, 400);
   assert.equal((await login.json()).code, 'INVALID_INPUT');
+    const retiredProvision = await fetch(base + '/api/provision-auth-session', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    assert.equal(retiredProvision.status, 410, 'The legacy password-overwrite endpoint is retired');
   const missing = '/api/routing-check/not-a-route?year=2026&month=4';
   const response = await fetch(base + missing);
   assert.equal(response.status, 404);

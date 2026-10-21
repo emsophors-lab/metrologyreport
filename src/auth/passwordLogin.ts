@@ -13,11 +13,13 @@ interface LoginDependencies {
   signIn: (email: string, password: string) => Promise<any>;
   publicUser: (user: any) => any;
   verifyLegacyPassword: (password: string, user: any) => boolean;
+  companyAlias?: (user: any) => string;
+  migrateCompany?: (user: any, password: string) => Promise<any>;
 }
 
 // Resolve the private registry on the server, never by publishing accounts or
-// password hashes to unauthenticated browsers. Signing in does not reset,
-// provision, confirm or otherwise change an authentication account.
+// password hashes to unauthenticated browsers. Existing Auth passwords are
+// never overwritten; missing company identities may migrate after verification.
 export function createPasswordLoginHandler(deps: LoginDependencies): RequestHandler {
   return async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -43,7 +45,26 @@ export function createPasswordLoginHandler(deps: LoginDependencies): RequestHand
         return;
       }
       const user = matches[0];
-      const result = await deps.signIn(accountAuthEmail(user), password);
+      let result = await deps.signIn(accountAuthEmail(user), password);
+      if (user.role === 'company' && result.error?.code === 'invalid_credentials' && deps.companyAlias) {
+        // Migrated accounts retain this stable identity after contact-email edits
+        // and after changing their password through Supabase Auth.
+        result = await deps.signIn(deps.companyAlias(user), password);
+        if (!result.error && String(result.data?.user?.app_metadata?.mlrs_user_id || '') !== String(user.id)) {
+          fail(409, 'AUTH_ACCOUNT_NOT_READY');
+          return;
+        }
+      }
+      if (user.role === 'company' && result.error?.code === 'invalid_credentials'
+        && deps.migrateCompany && deps.verifyLegacyPassword(password, user)) {
+        const migrated = await deps.migrateCompany(user, password);
+        if (migrated) result = migrated;
+      }
+      if (result.data?.user?.app_metadata?.mlrs_user_id
+        && String(result.data.user.app_metadata.mlrs_user_id) !== String(user.id)) {
+        fail(401, 'INVALID_CREDENTIALS');
+        return;
+      }
       if (result.error || !result.data?.session?.access_token || !result.data?.session?.refresh_token) {
         const error = result.error;
         if (error?.status === 429) {

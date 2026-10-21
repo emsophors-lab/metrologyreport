@@ -1,7 +1,8 @@
 import { EnterpriseLicense, LicenseReminderLog, LicenseRenewalHistory, MetrologyReport } from '../types';
 import { assessMlDataQuality, buildMlFeatures } from './mlFeatureEngineering';
 import { buildTrainingDataset } from './mlTrainingDataService';
-import { loadLatestModel, predictWithBaselineModel, trainPredictionModels } from './mlModelRegistry';
+import { activeLifecycleModel, loadLatestModel, ML_MODEL_VERSION, predictWithBaselineModel, trainPredictionModels } from './mlModelRegistry';
+import { anomalyScore, clusterIndex, featureVector } from '../ml/portable';
 import { runUnsupervisedAnalysis } from './mlUnsupervisedLearningService';
 import { forecastMonthlyReportVolume } from '../utils/mlTrendForecasting';
 import {
@@ -49,14 +50,35 @@ export function generatePredictions(input: {
   const now = input.now || new Date();
   const predictionDate = addMonths(now, 1);
   const predictionMonth = monthKey(predictionDate.getFullYear(), predictionDate.getMonth());
-  const features = buildMlFeatures(input);
+  const features = activeLifecycleModel()?.inferenceFeatures || buildMlFeatures(input);
   const trainingRecords = buildTrainingDataset(input);
-  const modelMetadata = input.train ? trainPredictionModels(trainingRecords) : (loadLatestModel() || trainPredictionModels(trainingRecords));
+  const modelMetadata = input.train ? trainPredictionModels(trainingRecords) : (loadLatestModel() || {
+    modelName: 'Cold-Start Baseline', modelVersion: ML_MODEL_VERSION, trainedAt: '',
+    recordCount: 0, trainingDataStart: null, trainingDataEnd: null, features: [],
+    status: 'rules_only' as const, metrics: { recordCount: 0, accuracy: null, precision: null,
+      recall: null, f1: null, mae: null, mape: null, note: 'No server model trained; advisory rules only.' },
+  });
   const predictions = features
     .map(feature => predictWithBaselineModel(feature, predictionMonth))
     .sort((a, b) => b.inspectionPriorityScore - a.inspectionPriorityScore);
   const dataQuality = assessMlDataQuality(input);
   const unsupervised = runUnsupervisedAnalysis(features);
+  const active = activeLifecycleModel();
+  if (active) {
+    unsupervised.clusters = active.model.centers.map((_, index) => ({
+      clusterId: `trained-${index}`, clusterNameKh: `KMeans ${index + 1}`, clusterNameEn: `KMeans ${index + 1}`,
+      companyCount: features.filter(f => clusterIndex(active.model, featureVector(f)) === index).length,
+      descriptionKh: 'KMeans', descriptionEn: 'Server-trained behavior cluster', commonFeatures: [],
+      recommendedAction: 'Review enterprise evidence before taking action.',
+    })).filter(c => c.companyCount > 0);
+    unsupervised.anomalies = features.flatMap(f => {
+      const score = anomalyScore(active.model, featureVector(f));
+      return score > active.model.anomalyThreshold ? [{ entityType: 'company' as const,
+        entityId: f.companyId, entityName: f.companyName, anomalyScore: Math.round(score * 100),
+        severity: 'High' as const, reason: 'Server IsolationForest anomaly; advisory only.',
+        recommendedAction: 'Review instrument and reporting evidence.' }] : [];
+    });
+  }
   const riskDistribution = predictions.reduce<Record<MlRiskLevel, number>>((acc, prediction) => {
     acc[prediction.riskLevel] += 1;
     return acc;

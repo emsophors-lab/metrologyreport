@@ -19,3 +19,5 @@ reports/private/
 *.7z
 test-output/
 var/
+.venv-ml/
+__pycache__/

@@ -4,12 +4,16 @@ import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createMysqlClient } from './src/db/mysqlClient';
-import { accountAuthEmail, createPasswordLoginHandler } from './src/auth/passwordLogin';
+import { createPasswordLoginHandler } from './src/auth/passwordLogin';
+import { legacyCompanyEmail, migrateMissingCompanyAuth } from './src/auth/legacyCompanyLogin';
 import { createIssuedExport, IssuedExportError } from './src/reports/issuedExports';
 import { issueReportArtifact, lookupIssuance, verificationPage } from './src/reports/issuance';
 import { sealDocx, sealPdf, sealXlsx } from './src/reports/sealArtifacts';
 import { normalizeSubmissionLocation } from './src/annex8/submissionLocation';
 import { notifyAnnex8Submission } from './src/annex8/submissionNotification';
+import { LifecycleStore } from './src/ml/lifecycle';
+import { collectDataset } from './src/ml/dataset';
+import { AuditExportError, collectAuditData, createMlAuditExport, parseAuditFilters } from './src/ml/auditService';
 // Annex 8 rules live in one isomorphic module so the server validates with the
 // same code the form uses, rather than a second copy that drifts out of step.
 import { validateAnnex8, blockingIssues, warningIssues, hostPart } from './src/annex8/validation';
@@ -150,11 +154,13 @@ async function resolveApiUser(req: any): Promise<{ role: string; userRow: any | 
   let isActive = true;
   let userRow: any | null = null;
 
+  const registryId = String(authData.user.app_metadata?.mlrs_user_id || userId);
   const { data: userProfile } = await supabaseAdmin
     .from('users')
     .select('*')
-    .eq('id', userId)
+    .eq('id', registryId)
     .maybeSingle();
+  if (authData.user.app_metadata?.mlrs_user_id && !userProfile) return null;
 
   if (userProfile) {
     role = userProfile.role;
@@ -254,29 +260,6 @@ function verifyUserPasswordServer(password: string, userRow: any): boolean {
 
   // Transition compatibility: legacy records may still have plaintext passwords.
   return typeof userRow?.password === 'string' && userRow.password.length > 0 && userRow.password === password;
-}
-
-function normalizeAuthEmail(username: string, userRow: any): string {
-  return accountAuthEmail({ ...userRow, username: username || userRow?.username });
-}
-
-async function findAuthUserByEmail(email: string) {
-  if (!supabaseAdmin) return null;
-  const normalizedEmail = String(email || '').trim().toLowerCase();
-  for (let page = 1; page <= 50; page += 1) {
-    const { data, error } = await supabaseAdmin.auth.admin.listUsers({
-      page,
-      perPage: 1000
-    });
-    if (error) throw error;
-
-    const found = data?.users?.find(
-      (authUser: any) => String(authUser.email || '').toLowerCase() === normalizedEmail
-    );
-    if (found) return found;
-    if (!data?.users || data.users.length < 1000) break;
-  }
-  return null;
 }
 
 /**
@@ -769,82 +752,20 @@ app.post('/api/login', createPasswordLoginHandler({
   }).auth.signInWithPassword({ email, password }),
   publicUser: publicUserRow,
   verifyLegacyPassword: verifyUserPasswordServer,
+  companyAlias: legacyCompanyEmail,
+  migrateCompany: (user, password) => migrateMissingCompanyAuth(user, password, {
+    listUsers: page => supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 }),
+    createUser: attributes => supabaseAdmin.auth.admin.createUser(attributes),
+    signIn: (email, suppliedPassword) => createClient(supabaseUrl, supabaseServiceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    }).auth.signInWithPassword({ email, password: suppliedPassword }),
+  }),
 }));
 
 app.post('/api/provision-auth-session', async (req, res) => {
-  try {
-    if (!supabaseAdmin) {
-      return apiError(res, 503, 'Server authentication provider is not configured.');
-    }
-
-    const username = String(req.body?.username || '').trim();
-    const password = String(req.body?.password || '');
-    if (!username || !password) {
-      return apiError(res, 400, 'Username and password are required.');
-    }
-
-    const { data: candidates, error: lookupError } = await supabaseAdmin
-      .from('users')
-      .select('*')
-      .ilike('username', username);
-    if (lookupError) {
-      console.error('Auth provision user lookup failed:', lookupError.message || lookupError);
-      return apiError(res, 500, 'Unable to verify user account.');
-    }
-
-    const userRow = (candidates || []).find(
-      (candidate: any) =>
-        String(candidate.username || '').toLowerCase() === username.toLowerCase() &&
-        candidate.is_active !== false &&
-        verifyUserPasswordServer(password, candidate)
-    );
-    if (!userRow) {
-      return apiError(res, 401, 'Invalid credentials.');
-    }
-
-    const email = normalizeAuthEmail(username, userRow);
-
-    // Create the Supabase Auth account pre-confirmed, or repair an existing one so its
-    // password matches the verified users-table credentials and its email is confirmed.
-    const created = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { username: userRow.username }
-    });
-
-    if (created.error) {
-      let existing = null;
-      try {
-        existing = await findAuthUserByEmail(email);
-      } catch (listError: any) {
-        console.error('Auth provision existing-user lookup failed:', listError?.message || listError);
-      }
-
-      if (!existing) {
-        console.error('Auth provision failed:', {
-          createError: created.error.message || created.error,
-          email
-        });
-        return apiError(res, 500, 'Unable to provision the authentication account.');
-      }
-
-      const updated = await supabaseAdmin.auth.admin.updateUserById(existing.id, {
-        password,
-        email_confirm: true,
-        user_metadata: { username: userRow.username }
-      });
-      if (updated.error) {
-        console.error('Auth account repair failed:', updated.error.message || updated.error);
-        return apiError(res, 500, 'Unable to provision the authentication account.');
-      }
-    }
-
-    return apiSuccess(res, { email });
-  } catch (err: any) {
-    console.error('Auth provision exception:', err?.message || err);
-    return apiError(res, 500, 'Unable to provision the authentication account.');
-  }
+  // Older clients must not use legacy hashes to overwrite an existing Auth password.
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(410).json({ success: false, code: 'USE_PASSWORD_LOGIN' });
 });
 
 const REPORT_UPSERT_COLUMNS = [
@@ -854,6 +775,95 @@ const REPORT_UPSERT_COLUMNS = [
   'service_end_date', 'report_month', 'report_year', 'report_status', 'rejection_reason',
   'approved_by', 'approved_at', 'verification_token_hash', 'created_at', 'updated_at'
 ];
+
+async function signalMlChange() {
+  if (process.env.ML_LIFECYCLE_ENABLED !== 'true' || !supabaseAdmin) return;
+  try { await new LifecycleStore(supabaseAdmin).signal(); }
+  catch { console.warn('ML change signal unavailable; background reconciliation will retry.'); }
+}
+
+app.get('/api/analytics/ml-insights', async (req, res) => {
+  const resolved = await requireNmcStaff(req, res);
+  if (!resolved) return;
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const filters = parseAuditFilters(req.query as Record<string, unknown>);
+    const data = await collectAuditData(supabaseAdmin, filters);
+    return res.json({ executive_briefing: data.executive_briefing, filters, generated_at: data.generatedAt,
+      model_version: data.modelVersion, source_fingerprint: data.sourceFingerprint });
+  } catch (error) {
+    if (error instanceof AuditExportError) return apiError(res, error.status, error.message);
+    return apiError(res, 503, 'ML briefing evidence is unavailable. Check the database and model configuration.');
+  }
+});
+
+for (const format of ['pdf', 'excel'] as const) {
+  app.get(`/api/analytics/export/${format}`, async (req, res) => {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+    try {
+      const filters = parseAuditFilters(req.query as Record<string, unknown>);
+      const file = await createMlAuditExport(supabaseAdmin, filters, format === 'pdf' ? 'pdf' : 'xlsx',
+        String(resolved.userRow?.id || 'nmc-staff'));
+      const extension = format === 'pdf' ? 'pdf' : 'xlsx';
+      const filename = `Metrology_ML_Audit_${format === 'pdf' ? 'Report' : 'Data'}_${new Date().toISOString().slice(0, 10)}.${extension}`;
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Content-Type', format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('X-NMC-Issuance-ID', file.seal.id);
+      return res.send(file.bytes);
+    } catch (error) {
+      if (error instanceof AuditExportError) return apiError(res, error.status, error.message);
+      console.error('ML audit export failed:', error instanceof Error ? error.message : 'Unknown error');
+      return apiError(res, 503, 'Unable to generate the registered audit report. Check database, model and issuance configuration.');
+    }
+  });
+}
+
+app.get('/api/analytics/model-health', async (req, res) => {
+  if (!(await requireApiRole(req, res, ['superadmin', 'admin']))) return;
+  res.setHeader('Cache-Control', 'no-store');
+  const threshold = Number(process.env.ML_RETRAIN_REPORT_THRESHOLD || 25);
+  const empty = { lastTrainedAt: null, trainedReportCount: 0, pendingReports: 0, threshold,
+    lastError: null, metrics: { f1: null, accuracy: null, silhouette: null, anomalyStability: null, labelSource: null } };
+  if (process.env.ML_LIFECYCLE_ENABLED !== 'true') return res.json({ ...empty, enabled: false, status: 'cold_start' });
+  try {
+    const { state } = await new LifecycleStore(supabaseAdmin).read();
+    const dataset = await collectDataset(supabaseAdmin);
+    const known = new Set(state.active?.reportIds || []);
+    const activeModel = state.active ? { id: state.active.id, model: state.active.model,
+      trainedAt: state.active.trainedAt, trainedReportCount: state.active.trainedReportCount,
+      metrics: state.active.metrics, inferenceFeatures: dataset.inferenceFeatures } : undefined;
+    return res.json({ ...empty, enabled: true,
+      status: state.lock && state.lock.until > Date.now() ? 'training' : state.manual ? 'queued'
+        : state.lastError ? 'failed' : state.active ? 'active' : 'cold_start',
+      lastTrainedAt: state.active?.trainedAt || null, trainedReportCount: state.active?.trainedReportCount || 0,
+      pendingReports: dataset.reportIds.filter(id => !known.has(id)).length,
+      metrics: state.active?.metrics || empty.metrics, lastError: state.lastError || null, activeModel,
+      workerOnline: !!state.workerSeenAt && Date.now() - state.workerSeenAt < 180000,
+      workerLastSeenAt: state.workerSeenAt ? new Date(state.workerSeenAt).toISOString() : null,
+      lastOutcome: state.lastOutcome || null });
+  } catch { return apiError(res, 503, 'ML storage unavailable. Apply migration and check the background worker.'); }
+});
+app.post('/api/analytics/retrain', async (req, res) => {
+  if (!(await requireApiRole(req, res, ['superadmin', 'admin']))) return;
+  if (process.env.ML_LIFECYCLE_ENABLED !== 'true') return apiError(res, 503, 'ML lifecycle is disabled.');
+  try {
+    await new LifecycleStore(supabaseAdmin).signal(true);
+    return res.status(202).json({ status: 'queued' });
+  } catch { return apiError(res, 503, 'Unable to queue training. Check ML storage.'); }
+});
+app.post('/api/analytics/rollback', async (req, res) => {
+  if (!(await requireApiRole(req, res, ['superadmin', 'admin']))) return;
+  if (process.env.ML_LIFECYCLE_ENABLED !== 'true') return apiError(res, 503, 'ML lifecycle is disabled.');
+  try {
+    const swapped = await new LifecycleStore(supabaseAdmin).mutate(s =>
+      !s.previous || (s.lock && s.lock.until > Date.now()) ? null : {
+        ...s, active: s.previous, previous: s.active, lastOutcome: 'rolled_back', lastError: undefined,
+      });
+    return swapped ? res.json({ status: 'rolled_back' }) : apiError(res, 409, 'No previous model, or training is in progress.');
+  } catch { return apiError(res, 503, 'Unable to roll back the model.'); }
+});
 
 app.post('/api/reports', async (req, res) => {
   try {
@@ -881,6 +891,7 @@ app.post('/api/reports', async (req, res) => {
         .from('reports')
         .upsert(payload, { onConflict: 'id' });
       if (!error) {
+        await signalMlChange();
         return apiSuccess(res, { id: payload.id });
       }
       lastError = error;
@@ -4155,6 +4166,7 @@ app.post('/api/annex8/month/submit', async (req, res) => {
       .maybeSingle();
     if (error) throw error;
     if (!submitted) return apiError(res, 409, 'This report was already submitted or changed. Refresh before trying again.');
+    await signalMlChange();
 
     await writeAnnex8Audit({
       report_uuid: reportUuid, licence_no: report.licence_no, period_month: report.period_month,
@@ -4669,6 +4681,7 @@ app.post('/api/annex8/reports/:id/review', async (req, res) => {
     const { data: updated, error } = await supabaseAdmin
       .from('annex8_reports').update(patch).eq('id', id).select('*').single();
     if (error) throw error;
+    await signalMlChange();
 
     await writeAnnex8Audit({
       report_uuid: id, licence_no: report.licence_no, period_month: report.period_month,

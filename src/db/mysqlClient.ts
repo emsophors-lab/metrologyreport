@@ -489,6 +489,14 @@ export function createMysqlClient(connectionUrl: string) {
 
   return {
     from(table: string) { return new QueryBuilder(pool, table); },
+    // CAS must use affectedRows, not a SELECT with the old revision filter.
+    async compareAndSwapMlState(revision: number, payload: unknown): Promise<boolean> {
+      const [result]: any = await pool.execute(
+        'UPDATE ml_lifecycle SET revision = revision + 1, payload = ? WHERE id = ? AND revision = ?',
+        [JSON.stringify(payload), 'main', revision],
+      );
+      return result.affectedRows === 1;
+    },
 
     async rpc(name: string, params: Record<string, any> = {}): Promise<MysqlResult> {
       try {

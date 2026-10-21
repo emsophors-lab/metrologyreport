@@ -4,6 +4,7 @@ import { MetrologyUser } from '../types';
 import { changeOwnPasswordInSupabase, getActiveSupabaseClient } from '../supabaseSync';
 import { validatePasswordStrength, verifyUserPassword } from '../utils/passwordUtils';
 import { logAuditEvent } from '../services/loginHistoryService';
+import { LoginFailure, signInWithServer } from '../auth/browserLogin';
 
 interface ChangePasswordModalProps {
   currentUser: MetrologyUser;
@@ -79,13 +80,13 @@ export default function ChangePasswordModal({
   const verifyCurrentPassword = async (): Promise<boolean> => {
     const client = getActiveSupabaseClient();
     if (client) {
-      const usernameOrEmail = (ownUser.email && ownUser.email !== 'N/A') ? ownUser.email : ownUser.username;
-      const email = usernameOrEmail.includes('@') ? usernameOrEmail : `${ownUser.username.toLowerCase()}@nmc.gov.kh`;
-      const { error } = await client.auth.signInWithPassword({
-        email,
-        password: currentPassword,
-      });
-      if (!error) return true;
+      try {
+        await signInWithServer(client, ownUser.username, currentPassword);
+        return true;
+      } catch (error) {
+        if (error instanceof LoginFailure && ['INVALID_CREDENTIALS', 'AUTH_ACCOUNT_NOT_READY'].includes(error.code)) return false;
+        throw error;
+      }
     }
 
     return verifyUserPassword(currentPassword, ownUser);
@@ -96,7 +97,7 @@ export default function ChangePasswordModal({
     if (!client) return;
 
     const { data } = await client.auth.getSession();
-    if (!data.session) return;
+    if (!data.session) throw new Error('An authenticated session is required to change the password.');
 
     const { error } = await client.auth.updateUser({ password: newPassword });
     if (error) throw error;

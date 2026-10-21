@@ -9,6 +9,16 @@ import {
   percentProbability,
   riskLevelFromScore
 } from '../utils/mlRiskFeatures';
+import { featureVector, probability, type PortableModel } from '../ml/portable';
+
+type LifecycleModel = { model: PortableModel; id: string; trainedAt: string; trainedReportCount: number;
+  inferenceFeatures?: MlCompanyFeatures[];
+  metrics: { f1: number; accuracy: number; labelSource: string } };
+let lifecycleModel: LifecycleModel | null = null;
+export function installLifecycleModel(model: LifecycleModel | null) {
+  lifecycleModel = model?.model?.schema === 1 ? model : null;
+}
+export const activeLifecycleModel = () => lifecycleModel;
 
 export const ML_MODEL_VERSION = 'nmc-ml-baseline-2026-07';
 const LEARNED_FEATURES = [
@@ -136,7 +146,8 @@ export function predictWithBaselineModel(feature: MlCompanyFeatures, predictionM
     (feature.highRiskInstrumentFlag ? 8 : 0) +
     (feature.profileCompletenessScore < 70 ? 6 : 0)
   );
-  const learned = learnedProbability(feature, loadLatestModel()?.learnedWeights);
+  const learned = lifecycleModel ? probability(lifecycleModel.model, featureVector(feature))
+    : learnedProbability(feature, loadLatestModel()?.learnedWeights);
   const inspectionPriorityScore = learned === null
     ? baselineInspectionPriorityScore
     : Math.round(baselineInspectionPriorityScore * 0.65 + learned * 100 * 0.35);
@@ -228,6 +239,14 @@ export function saveModelMetadata(metadata: MlModelMetadata) {
 }
 
 export function loadLatestModel(): MlModelMetadata | null {
+  if (lifecycleModel) return {
+    modelName: 'Server RandomForest (proxy-label validation)', modelVersion: lifecycleModel.id,
+    trainedAt: lifecycleModel.trainedAt, recordCount: lifecycleModel.trainedReportCount,
+    trainingDataStart: null, trainingDataEnd: null, features: lifecycleModel.model.features,
+    metrics: { recordCount: lifecycleModel.trainedReportCount, accuracy: lifecycleModel.metrics.accuracy,
+      f1: lifecycleModel.metrics.f1, precision: null, recall: null, mae: null, mape: null,
+      note: lifecycleModel.metrics.labelSource }, status: 'baseline_trained',
+  };
   if (typeof sessionStorage === 'undefined') return null;
   const raw = sessionStorage.getItem('nmc_ml_model_metadata');
   if (!raw) return null;
