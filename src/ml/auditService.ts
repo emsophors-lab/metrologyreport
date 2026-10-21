@@ -30,6 +30,14 @@ export function parseAuditFilters(query: Record<string, unknown>): AuditFilters 
   if (result.risk_level && !['Low', 'Medium', 'High', 'Critical'].includes(result.risk_level)) throw new AuditExportError(400, 'Invalid risk level.');
   return result;
 }
+export function auditFiltersFromUrl(url: string): AuditFilters {
+  const query: Record<string, string> = Object.create(null);
+  for (const [key, value] of new URL(url, 'http://localhost').searchParams) {
+    if (Object.prototype.hasOwnProperty.call(query, key)) throw new AuditExportError(400, 'Duplicate export filter.');
+    query[key] = value;
+  }
+  return parseAuditFilters(query);
+}
 const normalize = (v: unknown) => String(v ?? '').normalize('NFKC').toLowerCase();
 export async function collectAuditData(db: any, filters: AuditFilters): Promise<AuditData> {
   const dataset = await collectDataset(db);

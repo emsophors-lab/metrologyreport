@@ -5,7 +5,7 @@ import { mkdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { createMysqlClient } from '../db/mysqlClient';
-import { collectDataset } from './dataset';
+import { collectDataset, trainingReadiness } from './dataset';
 import { LifecycleStore, promotionAllowed, retrainReason, type Version } from './lifecycle';
 import { anomalyScore, FEATURE_KEYS } from './portable';
 
@@ -57,6 +57,14 @@ export async function runCycle(store: LifecycleStore, collect: typeof collectDat
     startedManual = state.manual;
     if (state.active) await atomicMetadata(directory, state.active);
     const dataset = await collect(db);
+    if (!trainingReadiness(dataset.samples).ready) {
+      await store.mutate(s => s.lock?.token !== token || s.lock.until <= Date.now() ? null : {
+        ...s, lock: undefined, workerSeenAt: Date.now(), lastOutcome: 'insufficient_data', lastError: undefined,
+        manual: s.manual === state.manual ? undefined : s.manual,
+        requested: s.requested === state.requested ? undefined : s.requested,
+      });
+      return 'waiting_for_data';
+    }
     const known = new Set(state.active?.reportIds || []);
     const recent = dataset.samples.filter(r => r.reportIds.some(id => !known.has(id)));
     const recentCount = recent.reduce((n, r) => n + r.reportIds.filter(id => !known.has(id)).length, 0);
@@ -106,7 +114,7 @@ export async function runCycle(store: LifecycleStore, collect: typeof collectDat
   } finally { if (heartbeat) clearInterval(heartbeat); }
 }
 
-async function main() {
+export async function workerMain() {
   if (process.env.ML_LIFECYCLE_ENABLED !== 'true') throw new Error('Set ML_LIFECYCLE_ENABLED=true after applying migration.');
   const db = process.env.DB_DRIVER === 'mysql' ? createMysqlClient(process.env.MYSQL_URL!) :
     createClient(process.env.VITE_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } });
@@ -121,4 +129,4 @@ async function main() {
     } while (!stop);
   } finally { if ('end' in db) await (db as any).end(); }
 }
-if (process.argv[1]?.replace(/\\/g, '/').endsWith('/src/ml/worker.ts')) main().catch(e => { console.error(e.message); process.exitCode = 1; });
+if (process.argv[1]?.replace(/\\/g, '/').endsWith('/src/ml/worker.ts')) workerMain().catch(e => { console.error(e.message); process.exitCode = 1; });

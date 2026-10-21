@@ -15,6 +15,8 @@ export interface ModelHealth {
   workerOnline?: boolean;
   workerLastSeenAt?: string | null;
   lastOutcome?: string | null;
+  trainingReady?: boolean;
+  readinessMessage?: string | null;
   metrics: {
     f1: number | null;
     accuracy: number | null;
@@ -113,7 +115,7 @@ export default function ModelHealthPanel({ currentUser, onHealthFetch }: ModelHe
   }, [isStaff, currentUser.id, refresh, refreshKey]);
 
   const handleTrain = async () => {
-    if (!isStaff || !health?.enabled || error || queuePendingRef.current || health.status === 'queued' || health.status === 'training') return;
+    if (!isStaff || !health?.enabled || health.trainingReady === false || error || queuePendingRef.current || health.status === 'queued' || health.status === 'training') return;
     const controller = new AbortController();
     queueRef.current = controller;
     queuePendingRef.current = true;
@@ -157,7 +159,7 @@ export default function ModelHealthPanel({ currentUser, onHealthFetch }: ModelHe
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" title="Refresh model health" aria-label="Refresh model health" disabled={loading || submitting} onClick={() => setRefreshKey(key => key + 1)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
-          <button type="button" onClick={() => void handleTrain()} disabled={!health?.enabled || busy || loading || !!error} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md bg-[#0B2A66] px-3 py-2 text-xs font-bold text-white hover:bg-[#062B5F] disabled:cursor-not-allowed disabled:opacity-50"><RefreshCw className={`h-4 w-4 shrink-0 ${busy ? 'animate-spin' : ''}`} />{submitting ? 'Queueing...' : health?.status === 'queued' ? 'Training queued' : health?.status === 'training' ? 'Training...' : health?.status === 'failed' ? 'Retry server training' : 'Train server model'}</button>
+          <button type="button" onClick={() => void handleTrain()} disabled={!health?.enabled || health.trainingReady === false || busy || loading || !!error} className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md bg-[#0B2A66] px-3 py-2 text-xs font-bold text-white hover:bg-[#062B5F] disabled:cursor-not-allowed disabled:opacity-50"><RefreshCw className={`h-4 w-4 shrink-0 ${busy ? 'animate-spin' : ''}`} />{health?.trainingReady === false ? 'Awaiting verified data' : submitting ? 'Queueing...' : health?.status === 'queued' ? 'Training queued' : health?.status === 'training' ? 'Training...' : health?.status === 'failed' ? 'Retry server training' : 'Train server model'}</button>
         </div>
       </div>
       {error && <p role="alert" className="mt-3 flex items-start gap-2 break-words rounded-md bg-red-50 p-3 text-xs text-red-800"><AlertTriangle className="h-4 w-4 shrink-0" /><span>{error} Use refresh to check again before retrying training.</span></p>}
@@ -167,7 +169,8 @@ export default function ModelHealthPanel({ currentUser, onHealthFetch }: ModelHe
         {health.enabled && <p className="mt-3 text-xs text-slate-600">{health.pendingReports} / {health.threshold} new verified reports until next auto-retrain.</p>}
         {health.lastOutcome === 'rejected_quality' && <p className="mt-3 text-xs text-amber-800">The challenger did not pass validation. The previous active model remains in use.</p>}
         {!health.enabled && <p className="mt-3 text-xs text-amber-800">Server training is disabled. Ask an administrator to enable the model lifecycle and configure its training worker, then refresh.</p>}
-        {health.enabled && health.status === 'cold_start' && <p className="mt-3 text-xs text-slate-600">No server model has been trained. Queue the first training run, or collect reports until the automatic training threshold is reached.</p>}
+        {health.enabled && health.readinessMessage && <p role="status" className="mt-3 text-xs text-amber-800">{health.readinessMessage}</p>}
+        {health.enabled && health.status === 'cold_start' && health.trainingReady !== false && <p className="mt-3 text-xs text-slate-600">No server model has been trained. Queue the first training run, or collect reports until the automatic training threshold is reached.</p>}
         {health.enabled && health.status === 'failed' && <p role="alert" className="mt-3 break-words text-xs text-red-800">{health.lastError || 'The last server training run failed.'} Ask an administrator to check the worker and training data, then retry.</p>}
         <dl className="mt-4 grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 text-xs sm:grid-cols-4">
           {[

@@ -10,7 +10,7 @@ import PizZip from 'pizzip';
 import { Jimp } from 'jimp';
 import jsQR from 'jsqr';
 import { FEATURE_KEYS } from '../src/ml/portable';
-import { parseAuditFilters } from '../src/ml/auditService';
+import { parseAuditFilters, auditFiltersFromUrl } from '../src/ml/auditService';
 import { sha256 } from '../src/reports/issuance';
 
 const url = new URL(process.env.MYSQL_URL!);
@@ -26,6 +26,9 @@ try {
   assert.throws(() => parseAuditFilters({q:['a','b']}));
   assert.throws(() => parseAuditFilters({from:'2026-09-01',to:'2026-08-01'}));
   assert.throws(() => parseAuditFilters({unexpected:'value'}));
+  assert.deepEqual(auditFiltersFromUrl('/api/analytics/ml-insights?from=2026-10-01&to=2026-10-31'), {from:'2026-10-01',to:'2026-10-31'});
+  assert.throws(() => auditFiltersFromUrl('/api/analytics/ml-insights?q=a&q=b'));
+  assert.throws(() => auditFiltersFromUrl('/api/analytics/ml-insights?path=unexpected'));
   await admin.query(`CREATE DATABASE \`${name}\``);
   url.pathname = '/' + name;
   await admin.query(`CREATE TABLE \`${name}\`.users(id varchar(36) primary key, username text, role text, is_active boolean)`);
@@ -52,7 +55,11 @@ try {
   Object.assign(process.env,{ DB_DRIVER:'mysql',MYSQL_URL:url.toString(),VERCEL:'local-test-harness',NODE_ENV:'test',
     ALLOW_LEGACY_API_HEADER_AUTH:'true',ML_LIFECYCLE_ENABLED:'true',REPORT_QR_ENABLED:'true',REPORT_VERIFICATION_ORIGIN:'http://127.0.0.1:34567' });
   const {default: app} = await import('../server');
-  server = http.createServer(app).listen(0,'127.0.0.1');
+  server = http.createServer((req: any, res) => {
+    // Vercel can prepopulate query with rewrite params; user filters live in the URL.
+    req.query = { ...Object.fromEntries(new URL(req.url, 'http://localhost').searchParams), path: 'analytics/ml-insights' };
+    app(req, res);
+  }).listen(0,'127.0.0.1');
   await new Promise<void>(r=>server!.once('listening',r));
   const address = server.address();assert.ok(address && typeof address!=='string');
   const base = `http://127.0.0.1:${address.port}`;

@@ -30,13 +30,21 @@ they must not be described as inspection accuracy. CV on successive datasets is
 not a fixed benchmark; use a curated inspection-labelled holdout before relying
 on this for enforcement. Predictions remain advisory.
 
+The worker checks these minimums before launching Python. Insufficient data
+consumes a queued manual request without training, records `insufficient_data`,
+and retains the champion or cold-start baseline. Model Health exposes readiness
+and disables the training button until the enterprise/class minimums are met.
+
 Promotion requires finite metrics, F1 >= 0.5, positive silhouette, no singleton
 clusters and anomaly stability >= 0.8. Stability includes independent forest seeds
 and, when available, mean absolute score differences from the champion on the
 same current observations. F1 must be within 0.02 of the champion, unless accepted
 report count grows by more than 20%; growth NEVER bypasses the safety floors.
 
-## Enablement (Not Applied To Production)
+## Enablement
+
+See `docs/ml-worker-operations.md` for local supervision, production host setup,
+and the activation checkpoint. Adding the schema alone does not enable training.
 
 1. Apply `supabase_ml_lifecycle.sql` to PostgreSQL OR
    `mysql_ml_lifecycle.sql` to MySQL after reviewing/approving the migration.

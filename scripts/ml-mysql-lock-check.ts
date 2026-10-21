@@ -55,7 +55,9 @@ try {
   const health = await fetch(base + '/model-health', { headers: headers('staff', 'admin') });
   assert.equal(health.status, 200);
   const data: any = await health.json();
-  assert.equal(data.status, 'queued'); assert.equal(data.pendingReports, 1);
+  assert.equal(data.status, 'cold_start'); assert.equal(data.pendingReports, 1);
+  assert.equal(data.trainingReady, false);
+  assert.match(data.readinessMessage, /Waiting for verified data/);
   assert.equal(health.headers.get('cache-control'), 'no-store');
   assert.equal((await fetch(base + '/rollback', { method: 'POST', headers: headers('staff', 'admin') })).status, 409);
   process.env.ML_LIFECYCLE_ENABLED = 'false';

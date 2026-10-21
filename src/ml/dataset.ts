@@ -3,6 +3,14 @@ import { buildTrainingDataset } from '../services/mlTrainingDataService';
 import { buildMlFeatures } from '../services/mlFeatureEngineering';
 import { featureVector } from './portable';
 
+export function trainingReadiness(samples: { y: number }[]) {
+  const negative = samples.filter(sample => sample.y === 0).length;
+  const positive = samples.filter(sample => sample.y === 1).length;
+  const ready = samples.length >= 20 && negative >= 3 && positive >= 3;
+  return { ready, enterprises: samples.length, minimumEnterprises: 20,
+    message: ready ? null : `Waiting for verified data: ${samples.length} / 20 enterprises with accepted reports. At least 3 enterprises in each proxy-label class are also required.` };
+}
+
 export async function allRows(db: any, table: string, filter: (q: any) => any = q => q) {
   const rows: any[] = [];
   for (let offset = 0; ; offset += 500) {

@@ -11,6 +11,8 @@
     "clean": "rm -rf dist server.js dist/server.cjs",
     "lint": "tsc --noEmit",
     "ml:worker": "tsx src/ml/worker.ts",
+    "ml:local-status": "tsx scripts/ml-local-setup.ts",
+    "ml:local-migrate": "tsx scripts/ml-local-setup.ts --migrate",
     "ml:lifecycle-check": "tsx scripts/ml-lifecycle-check.ts",
     "ml:export-check": "tsx scripts/ml-export-check.ts",
     "ml:narrative-check": "tsx scripts/ml-narrative-check.ts",

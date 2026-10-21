@@ -1,0 +1,24 @@
+[Unit]
+Description=MLRS background model lifecycle worker
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=mlrs
+Group=mlrs
+WorkingDirectory=/opt/mlrs
+EnvironmentFile=/etc/mlrs/ml-worker.env
+ExecStart=/usr/bin/node --import tsx src/ml/worker.ts
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=660
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mlrs-models
+
+[Install]
+WantedBy=multi-user.target

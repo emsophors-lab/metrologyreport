@@ -12,8 +12,8 @@ import { sealDocx, sealPdf, sealXlsx } from './src/reports/sealArtifacts';
 import { normalizeSubmissionLocation } from './src/annex8/submissionLocation';
 import { notifyAnnex8Submission } from './src/annex8/submissionNotification';
 import { LifecycleStore } from './src/ml/lifecycle';
-import { collectDataset } from './src/ml/dataset';
-import { AuditExportError, collectAuditData, createMlAuditExport, parseAuditFilters } from './src/ml/auditService';
+import { collectDataset, trainingReadiness } from './src/ml/dataset';
+import { AuditExportError, collectAuditData, createMlAuditExport, auditFiltersFromUrl } from './src/ml/auditService';
 // Annex 8 rules live in one isomorphic module so the server validates with the
 // same code the form uses, rather than a second copy that drifts out of step.
 import { validateAnnex8, blockingIssues, warningIssues, hostPart } from './src/annex8/validation';
@@ -787,7 +787,7 @@ app.get('/api/analytics/ml-insights', async (req, res) => {
   if (!resolved) return;
   res.setHeader('Cache-Control', 'no-store');
   try {
-    const filters = parseAuditFilters(req.query as Record<string, unknown>);
+    const filters = auditFiltersFromUrl(req.originalUrl || req.url);
     const data = await collectAuditData(supabaseAdmin, filters);
     return res.json({ executive_briefing: data.executive_briefing, filters, generated_at: data.generatedAt,
       model_version: data.modelVersion, source_fingerprint: data.sourceFingerprint });
@@ -802,7 +802,7 @@ for (const format of ['pdf', 'excel'] as const) {
     const resolved = await requireNmcStaff(req, res);
     if (!resolved) return;
     try {
-      const filters = parseAuditFilters(req.query as Record<string, unknown>);
+      const filters = auditFiltersFromUrl(req.originalUrl || req.url);
       const file = await createMlAuditExport(supabaseAdmin, filters, format === 'pdf' ? 'pdf' : 'xlsx',
         String(resolved.userRow?.id || 'nmc-staff'));
       const extension = format === 'pdf' ? 'pdf' : 'xlsx';
@@ -830,12 +830,16 @@ app.get('/api/analytics/model-health', async (req, res) => {
   try {
     const { state } = await new LifecycleStore(supabaseAdmin).read();
     const dataset = await collectDataset(supabaseAdmin);
+    const readiness = trainingReadiness(dataset.samples);
     const known = new Set(state.active?.reportIds || []);
     const activeModel = state.active ? { id: state.active.id, model: state.active.model,
       trainedAt: state.active.trainedAt, trainedReportCount: state.active.trainedReportCount,
       metrics: state.active.metrics, inferenceFeatures: dataset.inferenceFeatures } : undefined;
     return res.json({ ...empty, enabled: true,
-      status: state.lock && state.lock.until > Date.now() ? 'training' : state.manual ? 'queued'
+      trainingReady: readiness.ready, readinessMessage: readiness.message,
+      verifiedEnterprises: readiness.enterprises, minimumEnterprises: readiness.minimumEnterprises,
+      status: !readiness.ready ? (state.active ? 'active' : 'cold_start')
+        : state.lock && state.lock.until > Date.now() ? 'training' : state.manual ? 'queued'
         : state.lastError ? 'failed' : state.active ? 'active' : 'cold_start',
       lastTrainedAt: state.active?.trainedAt || null, trainedReportCount: state.active?.trainedReportCount || 0,
       pendingReports: dataset.reportIds.filter(id => !known.has(id)).length,

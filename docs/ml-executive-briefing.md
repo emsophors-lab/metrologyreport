@@ -70,3 +70,11 @@ staff permissions, shared filters, API/export narrative consistency and workbook
 content. PDF render/extraction checks confirm recommendations remain on page one.
 No production SQL, operational report changes, Telegram messages or LLM calls
 are required for this implementation.
+
+## Filter Transport Compatibility
+
+Briefing and audit export routes validate filters from the original request URL,
+not a platform-populated `req.query` object. Vercel rewrite parameters therefore
+cannot be mistaken for user filters. Duplicate, unknown, oversized and malformed
+user-supplied filters remain rejected. The export API check injects Vercel-style
+query metadata and verifies briefing plus both export formats still work.

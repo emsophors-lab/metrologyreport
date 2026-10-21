@@ -5,7 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { LifecycleStore, promotionAllowed, retrainReason, type Version } from '../src/ml/lifecycle';
 import { runCycle, trainPython } from '../src/ml/worker';
 import { anomalyScore, clusterIndex, FEATURE_KEYS, probability } from '../src/ml/portable';
-import { collectDataset } from '../src/ml/dataset';
+import { collectDataset, trainingReadiness } from '../src/ml/dataset';
 
 // Real isolated PostgreSQL CAS; no production database or Telegram connections.
 const pg = new PGlite();
@@ -47,6 +47,14 @@ try {
     INSERT INTO annex8_report_instruments VALUES ('i1','r1','M','Scale'),('i2','r2','I','Draft instrument');
     INSERT INTO annex8_report_repairs VALUES ('i3','r1','Pressure gauge');`);
   const verified = await collectDataset(db);
+  assert.equal(trainingReadiness(verified.samples).ready, false);
+  assert.equal(trainingReadiness(Array.from({length:20}, () => ({y:0}))).ready, false);
+  assert.equal(trainingReadiness(Array.from({length:20}, (_,i) => ({y:i%2}))).ready, true);
+  await store.signal(true);
+  assert.equal(await runCycle(store, collectDataset, db, async () => { throw new Error('Must not launch Python for insufficient data'); }, directory), 'waiting_for_data');
+  assert.equal((await store.read()).state.manual, undefined);
+  assert.equal((await store.read()).state.lastError, undefined);
+  assert.equal((await store.read()).state.lastOutcome, 'insufficient_data');
   assert.deepEqual(verified.reportIds, ['r1']);
   assert.equal(verified.inferenceFeatures[0].serviceTypeCount, 2);
   assert.equal(verified.inferenceFeatures[0].instrumentTypeCount, 2);
