@@ -33,8 +33,12 @@
  *     carries. A ministry report must not depend on an external service
  *     being up.
  */
+import { createHash } from 'node:crypto';
+
 import { NARRATIVE_SCALARS } from '../lib/analytics/contract';
 import type { AnalyticsData } from '../lib/analytics/contract';
+import { PROVIDER_INFO, generatorFor, isProviderName } from './aiProviders';
+import type { Generate, ProviderName } from './aiProviders';
 
 /** What the agent may write. Nothing else it returns is used. */
 export interface AiNarrative {
@@ -63,8 +67,7 @@ export interface AiAnalystResult {
  * recorded in the report's limitations, so substituting is visible, not
  * silent. Configure as a comma-separated list.
  */
-const MODELS = () => (process.env.ANALYTICS_AI_MODEL || 'gemini-3.8-flash,gemini-flash-latest')
-  .split(',').map(m => m.trim()).filter(Boolean);
+export const splitModels = (value: string) => value.split(',').map(m => m.trim()).filter(Boolean);
 
 /**
  * Attempts per model. One, by default.
@@ -105,13 +108,51 @@ function transient(message: string): boolean {
  * come back as a 504 instead of as a report worded by the drafter. 50s
  * leaves room under a 60s function limit to build and return it.
  */
-const BUDGET_MS = Number(process.env.ANALYTICS_AI_BUDGET_MS || 50000);
+const BUDGET_MS = () => Number(process.env.ANALYTICS_AI_BUDGET_MS || 50000);
 /** The most any single attempt may take, within that budget. */
-const TIMEOUT_MS = Number(process.env.ANALYTICS_AI_TIMEOUT_MS || 45000);
+const TIMEOUT_MS = () => Number(process.env.ANALYTICS_AI_TIMEOUT_MS || 45000);
+
+/**
+ * Overrides for a caller that nothing is waiting on.
+ *
+ * The defaults are sized for an HTTP request, which must answer before the
+ * serverless function's deadline. The queue worker has no such deadline, so
+ * it gives the provider the time a slow minute actually needs — which is the
+ * whole reason the work was moved off the request path.
+ */
+export interface AiBudget { budgetMs?: number; timeoutMs?: number }
 const MAX_CHARS = 2000;
 
-export const aiAnalystEnabled = () =>
-  process.env.ANALYTICS_AI_ENABLED === 'true' && !!process.env.GEMINI_API_KEY;
+/**
+ * Which provider to ask, with which key and models.
+ *
+ * Supplied by the caller, because it comes from the database now that an
+ * administrator can configure Gemini, Claude or ChatGPT on the settings
+ * screen. The environment is the fallback, so a deployment that configures
+ * the agent with env vars alone keeps working.
+ */
+export interface AiConfig {
+  provider: ProviderName;
+  models: string[];
+  /** Replaced in tests, so the guards can be exercised without a provider. */
+  generate: Generate;
+}
+
+/** The agent as configured by environment variables alone. */
+export function aiConfigFromEnv(): AiConfig | null {
+  if (process.env.ANALYTICS_AI_ENABLED !== 'true') return null;
+  const provider: ProviderName = isProviderName(process.env.ANALYTICS_AI_PROVIDER)
+    ? process.env.ANALYTICS_AI_PROVIDER as ProviderName : 'gemini';
+  const key = process.env[provider === 'gemini' ? 'GEMINI_API_KEY'
+    : provider === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'];
+  if (!key) return null;
+  const models = splitModels(process.env.ANALYTICS_AI_MODEL || PROVIDER_INFO[provider].defaultModels);
+  if (!models.length) return null;
+  return { provider, models, generate: generatorFor(provider, String(key)) };
+}
+
+/** Whether the agent can be asked at all, from the environment's point of view. */
+export const aiAnalystEnabled = () => !!aiConfigFromEnv();
 
 /* ------------------------------------------------------------------ *
  * What the agent is allowed to see
@@ -182,6 +223,63 @@ export function numbersAreGrounded(text: string, figures: unknown): boolean {
 }
 
 /* ------------------------------------------------------------------ *
+ * Using wording that was written earlier
+ * ------------------------------------------------------------------ */
+
+/**
+ * A fingerprint of the figures, for saying which ones a narrative was
+ * written against.
+ *
+ * This is for the screen to report, not for the safety check. Figures can
+ * change in ways that leave every sentence true — a new province with no
+ * activity, say — so refusing a narrative purely because the fingerprint
+ * moved would throw away good wording. The check below is the one that
+ * decides.
+ */
+export function figuresFingerprint(data: AnalyticsData): string {
+  return createHash('sha256').update(JSON.stringify(figuresFor(data))).digest('hex');
+}
+
+/**
+ * Whether wording written earlier is still safe to print.
+ *
+ * A queued narrative is written against the figures as they stood when the
+ * worker ran. If reports were accepted afterwards, "565 records" may now be
+ * false — and a false figure in a report to the Director General is the
+ * worst thing this feature could produce.
+ *
+ * So the grounding check is applied again, against TODAY's figures, every
+ * time stored wording is used. It is the same check the agent's answer had
+ * to pass in the first place, which is why it can be trusted here: a number
+ * that is no longer one of our figures fails it.
+ */
+export function narrativeStillGrounded(
+  narrative: unknown, data: AnalyticsData,
+): { narrative: AiNarrative | null; problem: string } {
+  // A pair rather than a discriminated union on a boolean: this project
+  // compiles without `strict`, so `ok: true | false` widens to `boolean`
+  // and the union would not narrow at the call site.
+  const no = (problem: string) => ({ narrative: null, problem });
+
+  if (!narrative || typeof narrative !== 'object' || Array.isArray(narrative)) {
+    return no('the stored wording is not an object');
+  }
+  const figures = figuresFor(data);
+  const out: Record<string, string> = {};
+  for (const key of NARRATIVE_SCALARS) {
+    const value = (narrative as any)[key];
+    if (typeof value !== 'string' || !value.trim()) {
+      return no(`the stored ${key} is missing`);
+    }
+    if (!numbersAreGrounded(value, figures)) {
+      return no(`the stored ${key} quotes a figure that the data no longer shows`);
+    }
+    out[key] = value;
+  }
+  return { narrative: out as unknown as AiNarrative, problem: '' };
+}
+
+/* ------------------------------------------------------------------ *
  * The call
  * ------------------------------------------------------------------ */
 
@@ -207,76 +305,33 @@ const PROMPT = `អ្នកគឺជាអ្នកវិភាគទិន្�
 `;
 
 /**
- * The call to the model, as a replaceable function.
- *
- * Separated so the checks can exercise the path where the agent ANSWERS —
- * the accept path, and each rejection — without a key and without a network.
- * Testing only the no-key fallback would leave the guards in this file
- * unverified, which is the opposite of the point.
- */
-export type Generate = (prompt: string, model: string, signal: AbortSignal) => Promise<string>;
-
-/**
- * One HTTPS POST, rather than the @google/genai SDK.
- *
- * The SDK hung for the full timeout against this endpoint while the same
- * request by fetch answered in under a second, so the SDK is not in the
- * path: for a single JSON generateContent call it buys nothing and couples
- * the report to an SDK version. The timeout here is ours, and honoured.
- */
-const geminiGenerate: Generate = async (prompt, model, signal) => {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-    {
-      method: 'POST',
-      signal,
-      headers: {
-        'x-goog-api-key': String(process.env.GEMINI_API_KEY),
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
-      }),
-    });
-
-  const body = await response.json().catch(() => null) as any;
-  if (!response.ok || body?.error) {
-    // The provider's own words. A model name that has been retired is the
-    // likeliest failure, and it says so precisely — worth keeping.
-    throw new Error(body?.error?.message || `HTTP ${response.status}`);
-  }
-  const parts = body?.candidates?.[0]?.content?.parts;
-  if (!Array.isArray(parts)) {
-    throw new Error(`the answer had no content (finishReason: ${body?.candidates?.[0]?.finishReason || 'none'})`);
-  }
-  return parts.map((part: any) => String(part?.text || '')).join('');
-};
-
-/**
  * Ask the agent to word the report. Returns `engine: 'deterministic'`
  * whenever its answer cannot be used, with the reason for the log.
  */
 export async function draftWithAiAnalyst(
   data: AnalyticsData,
-  generate: Generate = geminiGenerate,
+  config?: AiConfig | null,
+  budget: AiBudget = {},
 ): Promise<AiAnalystResult> {
+  const budgetMs = budget.budgetMs ?? BUDGET_MS();
+  const timeoutMs = budget.timeoutMs ?? TIMEOUT_MS();
   const fallback = (reason: string): AiAnalystResult =>
     ({ narrative: null, engine: 'deterministic', model: null, reason });
 
-  if (generate === geminiGenerate && !aiAnalystEnabled()) {
-    return fallback('ANALYTICS_AI_ENABLED is not true, or GEMINI_API_KEY is unset');
-  }
+  const active = config || aiConfigFromEnv();
+  if (!active) return fallback('no AI provider is configured');
+  if (!active.models.length) return fallback('no model is configured for the provider');
+  const generate = active.generate;
 
   const figures = figuresFor(data);
   const prompt = PROMPT + JSON.stringify(figures, null, 1);
 
-  const deadline = Date.now() + BUDGET_MS;
+  const deadline = Date.now() + budgetMs;
   const remaining = () => deadline - Date.now();
 
   /** One attempt, bounded by whichever is sooner: its timeout or the budget. */
   const ask = async (model: string) => {
-    const allowed = Math.min(TIMEOUT_MS, remaining());
+    const allowed = Math.min(timeoutMs, remaining());
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), allowed);
     try {
@@ -292,11 +347,11 @@ export async function draftWithAiAnalyst(
 
   const problems: string[] = [];
 
-  for (const model of MODELS()) {
+  for (const model of active.models) {
     for (let attempt = 1; attempt <= Math.max(1, ATTEMPTS); attempt++) {
       // Stop rather than start something the budget cannot finish.
       if (remaining() < 2000) {
-        problems.push(`budget of ${BUDGET_MS}ms spent`);
+        problems.push(`budget of ${budgetMs}ms spent`);
         return fallback(`no model answered — ${problems.join('; ')}`);
       }
       let raw: string;

@@ -18,7 +18,7 @@ import { AuditExportError, collectAuditData, createMlAuditExport, auditFiltersFr
 // same code the form uses, rather than a second copy that drifts out of step.
 import { validateAnnex8, blockingIssues, warningIssues, hostPart } from './src/annex8/validation';
 import { computeSummary, deadlineFor, isOnTime } from './src/annex8/summary';
-import { reportingPeriod } from './src/lib/consolidated/periods';
+import { reportingPeriod, toKhmerDigits } from './src/lib/consolidated/periods';
 import type { PeriodType } from './src/lib/consolidated/periods';
 import { formatConsolidatedAggregate } from './src/lib/consolidated/aggregateResult';
 import { actionWindow, draftRecordedActions } from './src/lib/consolidated/officerDrafts';
@@ -30,7 +30,10 @@ import {
 // The Smart Analytics report. Decision support only: nothing here triggers a
 // sanction, a warning or a licence action.
 import { collectAnalyticsSource, anomalyKey } from './src/analytics/aggregate';
-import { draftWithAiAnalyst } from './src/analytics/aiAnalyst';
+import { aiAnalystEnabled, narrativeStillGrounded } from './src/analytics/aiAnalyst';
+import { latestJob, latestNarrative, liveJob, requestNarrative } from './src/analytics/narrativeQueue';
+import { runOneNarrativeJob } from './src/analytics/narrativeWorker';
+import { forClient, readAiSettings, recordAiTest, resolveAiConfig, saveAiSettings } from './src/analytics/aiSettings';
 import { buildAnalyticsData } from './src/lib/analytics/buildAnalyticsData';
 import type { AnalyticsSource } from './src/lib/analytics/buildAnalyticsData';
 import {
@@ -4699,13 +4702,7 @@ app.get('/api/analytics/preview', async (req, res) => {
       .eq('period_type', ref.type).eq('period_key', periodKey).eq('status', 'DRAFT').maybeSingle();
 
     const textInputs = saved?.text_inputs || {};
-    // The agent is asked only when the screen asks for it. A 30-second
-    // model call on every page load would make the screen feel broken, cost
-    // a request per glance, and exceed the serverless function's own
-    // deadline in production. The officer presses a button instead, and the
-    // report is complete and readable before they do.
-    const useAi = String((req.query as any)?.ai || '') === '1';
-    const data = await buildAnalyticsReport(source, textInputs, useAi);
+    const data = await buildAnalyticsReport(source, textInputs, periodKey);
 
     return apiSuccess(res, {
       period: { ...ref, key: periodKey },
@@ -4742,24 +4739,263 @@ app.get('/api/analytics/preview', async (req, res) => {
  * engine, and buildAnalyticsData computes it.
  */
 async function buildAnalyticsReport(
-  source: AnalyticsSource, textInputs: Record<string, unknown>, useAi = false,
+  source: AnalyticsSource, textInputs: Record<string, unknown>, periodKey?: string,
 ) {
   const base = buildAnalyticsData(source, {});
-  if (!useAi) {
-    return buildAnalyticsData(
-      { ...source, engine: { ...source.engine, narrative: 'deterministic' } },
-      textInputs as any);
+
+  /**
+   * Wording the AI analyst produced earlier, if any, and if it still holds.
+   *
+   * No model is called here. The agent runs on the queue (see
+   * narrativeQueue.ts); this reads what it left. Stored wording is checked
+   * again against TODAY's figures before it is used, because the figures
+   * move as reports are accepted and a sentence quoting last week's total
+   * would be false. Failing that check is not an error — the deterministic
+   * drafter words the report and the limitations line says so.
+   */
+  let narrative: Record<string, string> = {};
+  let engine: 'ai-agent' | 'deterministic' = 'deterministic';
+  let agentModel: string | null = null;
+
+  if (periodKey && supabaseAdmin) {
+    try {
+      const stored = await latestNarrative(supabaseAdmin, source.period.type, periodKey);
+      if (stored?.narrative) {
+        const checked = narrativeStillGrounded(stored.narrative, base);
+        if (checked.narrative) {
+          narrative = checked.narrative as unknown as Record<string, string>;
+          engine = 'ai-agent';
+          agentModel = stored.agent_model;
+        } else {
+          console.log('Analytics: stored AI wording not used —', checked.problem);
+        }
+      }
+    } catch (err: any) {
+      // A queue that is unavailable must not stop a report being produced.
+      console.log('Analytics: could not read stored AI wording —', err?.message || err);
+    }
   }
 
-  const ai = await draftWithAiAnalyst(base);
-  if (ai.reason) console.log('Analytics AI analyst not used:', ai.reason);
-
-  const withEngine: AnalyticsSource = {
-    ...source,
-    engine: { ...source.engine, narrative: ai.engine, agent_model: ai.model },
-  };
-  return buildAnalyticsData(withEngine, { ...(ai.narrative || {}), ...textInputs } as any);
+  return buildAnalyticsData(
+    { ...source, engine: { ...source.engine, narrative: engine, agent_model: agentModel } },
+    { ...narrative, ...textInputs } as any);
 }
+
+/* ------------------------------------------------------------------ *
+ * Where the AI provider is configured
+ *
+ * Reading is open to NMC staff, because the report screen needs to know
+ * whether the agent can be asked at all. Changing it is superadmin only: it
+ * holds an API credential that the Centre pays for.
+ * ------------------------------------------------------------------ */
+
+/** GET /api/analytics/ai-settings — the provider, never the key. */
+app.get('/api/analytics/ai-settings', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+    return apiSuccess(res, {
+      settings: forClient(await readAiSettings(supabaseAdmin)),
+      // True when the agent could run right now, by whatever route.
+      ready: !!(await resolveAiConfig(supabaseAdmin)),
+      env_fallback: aiAnalystEnabled(),
+    });
+  } catch (err: any) {
+    console.error('AI settings read failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to read the AI settings.');
+  }
+});
+
+/** PUT /api/analytics/ai-settings — superadmin only. */
+app.put('/api/analytics/ai-settings', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+    if (String(resolved.userRow?.role) !== 'superadmin') {
+      return apiError(res, 403, 'Only a superadmin may change the AI provider.');
+    }
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const actor = String(resolved.userRow?.username || resolved.userRow?.id || '');
+    const { row, problem } = await saveAiSettings(supabaseAdmin, req.body || {}, actor);
+    if (problem) return apiError(res, 400, problem);
+    return apiSuccess(res, {
+      settings: forClient(row),
+      ready: !!(await resolveAiConfig(supabaseAdmin)),
+    });
+  } catch (err: any) {
+    console.error('AI settings save failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to save the AI settings.');
+  }
+});
+
+/**
+ * POST /api/analytics/ai-settings/test — one short call, to prove the key.
+ *
+ * Cheaper and far clearer than queueing a report to find out: a wrong key,
+ * a retired model name or an exhausted quota each come back as the
+ * provider's own words rather than as a report that quietly fell back to
+ * the deterministic drafter.
+ */
+app.post('/api/analytics/ai-settings/test', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+    if (String(resolved.userRow?.role) !== 'superadmin') {
+      return apiError(res, 403, 'Only a superadmin may test the AI provider.');
+    }
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const config = await resolveAiConfig(supabaseAdmin);
+    if (!config) {
+      return apiError(res, 400, 'No AI provider is configured and switched on.');
+    }
+
+    const started = Date.now();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const text = await config.generate(
+        'Reply with this JSON and nothing else: {"ok":true}', config.models[0], controller.signal);
+      const parsed = JSON.parse(text);
+      const ok = parsed?.ok === true;
+      const message = ok
+        ? `${config.provider} / ${config.models[0]} answered in ${((Date.now() - started) / 1000).toFixed(1)}s`
+        : `answered, but not with the JSON asked for: ${String(text).slice(0, 120)}`;
+      await recordAiTest(supabaseAdmin, ok, message);
+      return apiSuccess(res, { ok, message, provider: config.provider, model: config.models[0] });
+    } catch (err: any) {
+      const message = err?.name === 'AbortError'
+        ? 'the provider did not answer within 30s'
+        : String(err?.message || err).slice(0, 400);
+      await recordAiTest(supabaseAdmin, false, message);
+      return apiSuccess(res, { ok: false, message, provider: config.provider, model: config.models[0] });
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (err: any) {
+    console.error('AI settings test failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to test the AI provider.');
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * The AI analyst's queue
+ *
+ * Three endpoints: ask for wording, see where it stands, and do one job.
+ * The work itself never happens in the first two — see narrativeQueue.ts
+ * for why.
+ * ------------------------------------------------------------------ */
+
+/** What the screen needs to know about a period's wording, without the text. */
+const narrativeState = (job: any) => !job ? null : {
+  id: job.id,
+  status: job.status,
+  attempts: job.attempts ?? 0,
+  agent_model: job.agent_model ?? null,
+  requested_by: job.requested_by ?? null,
+  requested_at: job.requested_at ?? null,
+  finished_at: job.finished_at ?? null,
+  // The provider's own words, which are usually the whole explanation.
+  last_error: job.last_error ?? null,
+};
+
+/**
+ * POST /api/analytics/narrative
+ *   { period_type, year, index }
+ *
+ * Asks the AI analyst to word this period. Returns at once: the wording
+ * appears on the next preview once a worker has produced it. Pressing twice
+ * returns the job already queued rather than paying for a second call.
+ */
+app.post('/api/analytics/narrative', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const ref = analyticsPeriodFromQuery(req);
+    if (!ref) return apiError(res, 400, 'period_type, year and index are required.');
+    const periodKey = analyticsPeriodKey(ref.type, ref.year, ref.index);
+
+    // Whatever the settings screen says, not just the environment.
+    if (!(await resolveAiConfig(supabaseAdmin))) {
+      return apiError(res, 503, 'ភ្នាក់ងារ AI មិនបានកំណត់រចនាសម្ព័ន្ធទេ។ របាយការណ៍ត្រូវតាក់តែងដោយប្រព័ន្ធ។');
+    }
+
+    const actor = String(resolved.userRow?.username || resolved.userRow?.id || '');
+    const { job, created } = await requestNarrative(supabaseAdmin, ref.type, periodKey, actor);
+    return apiSuccess(res, { job: narrativeState(job), created });
+  } catch (err: any) {
+    console.error('Analytics narrative request failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to queue the AI wording.');
+  }
+});
+
+/**
+ * GET /api/analytics/narrative?period_type=&year=&index=
+ *
+ * Where the wording stands. The screen polls this while a job is live.
+ */
+app.get('/api/analytics/narrative', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const ref = analyticsPeriodFromQuery(req);
+    if (!ref) return apiError(res, 400, 'period_type, year and index are required.');
+    const periodKey = analyticsPeriodKey(ref.type, ref.year, ref.index);
+
+    const [live, latest, done] = await Promise.all([
+      liveJob(supabaseAdmin, ref.type, periodKey),
+      latestJob(supabaseAdmin, ref.type, periodKey),
+      latestNarrative(supabaseAdmin, ref.type, periodKey),
+    ]);
+
+    return apiSuccess(res, {
+      enabled: !!(await resolveAiConfig(supabaseAdmin)),
+      // Live while the work is outstanding; otherwise the last thing to happen.
+      job: narrativeState(live || latest),
+      working: !!live,
+      has_wording: !!done?.narrative,
+    });
+  } catch (err: any) {
+    console.error('Analytics narrative status failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to read the AI wording status.');
+  }
+});
+
+/**
+ * POST /api/analytics/narrative/run
+ *
+ * Does ONE job, then returns. Called by the cron, by the worker script, or
+ * by a member of staff who would rather not wait for either.
+ *
+ * One job per call on purpose: a serverless function has a deadline, and a
+ * loop over a full queue would be cut off mid-call, leaving a job claimed
+ * and a paid-for answer thrown away. The cron comes back for the next one.
+ */
+app.post('/api/analytics/narrative/run', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    // Either the cron secret, or signed-in NMC staff.
+    const cronSecret = process.env.CRON_SECRET;
+    const reqSecret = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    if (!cronSecret || reqSecret !== cronSecret) {
+      const resolved = await requireNmcStaff(req, res);
+      if (!resolved) return;
+    }
+    if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
+
+    const outcome = await runOneNarrativeJob(supabaseAdmin);
+    return apiSuccess(res, outcome);
+  } catch (err: any) {
+    console.error('Analytics narrative run failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to run the AI wording queue.');
+  }
+});
 
 async function analyticsFinalsFor(type: string, periodKey: string) {
   const { data } = await supabaseAdmin
@@ -4792,7 +5028,7 @@ app.put('/api/analytics/draft', async (req, res) => {
     }
 
     const source = await collectAnalyticsSource(supabaseAdmin, ref.type, ref.year, ref.index);
-    const data = await buildAnalyticsReport(source, textInputs);
+    const data = await buildAnalyticsReport(source, textInputs, periodKey);
     const problems = analyticsDataProblems(data);
     if (problems.length) {
       return apiError(res, 422, `The report data is incomplete: ${problems.slice(0, 3).join('; ')}`);
@@ -4859,7 +5095,7 @@ app.post('/api/analytics/finalise', async (req, res) => {
     if (!reviewer) return apiError(res, 422, 'អ្នកពិនិត្យ: ត្រូវបំពេញឈ្មោះមុនអនុម័ត។');
 
     const source = await collectAnalyticsSource(supabaseAdmin, ref.type, ref.year, ref.index);
-    const data = await buildAnalyticsReport(source, textInputs);
+    const data = await buildAnalyticsReport(source, textInputs, periodKey);
     const problems = analyticsDataProblems(data);
     if (problems.length) {
       return apiError(res, 422, `The report data is incomplete: ${problems.slice(0, 3).join('; ')}`);
@@ -4875,7 +5111,31 @@ app.post('/api/analytics/finalise', async (req, res) => {
     const sequence = String((existingFinals || []).length + 1).padStart(3, '0');
     const reportNo = `NMC-ANL-${periodKey}-${sequence}`;
 
-    const frozen = { ...data, report_no: reportNo };
+    /**
+     * Letter number, allocated here and nowhere else.
+     *
+     * Counted across the calendar year rather than the reporting period,
+     * because a letter register runs by year: the twelfth monthly report of
+     * 2026 is letter 12, not letter 1 of December. A draft prints dots —
+     * allocating on preview would burn numbers every time someone looked.
+     *
+     * Format assumed to be NNN/YY in Khmer numerals. It stays editable, so
+     * if the Centre's register uses another form an officer can correct it
+     * and the corrected value is what is frozen.
+     */
+    const signedYear = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Phnom_Penh' }).slice(0, 4);
+    const { data: yearFinals } = await supabaseAdmin
+      .from('analytics_reports').select('letter_no').eq('status', 'FINAL')
+      .like('period_key', `${signedYear}%`);
+    const letterSequence = String((yearFinals || []).length + 1).padStart(3, '0');
+    const letterNo = toKhmerDigits(`${letterSequence}/${signedYear.slice(2)}`);
+
+    const frozen = {
+      ...data,
+      report_no: reportNo,
+      // An officer's own entry wins, for both registers.
+      letter_no: String(textInputs.letter_no || '').replace(/[.\s]/g, '') ? textInputs.letter_no : letterNo,
+    };
 
     const { data: saved, error } = await supabaseAdmin.from('analytics_reports').insert({
       period_type: ref.type,

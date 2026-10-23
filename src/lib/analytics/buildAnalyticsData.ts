@@ -25,6 +25,22 @@ import {
   KHMER_MONTHS, periodTemplateFields, previousPeriod, reportingPeriod, toKhmerDigits,
 } from '../consolidated/periods';
 import type { PeriodType, ReportingPeriod } from '../consolidated/periods';
+import { formatKhmerOfficialDateBlock } from '../../utils/khmerOfficialDate';
+
+/**
+ * The Chhankitek lunar line, or '' when it cannot be computed.
+ *
+ * Reuses the helper the rest of the system prints its official dates with,
+ * rather than a second implementation: two modules wording the same date
+ * differently is the kind of thing that gets noticed in a ministry.
+ */
+function khmerLunarLine(date: Date): string {
+  try {
+    return formatKhmerOfficialDateBlock(date, { includeUnavailableLunarLine: false }).lunarLine || '';
+  } catch {
+    return '';
+  }
+}
 
 /* ------------------------------------------------------------------ *
  * What the database hands us
@@ -105,6 +121,11 @@ export interface AnalyticsSource {
   quality: QualityRow[];
   models: ModelRow[];
   min_sample?: number;
+  /**
+   * The letter number, when one has been allocated. Absent on a draft,
+   * which prints dots until the report is approved.
+   */
+  letter_no?: string;
   /**
    * Which engine performed the analysis, for the machine's signature block
    * and for the limitations list. Absent means no trained model was
@@ -540,10 +561,29 @@ export function buildAnalyticsData(
   };
 
   const officerBlank: Record<string, string> = {
-    letter_no: DOTS, report_no: DOTS,
-    lunar_date_line: 'ថ្ងៃ............ ខែ............ ឆ្នាំ............ ព.ស.............',
-    signed_day_kh: '........', signed_month_kh: '............', signed_year_kh: '............',
+    // Allocated at approval, so a draft shows what it would be.
+    letter_no: source.letter_no || DOTS,
+    report_no: DOTS,
     reviewer_name: DOTS, reviewer_position: DOTS, reviewed_date_kh: '......../......../............',
+  };
+
+  /**
+   * The signing date, generated.
+   *
+   * Taken from the moment the report is built, in Asia/Phnom_Penh, so a
+   * report prepared late in the evening here is not dated tomorrow. The
+   * lunar line comes from the Chhankitek helper the rest of the system
+   * uses; where it cannot be computed the line is left as rules rather than
+   * guessed, because an invented lunar date on a ministry letter is worse
+   * than a blank one.
+   */
+  const signedOn = new Date(`${generatedIso}T00:00:00+07:00`);
+  const auto: Record<string, string> = {
+    lunar_date_line: khmerLunarLine(signedOn)
+      || 'ថ្ងៃ............ ខែ............ ឆ្នាំ............ ព.ស.............',
+    signed_day_kh: kh(Number(generatedIso.slice(8, 10))),
+    signed_month_kh: KHMER_MONTHS[Number(generatedIso.slice(5, 7)) - 1] || '',
+    signed_year_kh: kh(generatedIso.slice(0, 4)),
   };
 
   /**
@@ -565,6 +605,7 @@ export function buildAnalyticsData(
     ...computed,
     ...drafted,
     ...officerBlank,
+    ...auto,
     ...machine,
     key_findings: draftKeyFindings(source, fields),
     limitations: draftLimitations(source),

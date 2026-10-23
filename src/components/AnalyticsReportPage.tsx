@@ -28,6 +28,7 @@ import type { AnalyticsData, AnalyticsTextInputs, ReviewStatus } from '../lib/an
 import { analyticsFileName, downloadAnalyticsDocx } from '../lib/analytics/analyticsDocx';
 import { reportingPeriod, toKhmerDigits, KHMER_MONTHS } from '../lib/consolidated/periods';
 import type { PeriodType } from '../lib/consolidated/periods';
+import AnalyticsAiSettings from './AnalyticsAiSettings';
 import { apiRequest } from '../supabaseSync';
 import { MetrologyUser } from '../types';
 
@@ -48,9 +49,9 @@ const NARRATIVE_LABELS: Record<string, { kh: string; rows: number }> = {
 };
 
 const OFFICER_LABELS: Record<string, string> = {
-  letter_no: 'លេខលិខិត',
-  lunar_date_line: 'ថ្ងៃខែចន្ទគតិ',
-  signed_day_kh: 'ថ្ងៃ', signed_month_kh: 'ខែ', signed_year_kh: 'ឆ្នាំ',
+  // The date fields are generated now, so they are not listed here. The two
+  // register numbers are generated too but stay editable — see the contract.
+  letter_no: 'លេខលិខិត (ផ្ដល់ដោយស្វ័យប្រវត្តិពេលអនុម័ត)',
   reviewer_name: 'ឈ្មោះអ្នកពិនិត្យ', reviewer_position: 'តួនាទីអ្នកពិនិត្យ',
   reviewed_date_kh: 'កាលបរិច្ឆេទពិនិត្យ',
   report_no: 'លេខរបាយការណ៍ (ផ្ដល់ដោយស្វ័យប្រវត្តិពេលអនុម័ត)',
@@ -89,19 +90,17 @@ export default function AnalyticsReportPage(
   /**
    * Load the period's figures.
    *
-   * `withAi` asks the AI analyst agent to word the commentary. It is a
-   * deliberate press rather than part of every load: the model takes tens of
-   * seconds when the provider is busy, and a report that cannot be read
-   * until it answers is worse than one worded by the system.
+   * Always fast: the AI analyst's wording is read from the queue if a worker
+   * has produced it, and no model is called here. Asking for new wording is
+   * a separate request — see requestAiWording below.
    */
-  const load = useCallback(async (withAi = false) => {
-    if (withAi) setBusy('ai'); else setLoading(true);
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({
         period_type: periodType, year: String(year), index: String(index),
       });
-      if (withAi) params.set('ai', '1');
       const res = await apiRequest<any>(`/api/analytics/preview?${params}`);
       setData(res.data);
       setAnomalies(res.source?.anomalies || []);
@@ -116,14 +115,84 @@ export default function AnalyticsReportPage(
       setDirty(false);
     } catch (err: any) {
       setError({ kh: 'មិនអាចបង្កើតរបាយការណ៍វិភាគបានទេ', detail: err?.message || String(err) });
-      if (!withAi) setData(null);
+      if (!quiet) setData(null);
     } finally {
       setLoading(false);
-      setBusy(null);
     }
   }, [periodType, year, index]);
 
   useEffect(() => { void load(); }, [load]);
+
+  /* ---- the AI analyst's queue ---- */
+
+  const [aiJob, setAiJob] = useState<any>(null);
+  const [aiEnabled, setAiEnabled] = useState(false);
+
+  const readAiStatus = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({
+        period_type: periodType, year: String(year), index: String(index),
+      });
+      const res = await apiRequest<any>(`/api/analytics/narrative?${params}`);
+      setAiEnabled(!!res.enabled);
+      setAiJob(res.job || null);
+      return !!res.working;
+    } catch {
+      // The queue being unreadable is not worth an error banner: the report
+      // on screen is complete, it is only the AI wording that is unknown.
+      return false;
+    }
+  }, [periodType, year, index]);
+
+  useEffect(() => { void readAiStatus(); }, [readAiStatus]);
+
+  /**
+   * Ask the AI analyst to word this period.
+   *
+   * Returns as soon as the job is queued. A worker does the call — which
+   * takes tens of seconds, and minutes when the provider is busy — and the
+   * wording appears on the next load. Nothing on this screen waits for it.
+   */
+  const requestAiWording = async () => {
+    setBusy('ai');
+    try {
+      const res = await apiRequest<any>('/api/analytics/narrative', {
+        method: 'POST',
+        body: JSON.stringify({ period_type: periodType, year, index }),
+      });
+      setAiJob(res.job || null);
+      toastMsg(res.created
+        ? 'បានដាក់ចូលជួរ។ អត្ថបទនឹងបង្ហាញនៅពេលភ្នាក់ងារ AI សរសេររួច។'
+        : 'កំពុងដំណើរការរួចហើយសម្រាប់គ្រានេះ។', 'success');
+    } catch (err: any) {
+      toastMsg(err?.message || 'មិនអាចដាក់ចូលជួរបានទេ', 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * While a job is outstanding, check back.
+   *
+   * Polling rather than a socket: one row every eight seconds for the
+   * minute or two a job lasts is not worth a second transport, and a
+   * closed tab stops it by itself. When the job finishes, the figures are
+   * reloaded quietly so the new wording appears without the screen blanking.
+   */
+  useEffect(() => {
+    if (!aiJob || !['PENDING', 'RUNNING'].includes(String(aiJob.status))) return;
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      void (async () => {
+        const working = await readAiStatus();
+        if (!working && !cancelled) {
+          window.clearInterval(timer);
+          await load(true);
+        }
+      })();
+    }, 8000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [aiJob, readAiStatus, load]);
 
   /** What the analyst has in the boxes, over the freshly computed figures. */
   const merged = useMemo<AnalyticsData | null>(() => {
@@ -385,6 +454,11 @@ export default function AnalyticsReportPage(
             )}
           </Panel>
 
+          {/* Configuring the provider sits with the button that uses it,
+              rather than in a settings page nobody connects to this screen.
+              The component renders nothing for a non-superadmin. */}
+          <AnalyticsAiSettings currentUser={currentUser} toastMsg={toastMsg} />
+
           {/* Who did the analysis. Read-only: the machine signs its own work. */}
           <Panel title="អ្នកវិភាគ" en="Analyst — the machine, automatically">
             <div className="grid gap-2 sm:grid-cols-3">
@@ -411,27 +485,39 @@ export default function AnalyticsReportPage(
               អត្ថបទខាងក្រោមត្រូវបានតាក់តែងដោយស្វ័យប្រវត្តិពីតួលេខដែលបានគណនា។
               សូមអានឱ្យច្បាស់ និងកែសម្រួលមុនពេលអនុម័ត។
             </p>
-            {/* Asking the agent is a press, not part of every load: it takes
-                tens of seconds when the provider is busy, and the report is
-                already complete and readable without it. */}
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void load(true)}
-                disabled={!!busy || loading}
-                className="flex items-center gap-1.5 rounded-lg border border-[#0B2A66] bg-[#0B2A66] px-3 py-2 text-[11px] font-black text-white hover:bg-[#123a85] disabled:opacity-50"
-              >
-                {busy === 'ai'
-                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  : <Sparkles className="h-3.5 w-3.5" />}
-                តាក់តែងឡើងវិញដោយភ្នាក់ងារ AI / Rewrite with the AI agent
-              </button>
-              <span className="text-[10px] font-semibold text-slate-500">
-                {busy === 'ai'
-                  ? 'កំពុងរង់ចាំភ្នាក់ងារ AI… អាចចំណាយពេលរហូតដល់ ១ នាទី។'
-                  : 'ការកែសម្រួលរបស់អ្នកនឹងត្រូវជំនួស។'}
-              </span>
-            </div>
+            {/* Asking the agent queues the work; a worker makes the call.
+                Nothing on this screen waits for the provider. */}
+            {aiEnabled && (() => {
+              const status = String(aiJob?.status || '');
+              const working = ['PENDING', 'RUNNING'].includes(status);
+              return (
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void requestAiWording()}
+                    disabled={!!busy || loading || working}
+                    className="flex items-center gap-1.5 rounded-lg border border-[#0B2A66] bg-[#0B2A66] px-3 py-2 text-[11px] font-black text-white hover:bg-[#123a85] disabled:opacity-50"
+                  >
+                    {busy === 'ai' || working
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Sparkles className="h-3.5 w-3.5" />}
+                    តាក់តែងដោយភ្នាក់ងារ AI / Write with the AI agent
+                  </button>
+                  <span className="text-[10px] font-semibold text-slate-500">
+                    {status === 'PENDING' ? 'កំពុងរង់ចាំក្នុងជួរ… អត្ថបទនឹងបង្ហាញដោយខ្លួនឯង។'
+                      : status === 'RUNNING' ? 'ភ្នាក់ងារ AI កំពុងសរសេរ…'
+                      : status === 'FAILED' ? 'មិនបានសម្រេច — សូមសាកល្បងម្ដងទៀត។'
+                      : status === 'DONE' ? `សរសេរដោយ ${aiJob?.agent_model || 'AI'}។ ការកែសម្រួលរបស់អ្នកនឹងត្រូវជំនួស។`
+                      : 'ការកែសម្រួលរបស់អ្នកនឹងត្រូវជំនួស។'}
+                  </span>
+                  {status === 'FAILED' && aiJob?.last_error && (
+                    <p className="w-full break-words text-[10px] font-semibold text-red-700">
+                      {aiJob.last_error}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
             <div className="space-y-3">
               {NARRATIVE_SCALARS.map(key => (
                 <div key={key}>

@@ -24,7 +24,7 @@ import { MACHINE_SCALARS, OFFICER_SCALARS, dataProblems } from '../src/lib/analy
 import type { AnalyticsData } from '../src/lib/analytics/contract';
 import { applyTextInputs } from '../src/lib/analytics/buildAnalyticsData';
 import { aiAnalystEnabled, draftWithAiAnalyst, figuresFor, numbersAreGrounded } from '../src/analytics/aiAnalyst';
-import type { Generate } from '../src/analytics/aiAnalyst';
+import type { Generate } from '../src/analytics/aiProviders';
 import { ML_MAX_POINTS, featureLabelKh, mlRiskContribution } from '../src/analytics/mlSignals';
 import type { LicenceSignal } from '../src/analytics/mlSignals';
 
@@ -239,8 +239,10 @@ await checkAsync('and falls back to the deterministic wording, with a reason', a
 console.log('\nWhen the agent does answer');
 
 /** A stand-in agent, so the guards are exercised without a key or a network. */
-const agentReturning = (body: unknown): Generate =>
-  async () => typeof body === 'string' ? body : JSON.stringify(body);
+const stub = (generate: Generate, models = ['model-a']) =>
+  ({ provider: 'gemini' as const, models, generate });
+const agentReturning = (body: unknown) =>
+  stub(async () => typeof body === 'string' ? body : JSON.stringify(body));
 
 const good = {
   executive_summary: 'ក្នុងអំឡុងពេលនេះ មានអ្នកកាន់អាជ្ញាប័ណ្ណចំនួន ២៤ ត្រូវបានវិភាគ។',
@@ -307,35 +309,34 @@ await checkAsync('a JSON array is refused', async () => {
 
 await checkAsync('an exhausted quota falls through to the next model', async () => {
   // The free tier allows 20 requests per day per MODEL, and says to retry in
-  // over an hour. Retrying the same model inside a 50-second budget cannot
-  // work; the next model has its own quota and may answer.
-  const before = process.env.ANALYTICS_AI_MODEL;
-  process.env.ANALYTICS_AI_MODEL = 'model-a,model-b';
-  try {
-    const asked: string[] = [];
-    const result = await draftWithAiAnalyst(sample, async (_prompt, model) => {
-      asked.push(model);
-      if (model === 'model-a') throw new Error('You exceeded your current quota. Please retry in 1h38m.');
-      return JSON.stringify(good);
-    });
-    assert.deepEqual(asked, ['model-a', 'model-b'], 'it should try model-b, once, not retry model-a');
-    assert.equal(result.engine, 'ai-agent');
-    assert.equal(result.model, 'model-b', 'the report must name the model that actually answered');
-  } finally {
-    if (before === undefined) delete process.env.ANALYTICS_AI_MODEL;
-    else process.env.ANALYTICS_AI_MODEL = before;
-  }
+  // over an hour. Retrying the same model inside a seconds-long budget
+  // cannot work; the next model has its own quota and may answer.
+  const asked: string[] = [];
+  const result = await draftWithAiAnalyst(sample, stub(async (_prompt, model) => {
+    asked.push(model);
+    if (model === 'model-a') throw new Error('You exceeded your current quota. Please retry in 1h38m.');
+    return JSON.stringify(good);
+  }, ['model-a', 'model-b']));
+  assert.deepEqual(asked, ['model-a', 'model-b'], 'it should try model-b, once, not retry model-a');
+  assert.equal(result.engine, 'ai-agent');
+  assert.equal(result.model, 'model-b', 'the report must name the model that actually answered');
+});
+
+await checkAsync('with no provider configured it says so and words it deterministically', async () => {
+  const result = await draftWithAiAnalyst(sample, null);
+  assert.equal(result.engine, 'deterministic');
+  assert.match(result.reason || '', /no AI provider is configured|no model/);
 });
 
 await checkAsync('an agent that throws does not take the report down', async () => {
-  const result = await draftWithAiAnalyst(sample, async () => { throw new Error('upstream 503'); });
+  const result = await draftWithAiAnalyst(sample, stub(async () => { throw new Error('upstream 503'); }));
   assert.equal(result.engine, 'deterministic');
   assert.match(result.reason || '', /upstream 503/);
 });
 
 await checkAsync('the figures reach the agent in its prompt', async () => {
   let seen = '';
-  await draftWithAiAnalyst(sample, async prompt => { seen = prompt; return JSON.stringify(good); });
+  await draftWithAiAnalyst(sample, stub(async prompt => { seen = prompt; return JSON.stringify(good); }));
   assert.ok(seen.includes('executive_summary'), 'the prompt should state the expected shape');
   assert.ok(seen.includes(String(sample.records_analyzed)), 'the figures should be in the prompt');
 });

@@ -108,17 +108,38 @@ export const NARRATIVE_SCALARS = [
  */
 export const MACHINE_SCALARS = ['analyst_name', 'analyst_position', 'analysed_date_kh'] as const;
 
-/** Typed by the officer. Blank prints as dots, never as a guess. */
+/**
+ * The date the report is signed, generated rather than typed.
+ *
+ * A date is a fact, not a judgement: nobody should be copying today's date
+ * into four boxes, and a report dated by hand is a report that eventually
+ * carries last month's date. The lunar line comes from the Chhankitek
+ * calendar the rest of the system already uses, so this report words the
+ * date exactly as the others do.
+ */
+export const AUTO_SCALARS = [
+  'lunar_date_line', 'signed_day_kh', 'signed_month_kh', 'signed_year_kh',
+] as const;
+
+/**
+ * Typed by the officer. Blank prints as dots, never as a guess.
+ *
+ * `letter_no` and `report_no` are both allocated automatically — see the
+ * finalise endpoint — but stay here, and stay editable, because they belong
+ * to the Centre's own registers. If a number has to match a register entry
+ * that was made elsewhere, an officer must be able to correct it.
+ */
 export const OFFICER_SCALARS = [
-  'letter_no', 'report_no', 'lunar_date_line', 'signed_day_kh', 'signed_month_kh',
-  'signed_year_kh', 'reviewer_name', 'reviewer_position', 'reviewed_date_kh',
+  'letter_no', 'report_no',
+  'reviewer_name', 'reviewer_position', 'reviewed_date_kh',
 ] as const;
 
 /** Loops the analyst edits rather than the system computing outright. */
 export const NARRATIVE_LOOPS = ['key_findings', 'limitations', 'recommendations'] as const;
 
 export const SCALAR_KEYS: string[] = [
-  ...COMPUTED_SCALARS, ...NARRATIVE_SCALARS, ...MACHINE_SCALARS, ...OFFICER_SCALARS,
+  ...COMPUTED_SCALARS, ...NARRATIVE_SCALARS, ...MACHINE_SCALARS,
+  ...AUTO_SCALARS, ...OFFICER_SCALARS,
 ];
 
 export type AnalyticsData = Record<(typeof SCALAR_KEYS)[number], Value> & LoopRows;

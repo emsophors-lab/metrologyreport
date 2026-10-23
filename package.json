@@ -39,6 +39,8 @@
     "analytics:check": "tsx scripts/analytics-check.ts",
     "analytics:ai:check": "tsx scripts/analytics-ai-check.ts",
     "analytics:ai:live": "tsx scripts/analytics-ai-live.ts",
+    "analytics:narrative-worker": "tsx scripts/analytics-narrative-worker.ts",
+    "analytics:queue:check": "tsx scripts/analytics-queue-check.ts",
     "ml:filters:check": "tsx scripts/ml-audit-filters-check.ts"
   },
   "dependencies": {
