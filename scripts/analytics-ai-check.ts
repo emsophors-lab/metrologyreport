@@ -24,6 +24,7 @@ import { MACHINE_SCALARS, OFFICER_SCALARS, dataProblems } from '../src/lib/analy
 import type { AnalyticsData } from '../src/lib/analytics/contract';
 import { applyTextInputs } from '../src/lib/analytics/buildAnalyticsData';
 import { aiAnalystEnabled, draftWithAiAnalyst, figuresFor, numbersAreGrounded } from '../src/analytics/aiAnalyst';
+import type { Generate } from '../src/analytics/aiAnalyst';
 import { ML_MAX_POINTS, featureLabelKh, mlRiskContribution } from '../src/analytics/mlSignals';
 import type { LicenceSignal } from '../src/analytics/mlSignals';
 
@@ -230,6 +231,113 @@ await checkAsync('and falls back to the deterministic wording, with a reason', a
     assert.equal(result.narrative, null);
     assert.ok(result.reason, 'a fallback must say why, for the log');
   } finally { if (before !== undefined) process.env.ANALYTICS_AI_ENABLED = before; }
+});
+
+/* ------------------------------------------------------------------ *
+ * 6. The path where the agent answers
+ * ------------------------------------------------------------------ */
+console.log('\nWhen the agent does answer');
+
+/** A stand-in agent, so the guards are exercised without a key or a network. */
+const agentReturning = (body: unknown): Generate =>
+  async () => typeof body === 'string' ? body : JSON.stringify(body);
+
+const good = {
+  executive_summary: 'ក្នុងអំឡុងពេលនេះ មានអ្នកកាន់អាជ្ញាប័ណ្ណចំនួន ២៤ ត្រូវបានវិភាគ។',
+  trend_commentary: 'និន្នាការមានស្ថេរភាព ហើយការព្យាករមានចន្លោះទំនុកចិត្ត ៩៥%។',
+  geo_commentary: 'សកម្មភាពភាគច្រើនស្ថិតនៅរាជធានីភ្នំពេញ។',
+  conclusion: 'សូមបន្តតាមដានតាមផែនការ។',
+};
+
+await checkAsync('a clean answer is accepted and attributed to the agent', async () => {
+  const result = await draftWithAiAnalyst(sample, agentReturning(good));
+  assert.equal(result.engine, 'ai-agent');
+  assert.equal(result.narrative?.conclusion, good.conclusion);
+  assert.ok(result.model, 'the model name must be recorded for the report');
+});
+
+await checkAsync('only the four narrative keys are taken from it', async () => {
+  const result = await draftWithAiAnalyst(sample, agentReturning({
+    ...good, analyst_name: 'លោក ក', risk_high: 999, recommendations: [{ text: 'x' }],
+  }));
+  assert.equal(result.engine, 'ai-agent');
+  assert.deepEqual(Object.keys(result.narrative as object).sort(),
+    ['conclusion', 'executive_summary', 'geo_commentary', 'trend_commentary']);
+});
+
+await checkAsync('an answer containing an invented figure is refused', async () => {
+  const result = await draftWithAiAnalyst(sample, agentReturning({
+    ...good, executive_summary: 'មានអ្នកកាន់អាជ្ញាប័ណ្ណចំនួន ៩៩៩ ត្រូវបានវិភាគ។',
+  }));
+  assert.equal(result.engine, 'deterministic');
+  assert.equal(result.narrative, null);
+  assert.match(result.reason || '', /executive_summary/);
+});
+
+await checkAsync('a missing section is refused rather than printed blank', async () => {
+  const { conclusion: _dropped, ...partial } = good;
+  const result = await draftWithAiAnalyst(sample, agentReturning(partial));
+  assert.equal(result.engine, 'deterministic');
+  assert.match(result.reason || '', /conclusion/);
+});
+
+await checkAsync('an empty section is refused', async () => {
+  const result = await draftWithAiAnalyst(sample, agentReturning({ ...good, geo_commentary: '   ' }));
+  assert.equal(result.engine, 'deterministic');
+  assert.match(result.reason || '', /geo_commentary/);
+});
+
+await checkAsync('a runaway answer is refused', async () => {
+  const result = await draftWithAiAnalyst(sample, agentReturning({ ...good, conclusion: 'ក'.repeat(5000) }));
+  assert.equal(result.engine, 'deterministic');
+  assert.match(result.reason || '', /longer than/);
+});
+
+await checkAsync('text that is not JSON is refused', async () => {
+  const result = await draftWithAiAnalyst(sample, agentReturning('Sure! Here is your report:'));
+  assert.equal(result.engine, 'deterministic');
+  assert.ok(result.reason);
+});
+
+await checkAsync('a JSON array is refused', async () => {
+  const result = await draftWithAiAnalyst(sample, agentReturning([good]));
+  assert.equal(result.engine, 'deterministic');
+  assert.match(result.reason || '', /JSON object/);
+});
+
+await checkAsync('an exhausted quota falls through to the next model', async () => {
+  // The free tier allows 20 requests per day per MODEL, and says to retry in
+  // over an hour. Retrying the same model inside a 50-second budget cannot
+  // work; the next model has its own quota and may answer.
+  const before = process.env.ANALYTICS_AI_MODEL;
+  process.env.ANALYTICS_AI_MODEL = 'model-a,model-b';
+  try {
+    const asked: string[] = [];
+    const result = await draftWithAiAnalyst(sample, async (_prompt, model) => {
+      asked.push(model);
+      if (model === 'model-a') throw new Error('You exceeded your current quota. Please retry in 1h38m.');
+      return JSON.stringify(good);
+    });
+    assert.deepEqual(asked, ['model-a', 'model-b'], 'it should try model-b, once, not retry model-a');
+    assert.equal(result.engine, 'ai-agent');
+    assert.equal(result.model, 'model-b', 'the report must name the model that actually answered');
+  } finally {
+    if (before === undefined) delete process.env.ANALYTICS_AI_MODEL;
+    else process.env.ANALYTICS_AI_MODEL = before;
+  }
+});
+
+await checkAsync('an agent that throws does not take the report down', async () => {
+  const result = await draftWithAiAnalyst(sample, async () => { throw new Error('upstream 503'); });
+  assert.equal(result.engine, 'deterministic');
+  assert.match(result.reason || '', /upstream 503/);
+});
+
+await checkAsync('the figures reach the agent in its prompt', async () => {
+  let seen = '';
+  await draftWithAiAnalyst(sample, async prompt => { seen = prompt; return JSON.stringify(good); });
+  assert.ok(seen.includes('executive_summary'), 'the prompt should state the expected shape');
+  assert.ok(seen.includes(String(sample.records_analyzed)), 'the figures should be in the prompt');
 });
 
 console.log(failures ? `\n${failures} check(s) FAILED\n` : '\nThe machine analyst holds.\n');

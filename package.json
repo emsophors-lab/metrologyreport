@@ -14,6 +14,7 @@
     "ml:local-status": "tsx scripts/ml-local-setup.ts",
     "ml:local-migrate": "tsx scripts/ml-local-setup.ts --migrate",
     "ml:lifecycle-check": "tsx scripts/ml-lifecycle-check.ts",
+    "ml:seed": "tsx scripts/ml-seed-training-data.ts",
     "ml:export-check": "tsx scripts/ml-export-check.ts",
     "ml:narrative-check": "tsx scripts/ml-narrative-check.ts",
     "auth:check": "tsx scripts/auth-login-check.ts",
@@ -37,6 +38,7 @@
     "annex8:check:sql": "node scripts/annex8-check-supabase-sql.mjs",
     "analytics:check": "tsx scripts/analytics-check.ts",
     "analytics:ai:check": "tsx scripts/analytics-ai-check.ts",
+    "analytics:ai:live": "tsx scripts/analytics-ai-live.ts",
     "ml:filters:check": "tsx scripts/ml-audit-filters-check.ts"
   },
   "dependencies": {

@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, CheckCircle2, ClipboardCheck, Download, FileText, Loader2,
-  RotateCcw, Save, ShieldCheck,
+  RotateCcw, Save, ShieldCheck, Sparkles,
 } from 'lucide-react';
 
 import {
@@ -86,19 +86,28 @@ export default function AnalyticsReportPage(
   const period = useMemo(
     () => reportingPeriod(periodType, year, index), [periodType, year, index]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /**
+   * Load the period's figures.
+   *
+   * `withAi` asks the AI analyst agent to word the commentary. It is a
+   * deliberate press rather than part of every load: the model takes tens of
+   * seconds when the provider is busy, and a report that cannot be read
+   * until it answers is worse than one worded by the system.
+   */
+  const load = useCallback(async (withAi = false) => {
+    if (withAi) setBusy('ai'); else setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({
         period_type: periodType, year: String(year), index: String(index),
       });
+      if (withAi) params.set('ai', '1');
       const res = await apiRequest<any>(`/api/analytics/preview?${params}`);
       setData(res.data);
       setAnomalies(res.source?.anomalies || []);
       setFinals(res.finals || []);
       // Start the editors from what the report currently says, so the
-      // analyst edits real text rather than an empty box.
+      // officer edits real text rather than an empty box.
       const seeded: AnalyticsTextInputs = {};
       for (const key of [...NARRATIVE_SCALARS, ...OFFICER_SCALARS]) {
         (seeded as any)[key] = (res.data as any)[key];
@@ -107,9 +116,10 @@ export default function AnalyticsReportPage(
       setDirty(false);
     } catch (err: any) {
       setError({ kh: 'មិនអាចបង្កើតរបាយការណ៍វិភាគបានទេ', detail: err?.message || String(err) });
-      setData(null);
+      if (!withAi) setData(null);
     } finally {
       setLoading(false);
+      setBusy(null);
     }
   }, [periodType, year, index]);
 
@@ -401,6 +411,27 @@ export default function AnalyticsReportPage(
               អត្ថបទខាងក្រោមត្រូវបានតាក់តែងដោយស្វ័យប្រវត្តិពីតួលេខដែលបានគណនា។
               សូមអានឱ្យច្បាស់ និងកែសម្រួលមុនពេលអនុម័ត។
             </p>
+            {/* Asking the agent is a press, not part of every load: it takes
+                tens of seconds when the provider is busy, and the report is
+                already complete and readable without it. */}
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void load(true)}
+                disabled={!!busy || loading}
+                className="flex items-center gap-1.5 rounded-lg border border-[#0B2A66] bg-[#0B2A66] px-3 py-2 text-[11px] font-black text-white hover:bg-[#123a85] disabled:opacity-50"
+              >
+                {busy === 'ai'
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Sparkles className="h-3.5 w-3.5" />}
+                តាក់តែងឡើងវិញដោយភ្នាក់ងារ AI / Rewrite with the AI agent
+              </button>
+              <span className="text-[10px] font-semibold text-slate-500">
+                {busy === 'ai'
+                  ? 'កំពុងរង់ចាំភ្នាក់ងារ AI… អាចចំណាយពេលរហូតដល់ ១ នាទី។'
+                  : 'ការកែសម្រួលរបស់អ្នកនឹងត្រូវជំនួស។'}
+              </span>
+            </div>
             <div className="space-y-3">
               {NARRATIVE_SCALARS.map(key => (
                 <div key={key}>

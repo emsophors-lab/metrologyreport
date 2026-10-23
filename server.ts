@@ -4699,7 +4699,13 @@ app.get('/api/analytics/preview', async (req, res) => {
       .eq('period_type', ref.type).eq('period_key', periodKey).eq('status', 'DRAFT').maybeSingle();
 
     const textInputs = saved?.text_inputs || {};
-    const data = await buildAnalyticsReport(source, textInputs);
+    // The agent is asked only when the screen asks for it. A 30-second
+    // model call on every page load would make the screen feel broken, cost
+    // a request per glance, and exceed the serverless function's own
+    // deadline in production. The officer presses a button instead, and the
+    // report is complete and readable before they do.
+    const useAi = String((req.query as any)?.ai || '') === '1';
+    const data = await buildAnalyticsReport(source, textInputs, useAi);
 
     return apiSuccess(res, {
       period: { ...ref, key: periodKey },
@@ -4735,8 +4741,16 @@ app.get('/api/analytics/preview', async (req, res) => {
  * The analyst block itself is never taken from the request: it names the
  * engine, and buildAnalyticsData computes it.
  */
-async function buildAnalyticsReport(source: AnalyticsSource, textInputs: Record<string, unknown>) {
+async function buildAnalyticsReport(
+  source: AnalyticsSource, textInputs: Record<string, unknown>, useAi = false,
+) {
   const base = buildAnalyticsData(source, {});
+  if (!useAi) {
+    return buildAnalyticsData(
+      { ...source, engine: { ...source.engine, narrative: 'deterministic' } },
+      textInputs as any);
+  }
+
   const ai = await draftWithAiAnalyst(base);
   if (ai.reason) console.log('Analytics AI analyst not used:', ai.reason);
 

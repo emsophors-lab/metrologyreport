@@ -126,3 +126,89 @@ An officer may still correct any sentence, and a correction wins.
 Checks: `npm run analytics:check` (template contract, statistics, rendering)
 and `npm run analytics:ai:check` (the four guards above, the ML contribution,
 and the no-key path).
+
+## Training the model (and seeing it work)
+
+The lifecycle refuses to train below **20 enterprises with accepted Annex 8
+reports**, with at least 3 on each side of the proxy label. That floor is
+right — a model fitted on four companies would give confident scores about
+nothing — but it means the trained-model path cannot be exercised at all
+until the database has that much evidence.
+
+### On a development machine
+
+```bash
+scripts\mysql-local.ps1 start
+npm run ml:seed -- --yes        # 24 synthetic licensees, 6 months each
+npm run ml:worker -- --once     # train
+npm run ml:seed -- --remove     # take it out again
+```
+
+The seed refuses to run unless `DB_DRIVER=mysql`, so it cannot reach
+production. Every row it writes is marked — licence numbers begin `DEV-ML-`,
+names begin `[DEV]`, and `notes` says so in words.
+
+First training run on this seed: **F1 0.70, accuracy 0.76** (3-fold
+cross-validated, so held out), silhouette 0.236, anomaly stability 0.989.
+`promotionAllowed` rejects anything below F1 0.50, silhouette 0, or
+stability 0.80, so a bad fit cannot become the champion.
+
+Two things learned the hard way, in case the seed is ever changed: the
+trainer rejects a model whose k-means produces a singleton cluster, and it
+is right to. The first cohort had four behaviour kinds with near-identical
+features inside each, which gave two real groups and one outlier. Real
+licensees sit on a continuum — filing delays, expiry dates, instrument
+counts and profile completeness all have to vary, or the model is correctly
+refused. The cohort is also seeded deterministically, so a re-created cohort
+gives a comparable F1 rather than a new number every run.
+
+### In production
+
+Nothing to run. The worker trains on its own once there are 20 licensees
+with accepted reports (`ML_LIFECYCLE_ENABLED=true` and the worker process
+up). Until then every report says, in its limitations, that no trained model
+was available — which is the honest statement, not a failure.
+
+## Checks
+
+| Command | Covers |
+| --- | --- |
+| `npm run analytics:check` | template contract, forecast statistics, rendering, edge cases |
+| `npm run analytics:ai:check` | the agent's guards (including the path where it answers), the ML contribution, the no-key path |
+| `npm run analytics:ai:live` | one real call to the provider, to prove the key and model name work |
+
+### Provider limits, measured
+
+The key supplied on 2026-10-23 is on the Gemini **free tier: 20 requests per
+day, per model**. Confirmed from the provider's own 429:
+
+```
+Quota exceeded for metric: generate_content_free_tier_requests,
+limit: 20, model: gemini-3.8-flash
+Please retry in 1h38m
+```
+
+For real use that is ample — a monthly report needs one call, and an officer
+may press the button a few times. It is testing that exhausts it.
+
+Three things follow, all handled in code:
+
+- **A model name goes stale.** `gemini-2.5-flash` is no longer served to new
+  keys; the API says so and names the replacement. Hence the model *list*
+  rather than one name, and hence the provider's own message being kept in
+  the log instead of being flattened to "AI failed".
+- **An exhausted quota is not retried.** It is counted per model and clears
+  in hours, so no budget in seconds will outlast it. The agent falls through
+  to the next model in the list, which has its own quota.
+- **The whole attempt is budgeted** (`ANALYTICS_AI_BUDGET_MS`, 50s) to stay
+  under the function's `maxDuration` of 60s, so a slow provider yields a
+  report worded by the drafter rather than a 504.
+
+Measured latency when the provider is healthy: **25–28s** per call. That is
+why the agent is a button and not part of every page load.
+
+If the AI wording is wanted reliably rather than best-effort, the next step
+is to move the call out of the request path — generate on a queue and store
+the result — rather than to raise the timeout. Nothing in the report depends
+on it: without the agent the deterministic drafter words it, and the
+limitations line says which one did.
