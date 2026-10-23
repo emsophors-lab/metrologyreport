@@ -44,10 +44,6 @@
     {
       "path": "/api/monthly-report-digest",
       "schedule": "0 1 8 * *"
-    },
-    {
-      "path": "/api/analytics/narrative/run",
-      "schedule": "0 * * * *"
     }
   ],
   "functions": {

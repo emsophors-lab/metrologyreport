@@ -164,6 +164,22 @@ export default function AnalyticsReportPage(
       toastMsg(res.created
         ? 'បានដាក់ចូលជួរ។ អត្ថបទនឹងបង្ហាញនៅពេលភ្នាក់ងារ AI សរសេររួច។'
         : 'កំពុងដំណើរការរួចហើយសម្រាប់គ្រានេះ។', 'success');
+
+      /**
+       * Ask the server to work the queue, and do not wait for it.
+       *
+       * Without this the job would sit until a worker or a cron came
+       * along — and this deployment has neither: Vercel's plan here allows
+       * two cron jobs at daily granularity, both already in use. So the
+       * press that queues the work also sets it going.
+       *
+       * Deliberately not awaited, and its failure deliberately ignored.
+       * The call takes as long as the model does and may well exceed the
+       * function's deadline; if it does, the job keeps its lease and the
+       * next press or worker picks it up. The polling below is what
+       * actually reports the outcome.
+       */
+      void apiRequest('/api/analytics/narrative/run', { method: 'POST' }).catch(() => {});
     } catch (err: any) {
       toastMsg(err?.message || 'មិនអាចដាក់ចូលជួរបានទេ', 'error');
     } finally {

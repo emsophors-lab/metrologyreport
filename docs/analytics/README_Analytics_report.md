@@ -212,3 +212,24 @@ is to move the call out of the request path — generate on a queue and store
 the result — rather than to raise the timeout. Nothing in the report depends
 on it: without the agent the deterministic drafter words it, and the
 limitations line says which one did.
+
+
+## Draining the AI queue on Vercel
+
+There is no cron for this. Vercel's plan on this project allows two cron
+jobs at daily granularity and both are already used by licence reminders and
+the monthly digest; an hourly third one is rejected at deploy time, which
+failed two deployments before it was diagnosed. Daily would be useless for a
+queue an officer triggers interactively anyway.
+
+So the queue is driven three ways, in order of what actually happens:
+
+1. **The button.** Pressing "Write with the AI agent" queues the job and then
+   asks the server to work it, without waiting. If that request outlives the
+   function's deadline the job keeps its lease and the next press picks it
+   up. This is the path that needs no infrastructure at all.
+2. **The worker**, `npm run analytics:narrative-worker`, on the NMC desktop
+   that already runs the ML worker. Gets a generous budget because nothing
+   waits on it.
+3. **`POST /api/analytics/narrative/run`**, one job per call, for a cron on a
+   plan that allows one, or for a member of staff in a hurry.
