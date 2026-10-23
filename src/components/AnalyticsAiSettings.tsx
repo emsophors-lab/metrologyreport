@@ -92,13 +92,16 @@ export default function AnalyticsAiSettings(
     try {
       const res = await apiRequest<any>('/api/analytics/ai-settings', {
         method: 'PUT',
-        body: JSON.stringify({
+        // A plain object: apiRequest stringifies it. Passing a string here
+        // double-encoded the body into a JSON string literal, which the
+        // server rejected as "Invalid JSON request body".
+        body: {
           provider: form.provider,
           models: form.models,
           // Untouched means "keep the key you have".
           api_key: keyTouched ? form.api_key : PROTECTED,
           is_active: form.is_active,
-        }),
+        },
       });
       const s = res.settings || {};
       setReady(!!res.ready);

@@ -158,7 +158,7 @@ export default function AnalyticsReportPage(
     try {
       const res = await apiRequest<any>('/api/analytics/narrative', {
         method: 'POST',
-        body: JSON.stringify({ period_type: periodType, year, index }),
+        body: { period_type: periodType, year, index },
       });
       setAiJob(res.job || null);
       toastMsg(res.created
