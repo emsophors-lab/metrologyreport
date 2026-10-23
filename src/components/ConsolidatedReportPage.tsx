@@ -56,7 +56,7 @@ export default function ConsolidatedReportPage({ currentUser }: { currentUser: M
         setPreview(fresh);
         setOfficer(previous => ({ ...previous, actions: fresh.data.actions, proposals: fresh.data.proposals }));
       };
-      if (action === 'load') showDraft(await buildConsolidatedData(type, year, index, inputs, now));
+      if (action === 'load') showDraft(await buildConsolidatedData(type, year, index, inputs, now, regenerate));
       else if (action === 'sample') {
         const sample = (await import('../lib/consolidated/__fixtures__/consolidated-sample-data.json')).default;
         const period = reportingPeriod('SEMESTER', 2026, 1);
@@ -65,6 +65,8 @@ export default function ConsolidatedReportPage({ currentUser }: { currentUser: M
           consolidatedFileName(period, now).replace('Consolidated_', 'Consolidated_SAMPLE_'));
       } else {
         // Export the reviewed snapshot; edits invalidate it before export.
+        // No AI here: exporting must not wait on a model, and the draft
+        // on screen is what the officer reviewed.
         const fresh = preview || await buildConsolidatedData(type, year, index, inputs, now);
         showDraft(fresh);
         await downloadConsolidatedDocx(fresh.data, consolidatedFileName(fresh.period, now));
@@ -129,6 +131,16 @@ export default function ConsolidatedReportPage({ currentUser }: { currentUser: M
           <WandSparkles size={16} />បង្កើតព្រាង ៦.១ និង ៦.២
         </button>
       </div>
+      {/* Which drafter worded 6.2. A substitution between the AI agent and
+          the system's own drafter is visible, not silent — and 6.1 is
+          always the audit record, never written by either. */}
+      {preview?.ai_draft && (
+        <p className={`text-[11px] font-semibold ${preview.ai_draft.engine === 'ai-agent' ? 'text-green-800' : 'text-slate-500'}`}>
+          {preview.ai_draft.engine === 'ai-agent'
+            ? `៦.២ ត្រូវតាក់តែងដោយភ្នាក់ងារ AI (${preview.ai_draft.model || 'AI'})។ មូលដ្ឋានច្បាប់ជ្រើសរើសពីបញ្ជីដែលបានអនុម័ត។`
+            : `៦.២ ត្រូវតាក់តែងដោយប្រព័ន្ធ។${preview.ai_draft.reason ? ` (${preview.ai_draft.reason})` : ''}`}
+        </p>
+      )}
       {(['actions', 'proposals'] as const).map(key => <div key={key} className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-xs font-bold">{key === 'actions' ? '៦.១ សកម្មភាពបានអនុវត្ត' : '៦.២ សំណើ'}</h4>
           <button type="button" title="បន្ថែមជួរ" disabled={!!busy} className={`${BUTTON} bg-slate-100`} onClick={() => changeOfficer(previous => ({

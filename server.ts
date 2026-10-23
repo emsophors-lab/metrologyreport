@@ -22,6 +22,8 @@ import { reportingPeriod, toKhmerDigits } from './src/lib/consolidated/periods';
 import type { PeriodType } from './src/lib/consolidated/periods';
 import { formatConsolidatedAggregate } from './src/lib/consolidated/aggregateResult';
 import { actionWindow, draftRecordedActions } from './src/lib/consolidated/officerDrafts';
+import { analyzeConsolidatedData } from './src/lib/consolidated/automaticReport';
+import { draftConsolidatedWithAi } from './src/consolidated/aiDrafter';
 // NMC's own summary over the submissions. Deliberately separate from the
 // official annex: this one has a layout built in code, that one never does.
 import {
@@ -4378,6 +4380,40 @@ app.get('/api/consolidated/preview', async (req, res) => {
       result.data.actions = [];
       result.warnings.push('៦.១៖ មិនអាចផ្ទៀងផ្ទាត់ប្រវត្តិសកម្មភាពមន្ត្រីបានទេ។ មិនបានបង្កើតសកម្មភាពសន្មតឡើយ។');
     }
+    /**
+     * Section 6.2, worded by the AI analyst when the screen asks for it.
+     *
+     * Server-side because the provider key is, and opt-in because a model
+     * call takes tens of seconds — loading the report must not wait for
+     * one. The deterministic proposals are already in result.data and
+     * already carry their legal basis, so anything that goes wrong here
+     * costs wording, never content.
+     *
+     * 6.1 is untouched on purpose: it is a register of what NMC actually
+     * did, built from the audit evidence above.
+     */
+    if (String((req.query as any)?.ai || '') === '1') {
+      try {
+        const analysis = analyzeConsolidatedData(result.data);
+        const drafted = await draftConsolidatedWithAi(
+          result.data, analysis, await resolveAiConfig(supabaseAdmin));
+        if (drafted.reason) console.log('Consolidated AI drafter not used:', drafted.reason);
+        (result as any).ai_draft = {
+          engine: drafted.engine,
+          model: drafted.model,
+          reason: drafted.reason || null,
+          proposals: drafted.analysis?.proposals || null,
+          conclusion: drafted.analysis?.conclusion || null,
+        };
+      } catch (err: any) {
+        console.log('Consolidated AI drafter failed:', err?.message || err);
+        (result as any).ai_draft = {
+          engine: 'deterministic', model: null,
+          reason: String(err?.message || err), proposals: null, conclusion: null,
+        };
+      }
+    }
+
     return apiSuccess(res, result);
   } catch (err: any) {
     console.error('Consolidated preview failed:', err?.message || err);

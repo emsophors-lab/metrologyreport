@@ -11,6 +11,18 @@ export interface ConsolidatedPreview {
   source: 'postgresql' | 'mysql';
   data_as_of: string;
   warnings: string[];
+  /**
+   * Section 6.2 as the AI analyst worded it, when it was asked and its
+   * answer passed the checks in aiDrafter.ts. `engine` says which drafter
+   * the wording came from, so a substitution is visible rather than silent.
+   */
+  ai_draft?: {
+    engine: 'ai-agent' | 'deterministic';
+    model: string | null;
+    reason: string | null;
+    proposals: ConsolidatedData['proposals'] | null;
+    conclusion: string | null;
+  };
 }
 
 /** Formatting only. All source aggregation belongs to the database SQL statement. */
@@ -52,15 +64,33 @@ export function prepareConsolidatedData(input: unknown, period: ReportingPeriod,
 
 export async function buildConsolidatedData(
   periodType: PeriodType, year: number, index = 1, officer: OfficerInputs = {}, now = new Date(),
+  withAi = false,
 ): Promise<ConsolidatedPreview> {
   const period = reportingPeriod(periodType, year, index);
   const { apiRequest } = await import('../../supabaseSync');
   const params = new URLSearchParams({ period_type: periodType, year: String(year), index: String(index) });
+  if (withAi) params.set('ai', '1');
   const response = await apiRequest<ConsolidatedPreview>(`/api/consolidated/preview?${params}`);
   if (!['postgresql','mysql'].includes(response.source) || response.period?.key !== period.key || response.period?.type !== period.type) {
     throw new Error('The aggregation source or reporting period does not match the request.');
   }
+
+  /**
+   * The AI's wording for 6.2, where the server produced usable wording and
+   * the officer has not written their own. An officer's edit always wins:
+   * `officer` is what they have in the boxes, and it is passed through
+   * unchanged below.
+   */
+  const ai = response.ai_draft;
+  const withDraft: OfficerInputs = ai?.engine === 'ai-agent'
+    ? {
+        ...officer,
+        proposals: officer.proposals ?? ai.proposals ?? undefined,
+        conclusion: officer.conclusion ?? ai.conclusion ?? undefined,
+      }
+    : officer;
+
   return { ...response, previous: previousPeriod(period), data: prepareConsolidatedData(
-    response.data, period, automaticConsolidatedInputs(response.data, period, officer, now),
+    response.data, period, automaticConsolidatedInputs(response.data, period, withDraft, now),
   ) };
 }
