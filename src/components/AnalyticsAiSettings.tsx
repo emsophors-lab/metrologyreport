@@ -11,7 +11,7 @@
  *
  * Superadmin only, because this holds a credential the Centre pays for.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Eye, EyeOff, Loader2, Save, Sparkles, Zap } from 'lucide-react';
 
 import { apiRequest } from '../supabaseSync';
@@ -46,6 +46,19 @@ export default function AnalyticsAiSettings(
   const [lastTest, setLastTest] = useState<{ status: string | null; message: string | null }>(
     { status: null, message: null });
 
+  /**
+   * The toast callback, held by reference.
+   *
+   * App defines showToast as a plain function in its body, so it is a new
+   * value on every App render. Naming it as a dependency of `load` made
+   * `load` new on every App render too, which re-fired the effect below,
+   * which called setLoading(true) again — so this panel sat on "កំពុងអាន…"
+   * for ever and shook the page while it did it. The ref keeps the latest
+   * callback without making anything depend on its identity.
+   */
+  const toast = useRef(toastMsg);
+  useEffect(() => { toast.current = toastMsg; }, [toastMsg]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -65,11 +78,11 @@ export default function AnalyticsAiSettings(
       setKeyTouched(false);
       setLastTest({ status: s.last_test_status || null, message: s.last_test_message || null });
     } catch (err: any) {
-      toastMsg(err?.message || 'មិនអាចអានការកំណត់បានទេ', 'error');
+      toast.current(err?.message || 'មិនអាចអានការកំណត់បានទេ', 'error');
     } finally {
       setLoading(false);
     }
-  }, [toastMsg]);
+  }, []);
 
   useEffect(() => { void load(); }, [load]);
 

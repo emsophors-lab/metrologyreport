@@ -195,8 +195,13 @@ export default function AnalyticsReportPage(
    * closed tab stops it by itself. When the job finishes, the figures are
    * reloaded quietly so the new wording appears without the screen blanking.
    */
+  // Keyed on the job's id and status, not on the object: every poll parses
+  // fresh JSON, so depending on `aiJob` itself tore the interval down and
+  // built a new one on every tick.
+  const aiJobId = aiJob?.id ? String(aiJob.id) : '';
+  const aiJobStatus = String(aiJob?.status || '');
   useEffect(() => {
-    if (!aiJob || !['PENDING', 'RUNNING'].includes(String(aiJob.status))) return;
+    if (!aiJobId || !['PENDING', 'RUNNING'].includes(aiJobStatus)) return;
     let cancelled = false;
     const timer = window.setInterval(() => {
       void (async () => {
@@ -208,7 +213,7 @@ export default function AnalyticsReportPage(
       })();
     }, 8000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [aiJob, readAiStatus, load]);
+  }, [aiJobId, aiJobStatus, readAiStatus, load]);
 
   /** What the analyst has in the boxes, over the freshly computed figures. */
   const merged = useMemo<AnalyticsData | null>(() => {
