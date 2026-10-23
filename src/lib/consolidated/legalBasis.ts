@@ -49,7 +49,7 @@
  * number attached to the wrong instrument is a worse citation than a bare
  * article number.
  */
-export const INSTRUMENT_TITLE = '';
+export const INSTRUMENT_TITLE = 'ប្រកាសលេខ ២៤៧ សហវ.ប្រក ចុះថ្ងៃទី១៨ ខែមីនា ឆ្នាំ២០២២';
 
 export interface LegalReference {
   /** Stable id, used by the rule map and by the AI's allowed-choice list. */
@@ -62,8 +62,15 @@ export interface LegalReference {
   kind: 'national' | 'international';
 }
 
+/**
+ * A national reference holds the ARTICLE alone.
+ *
+ * The instrument is printed once per citation by `legalBasisForRule`, not
+ * baked into each entry: a proposal citing two articles would otherwise
+ * repeat the whole Prakas title twice inside one table cell.
+ */
 const article = (id: string, ref: string, scope: string): LegalReference =>
-  ({ id, ref: INSTRUMENT_TITLE ? `${INSTRUMENT_TITLE} ${ref}` : ref, scope, kind: 'national' });
+  ({ id, ref, scope, kind: 'national' });
 
 export const LEGAL_REFERENCES: LegalReference[] = [
   article('art17', 'ប្រការ១៧',
@@ -124,28 +131,49 @@ const RULE_REFERENCES: Record<string, string[]> = {
   // reference is confirmed, never to fill the column.
 };
 
-/** The citation text for a finding rule, or '' when none applies. */
+/**
+ * The citation text for a finding rule, or '' when none applies.
+ *
+ * The instrument is named once, then its articles; international
+ * recommendations follow after a semicolon because they belong to a
+ * different authority and must not read as part of the Prakas.
+ */
 export function legalBasisForRule(rule: string): string {
   const ids = RULE_REFERENCES[rule];
   if (!ids?.length) return '';
-  return ids.map(id => BY_ID.get(id)?.ref).filter(Boolean).join('; ');
+  const refs = ids.map(id => BY_ID.get(id)).filter(Boolean) as LegalReference[];
+  const national = refs.filter(r => r.kind === 'national').map(r => r.ref);
+  const international = refs.filter(r => r.kind === 'international').map(r => r.ref);
+  const parts: string[] = [];
+  if (national.length) {
+    parts.push(INSTRUMENT_TITLE ? `${INSTRUMENT_TITLE} ${national.join(' និង ')}` : national.join(' និង '));
+  }
+  parts.push(...international);
+  return parts.join('; ');
 }
 
-/** Every approved citation string, for checking what the AI returned. */
+/** Every approved citation token: the articles, annexes and OIML numbers. */
 export const APPROVED_CITATIONS: string[] = LEGAL_REFERENCES.map(r => r.ref);
 
 /**
  * Whether a legal_basis value cites only approved references.
  *
- * Splits on the separators a citation list uses and requires each part to be
- * one of the approved strings. An empty value is allowed: saying nothing is
- * always permitted, inventing something never is.
+ * The instrument title is stripped first where present, because a citation
+ * names it once and then lists articles under it. What remains must be
+ * entirely made of approved tokens. An empty value is allowed: saying
+ * nothing is always permitted, inventing something never is.
  */
 export function citationsAreApproved(value: unknown): boolean {
   const text = String(value ?? '').trim();
   if (!text) return true;
-  return text.split(/[;,]|និង/).map(part => part.trim()).filter(Boolean)
-    .every(part => APPROVED_CITATIONS.includes(part));
+  return text.split(';').map(part => part.trim()).filter(Boolean).every(part => {
+    const body = INSTRUMENT_TITLE && part.startsWith(INSTRUMENT_TITLE)
+      ? part.slice(INSTRUMENT_TITLE.length).trim()
+      : part;
+    if (!body) return false;
+    return body.split(/,|និង/).map(t => t.trim()).filter(Boolean)
+      .every(token => APPROVED_CITATIONS.includes(token));
+  });
 }
 
 /** The catalogue as the AI is allowed to see it: ids, citations and scope. */

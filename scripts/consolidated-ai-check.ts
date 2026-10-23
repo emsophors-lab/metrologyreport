@@ -15,7 +15,8 @@
 import assert from 'node:assert/strict';
 
 import {
-  APPROVED_CITATIONS, LEGAL_REFERENCES, citationChoices, citationsAreApproved, legalBasisForRule,
+  APPROVED_CITATIONS, INSTRUMENT_TITLE, LEGAL_REFERENCES, citationChoices, citationsAreApproved,
+  legalBasisForRule,
 } from '../src/lib/consolidated/legalBasis';
 import { draftConsolidatedWithAi } from '../src/consolidated/aiDrafter';
 import type { ConsolidatedAnalysis } from '../src/lib/consolidated/automaticReport';
@@ -127,6 +128,42 @@ check('an invented law title is refused', () => {
 
 check('an OIML number we do not record is refused', () => {
   assert.equal(citationsAreApproved('OIML R 60'), false);
+});
+
+check('the instrument is named once, then its articles', () => {
+  const basis = legalBasisForRule('late-reports');
+  assert.ok(basis.includes(INSTRUMENT_TITLE), 'the Prakas should be named');
+  assert.equal(basis.split(INSTRUMENT_TITLE).length - 1, 1,
+    'naming it twice in one cell is what printing it per-article would do');
+  assert.match(basis, /ប្រការ២១ និង ឧបសម្ព័ន្ធទី៨/);
+});
+
+check('an international recommendation is not filed under the Prakas', () => {
+  // OIML belongs to a different authority and must not read as part of it.
+  const r = LEGAL_REFERENCES.find(x => x.id === 'oiml_r76')!;
+  assert.equal(r.ref, 'OIML R 76');
+  assert.ok(!r.ref.includes(INSTRUMENT_TITLE));
+});
+
+check('a citation under the instrument title is accepted', () => {
+  assert.ok(citationsAreApproved(`${INSTRUMENT_TITLE} ប្រការ២១`));
+  assert.ok(citationsAreApproved(`${INSTRUMENT_TITLE} ប្រការ២១ និង ឧបសម្ព័ន្ធទី៨`));
+  assert.ok(citationsAreApproved(`${INSTRUMENT_TITLE} ប្រការ១៧; OIML R 76`));
+});
+
+check('an invented article under a real instrument title is still refused', () => {
+  // The likeliest fabrication once a real title exists: a plausible
+  // article number attached to the correct Prakas.
+  assert.equal(citationsAreApproved(`${INSTRUMENT_TITLE} ប្រការ៤៥`), false);
+  assert.equal(citationsAreApproved(`${INSTRUMENT_TITLE} ប្រការ២១ និង ប្រការ៩៩`), false);
+});
+
+check('an invented instrument is refused', () => {
+  assert.equal(citationsAreApproved('ប្រកាសលេខ ៩៩៩ សហវ.ប្រក ប្រការ២១'), false);
+});
+
+check('the title alone, citing nothing, is refused', () => {
+  assert.equal(citationsAreApproved(INSTRUMENT_TITLE), false);
 });
 
 /* ------------------------------------------------------------------ *
