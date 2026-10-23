@@ -1,5 +1,5 @@
 export const TEMPLATE_PATH = '/templates/Consolidated_template_v1.docx';
-export const TEMPLATE_SHA256 = '4df153c3cc536823ff776492f7055931ecbc20bcc2291602868ffc26f8a2936a';
+export const TEMPLATE_SHA256 = '2cd49c037d087e609128c8a2be22bd46860bfa0ec63411d11dd51aa0041c1b0b';
 export const UNKNOWN = 'មិនមានទិន្នន័យ';
 export const DOTS = '................................................................................';
 export const LOOP_FIELDS = {

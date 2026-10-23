@@ -27,6 +27,16 @@ import { actionWindow, draftRecordedActions } from './src/lib/consolidated/offic
 import {
   buildStaffReportDocx, buildStaffReportXlsx, collectOverview, staffReportFileName,
 } from './src/annex8/staffReport';
+// The Smart Analytics report. Decision support only: nothing here triggers a
+// sanction, a warning or a licence action.
+import { collectAnalyticsSource, anomalyKey } from './src/analytics/aggregate';
+import { draftWithAiAnalyst } from './src/analytics/aiAnalyst';
+import { buildAnalyticsData } from './src/lib/analytics/buildAnalyticsData';
+import type { AnalyticsSource } from './src/lib/analytics/buildAnalyticsData';
+import {
+  REVIEW_STATUSES as ANALYTICS_REVIEW_STATUSES,
+  dataProblems as analyticsDataProblems,
+} from './src/lib/analytics/contract';
 import { DEADLINE_DAY, FORMAT_VERSION } from './src/annex8/constants';
 import {
   ENTRY_CONFIG, ENTRY_PARTS, EntryPart, auditEntityFor, duplicateValues,
@@ -4623,6 +4633,350 @@ app.get('/api/annex8/staff-reports', async (req, res) => {
   } catch (err: any) {
     console.error('Annex 8 staff report list failed:', err?.message || err);
     return apiError(res, 500, 'Unable to load the reports.');
+  }
+});
+
+/* =====================================================================
+ *  Smart Analytics report — NMC staff only
+ *
+ *  The analysis is DECISION SUPPORT. Nothing here triggers a sanction, a
+ *  warning or a licence action: a score or an anomaly produces a row for
+ *  an officer to look at, and that is all.
+ * ===================================================================== */
+
+const ANALYTICS_PERIOD_TYPES = ['MONTH', 'QUARTER', 'SEMESTER', 'YEAR'] as const;
+
+function analyticsPeriodFromQuery(req: any) {
+  const type = String(req.query?.period_type || req.body?.period_type || '').toUpperCase();
+  const year = Number(req.query?.year ?? req.body?.year);
+  const index = Number(req.query?.index ?? req.body?.index ?? 1);
+  if (!(ANALYTICS_PERIOD_TYPES as readonly string[]).includes(type)) return null;
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) return null;
+  if (!Number.isInteger(index) || index < 1 || index > 12) return null;
+  return { type: type as any, year, index };
+}
+
+/** The period key as it is stored: 2026-10 | 2026-Q4 | 2026-S2 | 2026. */
+function analyticsPeriodKey(type: string, year: number, index: number) {
+  if (type === 'MONTH') return `${year}-${String(index).padStart(2, '0')}`;
+  if (type === 'QUARTER') return `${year}-Q${index}`;
+  if (type === 'SEMESTER') return `${year}-S${index}`;
+  return String(year);
+}
+
+/**
+ * GET /api/analytics/preview?period_type=&year=&index=
+ *
+ * Recomputes the figures for a period and returns them with the system's
+ * Khmer drafts, plus whatever the analyst has already saved. Nothing is
+ * written: a preview must be free to run.
+ */
+app.get('/api/analytics/preview', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+
+    const ref = analyticsPeriodFromQuery(req);
+    if (!ref) return apiError(res, 400, 'period_type, year and index are required.');
+
+    const source = await collectAnalyticsSource(supabaseAdmin, ref.type, ref.year, ref.index);
+    const periodKey = analyticsPeriodKey(ref.type, ref.year, ref.index);
+
+    // An officer's verdicts outlive a rebuild of the anomaly list.
+    const { data: verdicts } = await supabaseAdmin
+      .from('analytics_anomaly_reviews').select('*')
+      .eq('period_type', ref.type).eq('period_key', periodKey);
+    const verdictBy = new Map<string, any>(
+      (verdicts || []).map((v: any) => [String(v.anomaly_key), v]));
+    source.anomalies = source.anomalies.map(a => ({
+      ...a,
+      review_status: verdictBy.get(anomalyKey(a))?.review_status ?? a.review_status,
+    }));
+
+    // A saved draft's words win over freshly drafted ones.
+    const { data: saved } = await supabaseAdmin
+      .from('analytics_reports').select('*')
+      .eq('period_type', ref.type).eq('period_key', periodKey).eq('status', 'DRAFT').maybeSingle();
+
+    const textInputs = saved?.text_inputs || {};
+    const data = await buildAnalyticsReport(source, textInputs);
+
+    return apiSuccess(res, {
+      period: { ...ref, key: periodKey },
+      data,
+      source: {
+        anomalies: source.anomalies.map(a => ({ ...a, key: anomalyKey(a) })),
+        licensees_analyzed: source.licensees_analyzed,
+        records_analyzed: source.records_analyzed,
+        data_completeness_pct: source.data_completeness_pct,
+      },
+      draft: saved
+        ? { id: saved.id, updated_at: saved.updated_at, generated_by: saved.generated_by }
+        : null,
+      finals: await analyticsFinalsFor(ref.type, periodKey),
+    });
+  } catch (err: any) {
+    console.error('Analytics preview failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to build the analytics report.');
+  }
+});
+
+/**
+ * Build a Smart Analytics report: the models' figures, worded by the machine.
+ *
+ * Three layers, in this order, each beating the one before it:
+ *
+ *   1. the deterministic Khmer drafter, which always produces something;
+ *   2. the AI analyst agent, when it is configured and its answer passes the
+ *      checks in aiAnalyst.ts (no invented figures above all);
+ *   3. whatever an officer has saved, which always wins — the machine does
+ *      the analysis, but a person may still correct a sentence.
+ *
+ * The analyst block itself is never taken from the request: it names the
+ * engine, and buildAnalyticsData computes it.
+ */
+async function buildAnalyticsReport(source: AnalyticsSource, textInputs: Record<string, unknown>) {
+  const base = buildAnalyticsData(source, {});
+  const ai = await draftWithAiAnalyst(base);
+  if (ai.reason) console.log('Analytics AI analyst not used:', ai.reason);
+
+  const withEngine: AnalyticsSource = {
+    ...source,
+    engine: { ...source.engine, narrative: ai.engine, agent_model: ai.model },
+  };
+  return buildAnalyticsData(withEngine, { ...(ai.narrative || {}), ...textInputs } as any);
+}
+
+async function analyticsFinalsFor(type: string, periodKey: string) {
+  const { data } = await supabaseAdmin
+    .from('analytics_reports')
+    .select('id, report_no, status, finalised_at, finalised_by, reviewer')
+    .eq('period_type', type).eq('period_key', periodKey).eq('status', 'FINAL');
+  return data || [];
+}
+
+/**
+ * PUT /api/analytics/draft
+ *   { period_type, year, index, text_inputs }
+ *
+ * Saves what the analyst has written. The computed figures are saved with
+ * it so a draft can be reopened exactly as it was left, but they are
+ * recomputed on preview — a draft is working state, not a record.
+ */
+app.put('/api/analytics/draft', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+
+    const ref = analyticsPeriodFromQuery(req);
+    if (!ref) return apiError(res, 400, 'period_type, year and index are required.');
+    const periodKey = analyticsPeriodKey(ref.type, ref.year, ref.index);
+
+    const textInputs = req.body?.text_inputs;
+    if (!textInputs || typeof textInputs !== 'object' || Array.isArray(textInputs)) {
+      return apiError(res, 400, 'text_inputs must be an object.');
+    }
+
+    const source = await collectAnalyticsSource(supabaseAdmin, ref.type, ref.year, ref.index);
+    const data = await buildAnalyticsReport(source, textInputs);
+    const problems = analyticsDataProblems(data);
+    if (problems.length) {
+      return apiError(res, 422, `The report data is incomplete: ${problems.slice(0, 3).join('; ')}`);
+    }
+
+    const actor = String(resolved.userRow?.username || resolved.userRow?.id || '');
+    const values = {
+      period_type: ref.type,
+      period_key: periodKey,
+      data_snapshot: data,
+      text_inputs: textInputs,
+      model_versions: { models: source.models.map(m => `${m.name} ${m.version}`) },
+      // The analyst is the engine, taken from the built report rather than
+      // from the request: the machine signs its own work and a client cannot
+      // put a person's name on it.
+      analyst: String((data as any).analyst_name || ''),
+      analyst_position: String((data as any).analyst_position || ''),
+      generated_by: actor,
+    };
+
+    const { data: existing } = await supabaseAdmin
+      .from('analytics_reports').select('id')
+      .eq('period_type', ref.type).eq('period_key', periodKey).eq('status', 'DRAFT').maybeSingle();
+
+    const saved = existing?.id
+      ? await supabaseAdmin.from('analytics_reports').update(values).eq('id', existing.id).select('*').single()
+      : await supabaseAdmin.from('analytics_reports').insert({ ...values, status: 'DRAFT' }).select('*').single();
+    if (saved.error) throw saved.error;
+
+    return apiSuccess(res, { draft: { id: saved.data.id, updated_at: saved.data.updated_at } });
+  } catch (err: any) {
+    console.error('Analytics draft save failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to save the draft.');
+  }
+});
+
+/**
+ * POST /api/analytics/finalise
+ *   { period_type, year, index, text_inputs, reviewer_name?, reviewer_position? }
+ *
+ * Approves the report. The snapshot is frozen here and never recomputed:
+ * reprinting a report that has gone to the Director General must give
+ * back what was sent, not today's view of the same months.
+ */
+app.post('/api/analytics/finalise', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+
+    const ref = analyticsPeriodFromQuery(req);
+    if (!ref) return apiError(res, 400, 'period_type, year and index are required.');
+    const periodKey = analyticsPeriodKey(ref.type, ref.year, ref.index);
+
+    const textInputs = (req.body?.text_inputs && typeof req.body.text_inputs === 'object')
+      ? req.body.text_inputs : {};
+
+    // Approving is a signature, and it must be a person's.
+    //
+    // The analyst is no longer asked for: the models and the AI agent do the
+    // analysis and sign it themselves. The reviewer still is, and stays
+    // required — an automated score must not be able to leave the Centre
+    // without a named human having looked at it.
+    const reviewer = String(textInputs.reviewer_name || '').replace(/\./g, '').trim();
+    if (!reviewer) return apiError(res, 422, 'អ្នកពិនិត្យ: ត្រូវបំពេញឈ្មោះមុនអនុម័ត។');
+
+    const source = await collectAnalyticsSource(supabaseAdmin, ref.type, ref.year, ref.index);
+    const data = await buildAnalyticsReport(source, textInputs);
+    const problems = analyticsDataProblems(data);
+    if (problems.length) {
+      return apiError(res, 422, `The report data is incomplete: ${problems.slice(0, 3).join('; ')}`);
+    }
+
+    const actor = String(resolved.userRow?.username || resolved.userRow?.id || '');
+    const now = new Date().toISOString();
+
+    // Report number: NMC-ANL-<periodKey>-<nnn>, allocated only here.
+    const { data: existingFinals } = await supabaseAdmin
+      .from('analytics_reports').select('report_no')
+      .eq('period_type', ref.type).eq('period_key', periodKey).eq('status', 'FINAL');
+    const sequence = String((existingFinals || []).length + 1).padStart(3, '0');
+    const reportNo = `NMC-ANL-${periodKey}-${sequence}`;
+
+    const frozen = { ...data, report_no: reportNo };
+
+    const { data: saved, error } = await supabaseAdmin.from('analytics_reports').insert({
+      period_type: ref.type,
+      period_key: periodKey,
+      report_no: reportNo,
+      data_snapshot: frozen,
+      text_inputs: textInputs,
+      model_versions: { models: source.models.map(m => `${m.name} ${m.version}`) },
+      analyst: String((data as any).analyst_name || ''),
+      analyst_position: String((data as any).analyst_position || ''),
+      reviewer: String(textInputs.reviewer_name || ''),
+      reviewer_position: String(textInputs.reviewer_position || ''),
+      status: 'FINAL',
+      generated_by: actor,
+      finalised_at: now,
+      finalised_by: actor,
+    }).select('*').single();
+    if (error) throw error;
+
+    // The draft has served its purpose; removing it keeps one live draft
+    // per period and stops an approved period being edited by accident.
+    await supabaseAdmin.from('analytics_reports').delete()
+      .eq('period_type', ref.type).eq('period_key', periodKey).eq('status', 'DRAFT');
+
+    return apiSuccess(res, { report: { id: saved.id, report_no: reportNo, data: frozen } });
+  } catch (err: any) {
+    console.error('Analytics finalise failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to approve the report.');
+  }
+});
+
+/**
+ * GET /api/analytics/report/:id
+ *
+ * A stored report, exactly as it was saved. For reprinting a FINAL.
+ */
+app.get('/api/analytics/report/:id', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+
+    const { data, error } = await supabaseAdmin
+      .from('analytics_reports').select('*').eq('id', String(req.params?.id || '')).maybeSingle();
+    if (error) throw error;
+    if (!data) return apiError(res, 404, 'Report not found.');
+
+    return apiSuccess(res, { report: data });
+  } catch (err: any) {
+    console.error('Analytics report read failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to load the report.');
+  }
+});
+
+/** GET /api/analytics/reports — what has been generated, newest first. */
+app.get('/api/analytics/reports', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+
+    const { data, error } = await supabaseAdmin
+      .from('analytics_reports')
+      .select('id, period_type, period_key, report_no, status, analyst, reviewer, generated_at, generated_by, finalised_at, finalised_by, updated_at')
+      .order('generated_at', { ascending: false }).limit(100);
+    if (error) throw error;
+
+    return apiSuccess(res, { reports: data || [] });
+  } catch (err: any) {
+    console.error('Analytics report list failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to list the reports.');
+  }
+});
+
+/**
+ * PUT /api/analytics/anomaly-review
+ *   { period_type, year, index, anomaly_key, review_status, note? }
+ *
+ * An officer's verdict on one anomaly. Only this endpoint moves an
+ * anomaly off រង់ចាំពិនិត្យ — the analysis never decides for itself.
+ */
+app.put('/api/analytics/anomaly-review', async (req, res) => {
+  try {
+    const resolved = await requireNmcStaff(req, res);
+    if (!resolved) return;
+
+    const ref = analyticsPeriodFromQuery(req);
+    if (!ref) return apiError(res, 400, 'period_type, year and index are required.');
+    const periodKey = analyticsPeriodKey(ref.type, ref.year, ref.index);
+
+    const key = String(req.body?.anomaly_key || '').trim();
+    const status = String(req.body?.review_status || '').trim();
+    if (!key) return apiError(res, 400, 'anomaly_key is required.');
+    if (!ANALYTICS_REVIEW_STATUSES.includes(status as any)) {
+      return apiError(res, 400, `review_status must be one of: ${ANALYTICS_REVIEW_STATUSES.join(' | ')}`);
+    }
+
+    const actor = String(resolved.userRow?.username || resolved.userRow?.id || '');
+    const values = {
+      period_type: ref.type, period_key: periodKey, anomaly_key: key,
+      review_status: status, note: String(req.body?.note || '') || null,
+      reviewed_by: actor, reviewed_at: new Date().toISOString(),
+    };
+
+    const { data: existing } = await supabaseAdmin
+      .from('analytics_anomaly_reviews').select('id')
+      .eq('period_type', ref.type).eq('period_key', periodKey).eq('anomaly_key', key).maybeSingle();
+
+    const saved = existing?.id
+      ? await supabaseAdmin.from('analytics_anomaly_reviews').update(values).eq('id', existing.id).select('*').single()
+      : await supabaseAdmin.from('analytics_anomaly_reviews').insert(values).select('*').single();
+    if (saved.error) throw saved.error;
+
+    return apiSuccess(res, { review: saved.data });
+  } catch (err: any) {
+    console.error('Analytics anomaly review failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to record the review.');
   }
 });
 

@@ -34,7 +34,10 @@
     "consolidated:api-check": "tsx scripts/consolidated-api-check.ts",
     "consolidated:officer-check": "tsx scripts/consolidated-officer-drafts-check.ts",
     "annex8:review": "node scripts/annex8-staff-review-check.mjs",
-    "annex8:check:sql": "node scripts/annex8-check-supabase-sql.mjs"
+    "annex8:check:sql": "node scripts/annex8-check-supabase-sql.mjs",
+    "analytics:check": "tsx scripts/analytics-check.ts",
+    "analytics:ai:check": "tsx scripts/analytics-ai-check.ts",
+    "ml:filters:check": "tsx scripts/ml-audit-filters-check.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

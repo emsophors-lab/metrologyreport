@@ -30,9 +30,28 @@ export function parseAuditFilters(query: Record<string, unknown>): AuditFilters 
   if (result.risk_level && !['Low', 'Medium', 'High', 'Critical'].includes(result.risk_level)) throw new AuditExportError(400, 'Invalid risk level.');
   return result;
 }
+/**
+ * Query parameters the hosting platform adds, which are not filters.
+ *
+ * vercel.json rewrites `/api/:path*` to `/api`, and Vercel appends a route
+ * parameter that the destination does not consume to the query string. So in
+ * production every request arrives with `path=analytics/ml-insights` on it,
+ * the allow-list below rejected the whole request, and the briefing and both
+ * audit exports failed with "Briefing filters are invalid" — on the deployed
+ * site only, never locally, where there is no rewrite.
+ *
+ * Dropped by name rather than by loosening the allow-list: `path` is not and
+ * cannot be one of our filters, so nothing a user actually set is discarded,
+ * and a genuinely unknown filter is still refused rather than silently
+ * ignored. Silently widening the scope of an audit export is the failure this
+ * validation exists to prevent.
+ */
+const ROUTING_PARAMETERS = new Set(['path']);
+
 export function auditFiltersFromUrl(url: string): AuditFilters {
   const query: Record<string, string> = Object.create(null);
   for (const [key, value] of new URL(url, 'http://localhost').searchParams) {
+    if (ROUTING_PARAMETERS.has(key)) continue;
     if (Object.prototype.hasOwnProperty.call(query, key)) throw new AuditExportError(400, 'Duplicate export filter.');
     query[key] = value;
   }

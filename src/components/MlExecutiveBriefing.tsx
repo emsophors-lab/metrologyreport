@@ -142,10 +142,19 @@ export default function MlExecutiveBriefing({ currentUser, scope }: { currentUse
           const headers = await getApiAuthHeaders();
           if (controller.signal.aborted) return;
           const response = await fetch(`/api/analytics/ml-insights?${query}`, { method: 'GET', headers, signal: controller.signal, cache: 'no-store' });
-          if (!response.ok) throw new Error(response.status === 401 ? 'Session expired. Sign in again.'
-            : response.status === 403 ? 'Staff access is required.'
-              : response.status === 400 ? 'Briefing filters are invalid. Check the audit scope and dates.'
-                : `Unable to load executive briefing (${response.status}). Try again.`);
+          if (!response.ok) {
+            // Show what the server actually said. A generic "filters are
+            // invalid" hid the real reason for a long time: in production a
+            // platform rewrite was adding a query parameter the filter
+            // allow-list rejected, and the screen never showed which one.
+            let detail = '';
+            try { detail = String((await response.clone().json())?.message || ''); } catch { /* not JSON */ }
+            throw new Error(response.status === 401 ? 'Session expired. Sign in again.'
+              : response.status === 403 ? 'Staff access is required.'
+                : response.status === 400
+                  ? `Briefing filters are invalid${detail ? `: ${detail}` : '. Check the audit scope and dates.'}`
+                  : `Unable to load executive briefing (${response.status})${detail ? `: ${detail}` : '. Try again.'}`);
+          }
           const data: InsightsResponse = await response.json();
           const briefing = data?.executive_briefing;
           if (!briefing || typeof briefing.headline_status !== 'string' || typeof briefing.summary_paragraph !== 'string'

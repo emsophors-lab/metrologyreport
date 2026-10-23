@@ -79,6 +79,10 @@ const BackupData = lazy(() => import('./components/BackupData'));
 const EnterpriseLicensingRegistry = lazy(() => import('./components/EnterpriseLicensingRegistry'));
 const ChangePasswordModal = lazy(() => import('./components/ChangePasswordModal'));
 const MachineLearningPredictionDashboard = lazy(() => import('./components/MachineLearningPredictionDashboard'));
+// The official Khmer analysis report the department sends to the Director
+// General. It lives on the Smart Analytics page because it reports on what
+// that module computes.
+const AnalyticsReportPage = lazy(() => import('./components/AnalyticsReportPage'));
 import { formatKhmerOfficialDateBlock } from './utils/khmerOfficialDate';
 
 // Import Logo Asset
@@ -466,6 +470,8 @@ export default function App() {
 
   // Active items state
   const [selectedEditReport, setSelectedEditReport] = useState<MetrologyReport | null>(null);
+  /** Smart Analytics page: the live dashboard, or the official report. */
+  const [analyticsView, setAnalyticsView] = useState<'dashboard' | 'report'>('dashboard');
   /** Legacy reports tab: how to add a report. Annex 8 has its own tab. */
   const [addReportMethod, setAddReportMethod] = useState<'manual' | 'excel'>('manual');
   const [selectedPrintReport, setSelectedPrintReport] = useState<MetrologyReport | null>(null);
@@ -2962,11 +2968,40 @@ export default function App() {
 
             {/* G. MACHINE LEARNING PREDICTION MODULE */}
             {activeTab === 'ml' && (sessionUser.role === 'superadmin' || sessionUser.role === 'admin') && (
-              <MachineLearningPredictionDashboard
-                currentUser={sessionUser}
-                reports={reports}
-                licenses={dashboardLicenses}
-              />
+              <div className="space-y-4">
+                <div className="flex bg-slate-100 p-1 rounded-lg max-w-md">
+                  <button
+                    onClick={() => setAnalyticsView('dashboard')}
+                    className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                      analyticsView === 'dashboard'
+                        ? 'bg-white text-[#0B2A66] shadow-xs border border-slate-200/50'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    ផ្ទាំងវិភាគ / Analytics dashboard
+                  </button>
+                  <button
+                    onClick={() => setAnalyticsView('report')}
+                    className={`flex-1 text-center py-2 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                      analyticsView === 'report'
+                        ? 'bg-white text-[#0B2A66] shadow-xs border border-slate-200/50'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    របាយការណ៍វិភាគ / Analysis report
+                  </button>
+                </div>
+
+                {analyticsView === 'report' ? (
+                  <AnalyticsReportPage currentUser={sessionUser} toastMsg={showToast} />
+                ) : (
+                  <MachineLearningPredictionDashboard
+                    currentUser={sessionUser}
+                    reports={reports}
+                    licenses={dashboardLicenses}
+                  />
+                )}
+              </div>
             )}
 
             {/* G. ENTERPRISE LICENSING REGISTRY MODULE */}
