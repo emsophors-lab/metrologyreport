@@ -18,7 +18,7 @@ import {
   APPROVED_CITATIONS, INSTRUMENT_TITLE, LEGAL_REFERENCES, citationChoices, citationsAreApproved,
   legalBasisForRule,
 } from '../src/lib/consolidated/legalBasis';
-import { draftConsolidatedWithAi } from '../src/consolidated/aiDrafter';
+import { draftActionsWithAi, draftConsolidatedWithAi } from '../src/consolidated/aiDrafter';
 import type { ConsolidatedAnalysis } from '../src/lib/consolidated/automaticReport';
 import type { ConsolidatedData } from '../src/lib/consolidated/contract';
 
@@ -282,5 +282,69 @@ await checkAsync('the approved catalogue is what it is offered', async () => {
   for (const c of choices) assert.ok(APPROVED_CITATIONS.includes(c.ref));
 });
 
-console.log(failures ? `\n${failures} check(s) FAILED\n` : '\nSection 6.2 holds: no citation that is not approved.\n');
+/* ------------------------------------------------------------------ *
+ * 5. Section 6.1 — wording only
+ * ------------------------------------------------------------------ */
+console.log('\nSection 6.1: the AI may word it, never populate it');
+
+const recorded: ConsolidatedData['actions'] = [
+  { no: 1, licensee: 'ក្រុមហ៊ុន កខគ (L-0031)', action: 'ផ្ញើលិខិតរំលឹក', date: '១៥/១០/២០២៦', result: 'បានផ្ញើរួច · Reminder #7' },
+  { no: 2, licensee: 'ក្រុមហ៊ុន ឃង (L-0077)', action: 'ពិនិត្យ និងទទួលយករបាយការណ៍', date: '២០/១០/២០២៦', result: 'បានកត់ត្រា · Audit #12' },
+];
+
+const goodActions = { actions: [
+  { action: 'បានផ្ញើលិខិតរំលឹកស្ដីពីការដាក់របាយការណ៍', result: 'លិខិតត្រូវបានផ្ញើរួចរាល់' },
+  { action: 'បានពិនិត្យ និងទទួលយករបាយការណ៍ប្រចាំខែ', result: 'ទទួលយកដោយគ្មានកំណត់សម្គាល់' },
+] };
+
+await checkAsync('it rewords the rows that exist', async () => {
+  const r = await draftActionsWithAi(recorded, stub(goodActions) as any);
+  assert.equal(r.engine, 'ai-agent');
+  assert.equal(r.actions?.length, 2);
+  assert.match(String(r.actions?.[0].action), /លិខិតរំលឹក/);
+});
+
+await checkAsync('the licensee and date survive the rewording untouched', async () => {
+  // Asserted rather than asked for: these identify the action, and a report
+  // that moves one to another company or another day is a false record.
+  const r = await draftActionsWithAi(recorded, stub({ actions: [
+    { action: 'ក', result: 'ខ' }, { action: 'គ', result: 'ឃ' },
+  ] }) as any);
+  assert.equal(r.actions?.[0].licensee, recorded[0].licensee);
+  assert.equal(r.actions?.[0].date, recorded[0].date);
+  assert.equal(r.actions?.[1].licensee, recorded[1].licensee);
+  assert.equal(r.actions?.[1].date, recorded[1].date);
+});
+
+await checkAsync('it cannot add an action the Centre never took', async () => {
+  const r = await draftActionsWithAi(recorded, stub({ actions: [
+    ...goodActions.actions,
+    { action: 'បានចុះត្រួតពិនិត្យនៅរោងចក្រ', result: 'បានរកឃើញបញ្ហា' },
+  ] }) as any);
+  assert.equal(r.engine, 'deterministic');
+  assert.match(r.reason || '', /3 rows for 2 recorded actions/);
+});
+
+await checkAsync('it cannot drop one either', async () => {
+  const r = await draftActionsWithAi(recorded, stub({ actions: [goodActions.actions[0]] }) as any);
+  assert.equal(r.engine, 'deterministic');
+  assert.match(r.reason || '', /1 rows for 2 recorded actions/);
+});
+
+await checkAsync('an invented figure in the wording is refused', async () => {
+  const r = await draftActionsWithAi(recorded, stub({ actions: [
+    { action: 'បានផ្ញើលិខិតរំលឹក ៩៩ ច្បាប់', result: 'ផ្ញើរួច' }, goodActions.actions[1],
+  ] }) as any);
+  assert.equal(r.engine, 'deterministic');
+  assert.match(r.reason || '', /figure that is not in the record/);
+});
+
+await checkAsync('with no recorded action there is nothing to word', async () => {
+  // The empty 6.1 an officer sees stays empty, rather than being filled in.
+  const r = await draftActionsWithAi([], stub(goodActions) as any);
+  assert.equal(r.engine, 'deterministic');
+  assert.match(r.reason || '', /no recorded actions/);
+});
+
+console.log(failures ? `\n${failures} check(s) FAILED\n` : '\nSections 6.1 and 6.2 hold.\n');
 process.exitCode = failures ? 1 : 0;

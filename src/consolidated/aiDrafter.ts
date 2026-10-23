@@ -173,3 +173,102 @@ export async function draftConsolidatedWithAi(
   }
   return fallback('no model answered');
 }
+
+/* ------------------------------------------------------------------ *
+ * Section 6.1 — wording only, never rows
+ * ------------------------------------------------------------------ */
+
+const ACTIONS_PROMPT = `អ្នកគឺជាអ្នករៀបចំរបាយការណ៍សរុបរបស់មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ (ម.ម.ជ)។
+
+ខាងក្រោមនេះគឺជាវិធានការដែល ម.ម.ជ បានអនុវត្តពិតប្រាកដ ដោយយកចេញពីកំណត់ត្រារបស់ប្រព័ន្ធ។
+សូមសរសេរជួរឈរ «វិធានការ» និង «លទ្ធផល» ឡើងវិញ ជាភាសាខ្មែរផ្លូវការឱ្យស្អាត និងច្បាស់។
+
+វិន័យដែលមិនអាចបំពានបាន៖
+1. ហាមបន្ថែមជួរ ហាមលុបជួរ និងហាមប្ដូរលំដាប់។ ចំនួនជួរត្រូវដូចគ្នាបេះបិទ។
+2. ហាមកែឈ្មោះក្រុមហ៊ុន និងកាលបរិច្ឆេទ។
+3. ហាមបន្ថែមវិធានការដែលមិនមានក្នុងកំណត់ត្រា ដូចជាការចុះត្រួតពិនិត្យ ឬការព្រមាន
+   បើកំណត់ត្រាមិនបានបង្ហាញ។ សរសេរឡើងវិញតែអ្វីដែលមានស្រាប់ប៉ុណ្ណោះ។
+4. ហាមបង្កើតតួលេខថ្មី។
+
+ឆ្លើយជា JSON តែមួយ៖ {"actions":[{"action":"...","result":"..."}]}
+
+កំណត់ត្រា៖
+`;
+
+/**
+ * Reword 6.1, keeping every row's licensee and date exactly.
+ *
+ * The AI is given rows that already exist and may only improve their Khmer.
+ * It cannot add one, because 6.1 is a register of what the Centre actually
+ * did: a row asserting an inspection visit or a warning letter that never
+ * happened would be a false official record, and no wording improvement is
+ * worth that. The licensee and the date are compared byte for byte
+ * afterwards rather than merely asked for.
+ */
+export async function draftActionsWithAi(
+  actions: ConsolidatedData['actions'],
+  config: AiConfig | null,
+): Promise<{ actions: ConsolidatedData['actions'] | null; engine: 'ai-agent' | 'deterministic'; model: string | null; reason?: string }> {
+  const fallback = (reason: string) =>
+    ({ actions: null, engine: 'deterministic' as const, model: null, reason });
+
+  if (!config) return fallback('no AI provider is configured');
+  if (!actions.length) return fallback('there are no recorded actions to word');
+
+  const rows = actions.map(a => ({
+    licensee: String(a.licensee), action: String(a.action),
+    date: String(a.date), result: String(a.result),
+  }));
+
+  const deadline = Date.now() + BUDGET_MS();
+  for (const model of config.models) {
+    const remaining = deadline - Date.now();
+    if (remaining < 2000) return fallback(`budget of ${BUDGET_MS()}ms spent`);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), remaining);
+    let raw: string;
+    try {
+      raw = await config.generate(ACTIONS_PROMPT + JSON.stringify(rows, null, 1), model, controller.signal);
+    } catch (err: any) {
+      const message = err?.name === 'AbortError' ? 'did not answer in time' : String(err?.message || err);
+      if (model === config.models.at(-1)) return fallback(`${model}: ${message}`);
+      continue;
+    } finally {
+      clearTimeout(timer);
+    }
+
+    let parsed: any;
+    try { parsed = JSON.parse(raw); }
+    catch { return fallback(`${model}: the answer was not JSON`); }
+
+    const out = parsed?.actions;
+    if (!Array.isArray(out)) return fallback(`${model}: actions missing`);
+    if (out.length !== actions.length) {
+      return fallback(`${model}: returned ${out.length} rows for ${actions.length} recorded actions`);
+    }
+
+    const worded: ConsolidatedData['actions'] = [];
+    for (let i = 0; i < out.length; i++) {
+      const action = String(out[i]?.action ?? '').trim();
+      const result = String(out[i]?.result ?? '').trim();
+      if (!action || !result) return fallback(`${model}: row ${i + 1} is empty`);
+      if (action.length > MAX_CHARS || result.length > MAX_CHARS) {
+        return fallback(`${model}: row ${i + 1} is too long`);
+      }
+      if (!numbersAreGrounded(`${action} ${result}`, rows)) {
+        return fallback(`${model}: row ${i + 1} states a figure that is not in the record`);
+      }
+      worded.push({
+        no: actions[i].no,
+        // Never from the model: these identify the action and must survive
+        // the rewording untouched.
+        licensee: actions[i].licensee,
+        date: actions[i].date,
+        action, result,
+      });
+    }
+    return { actions: worded, engine: 'ai-agent', model };
+  }
+  return fallback('no model answered');
+}

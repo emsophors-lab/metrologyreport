@@ -21,9 +21,9 @@ import { computeSummary, deadlineFor, isOnTime } from './src/annex8/summary';
 import { reportingPeriod, toKhmerDigits } from './src/lib/consolidated/periods';
 import type { PeriodType } from './src/lib/consolidated/periods';
 import { formatConsolidatedAggregate } from './src/lib/consolidated/aggregateResult';
-import { actionWindow, draftRecordedActions } from './src/lib/consolidated/officerDrafts';
+import { actionWindow, draftRecordedActions, draftSentReminders } from './src/lib/consolidated/officerDrafts';
 import { analyzeConsolidatedData } from './src/lib/consolidated/automaticReport';
-import { draftConsolidatedWithAi } from './src/consolidated/aiDrafter';
+import { draftActionsWithAi, draftConsolidatedWithAi } from './src/consolidated/aiDrafter';
 // NMC's own summary over the submissions. Deliberately separate from the
 // official annex: this one has a layout built in code, that one never does.
 import {
@@ -4374,8 +4374,40 @@ app.get('/api/consolidated/preview', async (req, res) => {
         .gte('created_at', window.start).lt('created_at', window.end).lte('created_at', window.cutoff)
         .order('created_at', { ascending: true }).order('id', { ascending: true }));
       if (audits.length >= 50000) throw new Error('Audit evidence exceeds the complete-read limit.');
-      result.data.actions = draftRecordedActions(audits, period, result.data_as_of, result.data.licensees);
-      if (!result.data.actions.length) result.warnings.push('៦.១៖ មិនមានកំណត់ត្រាសកម្មភាពទទួលយក ឬបញ្ជូនត្រឡប់របស់មន្ត្រីក្នុងរយៈពេលនេះទេ។ អាចបំពេញបន្ថែមតាមភស្តុតាងពិត។');
+      const reviewActions = draftRecordedActions(audits, period, result.data_as_of, result.data.licensees);
+
+      /**
+       * Reminder letters the Centre actually sent, which 6.1 asks for by
+       * name ("លិខិតរំលឹក") and which this draft used to ignore — so a
+       * quarter full of letters printed an empty table.
+       *
+       * Resolved to a licence here, because license_reminder_logs keys by
+       * the register's row id rather than the licence number.
+       */
+      let reminderActions: typeof reviewActions = [];
+      try {
+        const licences = await selectAllRows('enterprise_licenses', q => q);
+        const byId = new Map((licences || []).map((l: any) =>
+          [String(l.id), { no: String(l.license_number || ''), name: String(l.company_name_kh || l.company_name || '') }]));
+        const logs = await selectAllRows('license_reminder_logs', q => q
+          .gte('sent_at', window.start).lt('sent_at', window.end));
+        reminderActions = draftSentReminders((logs || []).map((row: any) => ({
+          id: row.id,
+          licence_no: byId.get(String(row.license_id))?.no || null,
+          licensee_name: byId.get(String(row.license_id))?.name || null,
+          reminder_type: row.reminder_type ?? null,
+          reminder_days: row.reminder_days ?? null,
+          send_status: row.send_status ?? null,
+          sent_at: row.sent_at ?? null,
+        })), period, result.data_as_of, reviewActions.length + 1);
+      } catch {
+        // Reminder history being unreadable must not invent letters, and
+        // must not lose the review actions that were read successfully.
+        result.warnings.push('៦.១៖ មិនអាចអានប្រវត្តិលិខិតរំលឹកបានទេ។ មិនបានបង្កើតវិធានការសន្មតឡើយ។');
+      }
+
+      result.data.actions = [...reviewActions, ...reminderActions];
+      if (!result.data.actions.length) result.warnings.push('៦.១៖ មិនមានកំណត់ត្រាវិធានការ (ការទទួលយក ការបញ្ជូនត្រឡប់ ឬលិខិតរំលឹក) ក្នុងរយៈពេលនេះទេ។ អាចបំពេញបន្ថែមតាមភស្តុតាងពិត។');
     } catch {
       result.data.actions = [];
       result.warnings.push('៦.១៖ មិនអាចផ្ទៀងផ្ទាត់ប្រវត្តិសកម្មភាពមន្ត្រីបានទេ។ មិនបានបង្កើតសកម្មភាពសន្មតឡើយ។');
@@ -4398,12 +4430,21 @@ app.get('/api/consolidated/preview', async (req, res) => {
         const drafted = await draftConsolidatedWithAi(
           result.data, analysis, await resolveAiConfig(supabaseAdmin));
         if (drafted.reason) console.log('Consolidated AI drafter not used:', drafted.reason);
+        // 6.1: wording only. The rows come from evidence above and the
+        // licensee and date are preserved byte for byte — see aiDrafter.
+        const worded = await draftActionsWithAi(
+          result.data.actions, await resolveAiConfig(supabaseAdmin));
+        if (worded.actions) result.data.actions = worded.actions;
+        else if (worded.reason) console.log('Consolidated 6.1 AI wording not used:', worded.reason);
+
         (result as any).ai_draft = {
           engine: drafted.engine,
           model: drafted.model,
           reason: drafted.reason || null,
           proposals: drafted.analysis?.proposals || null,
           conclusion: drafted.analysis?.conclusion || null,
+          actions_engine: worded.engine,
+          actions_reason: worded.reason || null,
         };
       } catch (err: any) {
         console.log('Consolidated AI drafter failed:', err?.message || err);
