@@ -46,8 +46,18 @@ export const SCALAR_KEYS: string[] = [
   ...cross(['std_expired', 'std_due60', 'lic_expiring90', 'out_of_scope'], ['count', 'licensees']),
   ...cross(['lic_total'], ['m', 'i', 'r', 'passed', 'failed', 'pending']),
 ];
+/**
+ * The preparer block, written by the system rather than typed.
+ *
+ * NMC's decision: this report is prepared and analysed automatically, so it
+ * is signed by the system that did it rather than by an officer who did not.
+ * A named human REVIEWER is still required below — the analysis is
+ * automatic, the approval is not.
+ */
+export const MACHINE_SCALARS = ['preparer_name', 'preparer_position', 'prepared_date_kh'] as const;
+
 export const OFFICER_SCALARS = ['letter_no', 'head_name', 'lunar_date_line', 'signed_day_kh', 'signed_month_kh',
-  'signed_year_kh', 'preparer_name', 'preparer_position', 'prepared_date_kh', 'reviewer_name',
+  'signed_year_kh', 'reviewer_name',
   'reviewer_position', 'reviewed_date_kh', 'conclusion'] as const;
 export type OfficerInputs = Partial<Pick<ConsolidatedData, (typeof OFFICER_SCALARS)[number]>>
   & { challenges?: LoopRows['challenges']; actions?: LoopRows['actions']; proposals?: LoopRows['proposals'] };

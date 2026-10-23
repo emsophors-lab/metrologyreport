@@ -1,0 +1,249 @@
+/**
+ * Section 6.2: the legal-basis catalogue and the AI drafter's guards.
+ *
+ *   npm run consolidated:ai:check
+ *
+ * The thing this protects is narrow and serious. A consolidated report may
+ * support an inspection, and section 6.2 carries the legal basis for each
+ * proposal. A citation that reads correctly but does not exist — the kind a
+ * language model produces fluently — is worse than an empty column, which is
+ * why the column sat empty until there was a catalogue to cite from.
+ *
+ * So: the AI never writes a citation, only selects one, and anything outside
+ * the approved list is refused and the deterministic draft used instead.
+ */
+import assert from 'node:assert/strict';
+
+import {
+  APPROVED_CITATIONS, LEGAL_REFERENCES, citationChoices, citationsAreApproved, legalBasisForRule,
+} from '../src/lib/consolidated/legalBasis';
+import { draftConsolidatedWithAi } from '../src/consolidated/aiDrafter';
+import type { ConsolidatedAnalysis } from '../src/lib/consolidated/automaticReport';
+import type { ConsolidatedData } from '../src/lib/consolidated/contract';
+
+let failures = 0;
+const check = (name: string, run: () => void) => {
+  try { run(); console.log(`  OK   ${name}`); }
+  catch (err: any) { failures++; console.error(`  FAIL ${name}\n       ${err?.message || err}`); }
+};
+const checkAsync = async (name: string, run: () => Promise<void>) => {
+  try { await run(); console.log(`  OK   ${name}`); }
+  catch (err: any) { failures++; console.error(`  FAIL ${name}\n       ${err?.message || err}`); }
+};
+
+/* ------------------------------------------------------------------ *
+ * 1. The catalogue
+ * ------------------------------------------------------------------ */
+console.log('\nThe approved catalogue');
+
+check('every entry has an id, a citation and a scope', () => {
+  for (const r of LEGAL_REFERENCES) {
+    assert.ok(r.id && r.ref && r.scope, `incomplete entry: ${JSON.stringify(r)}`);
+    assert.ok(['national', 'international'].includes(r.kind));
+  }
+});
+
+check('ids are unique', () => {
+  const ids = LEGAL_REFERENCES.map(r => r.id);
+  assert.equal(new Set(ids).size, ids.length);
+});
+
+check('it covers the articles this system actually relies on', () => {
+  // Art. 21 (the deadline), Art. 25 (seals), Art. 17 (carry-over) and the
+  // two annexes are referenced throughout the Annex 8 code. If one is ever
+  // dropped from the catalogue, the proposals that cite it go blank.
+  for (const needle of ['ប្រការ១៧', 'ប្រការ២១', 'ប្រការ២៥', 'ឧបសម្ព័ន្ធទី៨', 'ឧបសម្ព័ន្ធទី១០']) {
+    assert.ok(APPROVED_CITATIONS.some(c => c.includes(needle)), `missing: ${needle}`);
+  }
+});
+
+check('international good practice is the OIML set the system records', () => {
+  for (const r of ['OIML R 76', 'OIML R 111', 'OIML R 117', 'OIML R 46', 'OIML R 49']) {
+    assert.ok(APPROVED_CITATIONS.includes(r), `missing: ${r}`);
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * 2. Rules get a real basis, or none
+ * ------------------------------------------------------------------ */
+console.log('\nEach rule cites what governs it, or nothing');
+
+check('the reporting-deadline rules cite the deadline article', () => {
+  for (const rule of ['late-reports', 'missing-reports', 'submission-rate-decreased']) {
+    assert.match(legalBasisForRule(rule), /ប្រការ២១/, rule);
+  }
+});
+
+check('the carry-over rules cite the carry-over article', () => {
+  for (const rule of ['pending-at-period-end', 'pending-over-30-days']) {
+    assert.match(legalBasisForRule(rule), /ប្រការ១៧/, rule);
+  }
+});
+
+check('a rule the catalogue does not govern cites nothing', () => {
+  // Rather than a loosely-related article. An officer can add the right one.
+  for (const rule of ['expired-standards', 'standards-due-soon', 'licences-expiring']) {
+    assert.equal(legalBasisForRule(rule), '', rule);
+  }
+});
+
+check('an unknown rule cites nothing rather than throwing', () => {
+  assert.equal(legalBasisForRule('no-such-rule'), '');
+});
+
+check('every citation a rule produces is itself approved', () => {
+  for (const rule of ['late-reports', 'missing-reports', 'pending-over-30-days',
+    'failed-verification', 'annex-totals-mismatch', 'scope-review', 'incomplete-data']) {
+    assert.ok(citationsAreApproved(legalBasisForRule(rule)), rule);
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * 3. The citation guard
+ * ------------------------------------------------------------------ */
+console.log('\nNo citation that is not on the list');
+
+check('an approved citation passes', () => {
+  assert.ok(citationsAreApproved('ប្រការ២១'));
+  assert.ok(citationsAreApproved('ប្រការ២១; ឧបសម្ព័ន្ធទី៨'));
+  assert.ok(citationsAreApproved('OIML R 76'));
+});
+
+check('an empty citation is allowed — saying nothing always is', () => {
+  assert.ok(citationsAreApproved(''));
+  assert.ok(citationsAreApproved(null));
+  assert.ok(citationsAreApproved(undefined));
+});
+
+check('an article that does not exist in the catalogue is refused', () => {
+  // The exact failure this guard exists for: fluent, plausible, invented.
+  assert.equal(citationsAreApproved('ប្រការ៤៥'), false);
+  assert.equal(citationsAreApproved('ប្រការ២១; ប្រការ៩៩'), false);
+});
+
+check('an invented law title is refused', () => {
+  assert.equal(citationsAreApproved('ច្បាប់ស្ដីពីមាត្រាសាស្ត្រ ប្រការ១២'), false);
+});
+
+check('an OIML number we do not record is refused', () => {
+  assert.equal(citationsAreApproved('OIML R 60'), false);
+});
+
+/* ------------------------------------------------------------------ *
+ * 4. The drafter's guards
+ * ------------------------------------------------------------------ */
+console.log('\nThe AI drafter');
+
+const data = {
+  period_label_kh: 'ខែតុលា ឆ្នាំ២០២៦', active_licensees_kh: '២៤', late_count_kh: '៣',
+  submission_rate_kh: '៩៦.៤%', total_failed_kh: '៥',
+} as unknown as ConsolidatedData;
+
+const analysis: ConsolidatedAnalysis = {
+  challenges: [{ text: 'ក' }],
+  conclusion: 'សេចក្ដីសន្និដ្ឋានដើម',
+  findings: [{ rule: 'late-reports', text: 'យឺត' } as any, { rule: 'missing-reports', text: 'ខ្វះ' } as any],
+  proposals: [
+    { no: 1, proposal: 'ស្នើតាមដានការដាក់យឺត', legal_basis: 'ប្រការ២១' },
+    { no: 2, proposal: 'ស្នើផ្ទៀងផ្ទាត់ការខ្វះ', legal_basis: 'ប្រការ២១; ឧបសម្ព័ន្ធទី៨' },
+  ],
+};
+
+const stub = (body: unknown) => ({
+  provider: 'gemini' as const, models: ['model-a'],
+  generate: async () => typeof body === 'string' ? body : JSON.stringify(body),
+});
+
+const good = {
+  proposals: [
+    { proposal: 'ស្នើឱ្យតាមដានអ្នកកាន់អាជ្ញាប័ណ្ណដែលដាក់យឺតចំនួន ៣។', legal_basis: 'ប្រការ២១' },
+    { proposal: 'ស្នើឱ្យផ្ទៀងផ្ទាត់ករណីខ្វះរបាយការណ៍។', legal_basis: 'ប្រការ២១; ឧបសម្ព័ន្ធទី៨' },
+  ],
+  conclusion: 'សូមបន្តតាមដាន។',
+};
+
+await checkAsync('a clean answer is used', async () => {
+  const r = await draftConsolidatedWithAi(data, analysis, stub(good) as any);
+  assert.equal(r.engine, 'ai-agent');
+  assert.equal(r.analysis?.proposals.length, 2);
+  assert.equal(r.analysis?.proposals[0].legal_basis, 'ប្រការ២១');
+  assert.equal(r.analysis?.conclusion, 'សូមបន្តតាមដាន។');
+});
+
+await checkAsync('an invented citation is refused outright', async () => {
+  const r = await draftConsolidatedWithAi(data, analysis, stub({
+    ...good,
+    proposals: [{ ...good.proposals[0], legal_basis: 'ប្រការ៤៥' }, good.proposals[1]],
+  }) as any);
+  assert.equal(r.engine, 'deterministic');
+  assert.equal(r.analysis, null);
+  assert.match(r.reason || '', /legal reference that is not approved/);
+});
+
+await checkAsync('it cannot add a proposal the rules did not find', async () => {
+  const r = await draftConsolidatedWithAi(data, analysis, stub({
+    ...good, proposals: [...good.proposals, { proposal: 'ស្នើបន្ថែម', legal_basis: '' }],
+  }) as any);
+  assert.equal(r.engine, 'deterministic');
+  assert.match(r.reason || '', /3 proposals for 2 findings/);
+});
+
+await checkAsync('it cannot drop one either', async () => {
+  const r = await draftConsolidatedWithAi(data, analysis, stub({
+    ...good, proposals: [good.proposals[0]],
+  }) as any);
+  assert.equal(r.engine, 'deterministic');
+  assert.match(r.reason || '', /1 proposals for 2 findings/);
+});
+
+await checkAsync('an invented figure is refused', async () => {
+  const r = await draftConsolidatedWithAi(data, analysis, stub({
+    ...good,
+    proposals: [{ ...good.proposals[0], proposal: 'ស្នើតាមដាន ៩៩៩ ករណី។' }, good.proposals[1]],
+  }) as any);
+  assert.equal(r.engine, 'deterministic');
+  assert.match(r.reason || '', /figure that is not in the data/);
+});
+
+await checkAsync('an empty proposal is refused rather than printed blank', async () => {
+  const r = await draftConsolidatedWithAi(data, analysis, stub({
+    ...good, proposals: [{ proposal: '  ', legal_basis: '' }, good.proposals[1]],
+  }) as any);
+  assert.equal(r.engine, 'deterministic');
+  assert.match(r.reason || '', /is empty/);
+});
+
+await checkAsync('text that is not JSON is refused', async () => {
+  const r = await draftConsolidatedWithAi(data, analysis, stub('Sure! Here are your proposals:') as any);
+  assert.equal(r.engine, 'deterministic');
+});
+
+await checkAsync('with no provider it uses the deterministic draft', async () => {
+  const r = await draftConsolidatedWithAi(data, analysis, null);
+  assert.equal(r.engine, 'deterministic');
+  assert.match(r.reason || '', /no AI provider/);
+});
+
+await checkAsync('no licensee identity reaches the drafter', async () => {
+  let seen = '';
+  const withNames = {
+    ...data,
+    licensees: [{ name: 'ក្រុមហ៊ុន កខគ', licence_no: 'L-0031' }],
+  } as unknown as ConsolidatedData;
+  await draftConsolidatedWithAi(withNames, analysis, {
+    provider: 'gemini', models: ['m'],
+    generate: async (prompt: string) => { seen = prompt; return JSON.stringify(good); },
+  } as any);
+  assert.ok(!seen.includes('ក្រុមហ៊ុន កខគ'), 'a licensee name reached the prompt');
+  assert.ok(!seen.includes('L-0031'), 'a licence number reached the prompt');
+  assert.ok(seen.includes('ប្រការ២១'), 'the approved catalogue should be in the prompt');
+});
+
+await checkAsync('the approved catalogue is what it is offered', async () => {
+  const choices = citationChoices();
+  assert.equal(choices.length, LEGAL_REFERENCES.length);
+  for (const c of choices) assert.ok(APPROVED_CITATIONS.includes(c.ref));
+});
+
+console.log(failures ? `\n${failures} check(s) FAILED\n` : '\nSection 6.2 holds: no citation that is not approved.\n');
+process.exitCode = failures ? 1 : 0;

@@ -1,6 +1,7 @@
 import { formatKhmerOfficialDateBlock } from '../../utils/khmerOfficialDate';
 import { dataProblems } from './contract';
 import type { ConsolidatedData, OfficerInputs } from './contract';
+import { legalBasisForRule } from './legalBasis';
 import { KHMER_MONTHS, toKhmerDigits } from './periods';
 import type { ReportingPeriod } from './periods';
 
@@ -125,8 +126,10 @@ export function analyzeConsolidatedData(data: ConsolidatedData): ConsolidatedAna
   };
   const proposals = findings.filter(finding => recommendations[finding.rule]).map((finding, i) => ({
     no: i + 1, proposal: `${finding.text}\n${recommendations[finding.rule]}`,
-    // No approved legal-reference catalogue exists. Officers supply verified references.
-    legal_basis: '',
+    // From the approved catalogue only, mapped per rule. A rule the
+    // catalogue does not cover still prints nothing: an empty citation is
+    // always better than a loosely-related one. See legalBasis.ts.
+    legal_basis: legalBasisForRule(finding.rule),
   }));
   return { findings, challenges: findings.map(({ text }) => ({ text })), conclusion: conclusion.join('\n'), proposals };
 }
@@ -148,6 +151,10 @@ export function automaticConsolidatedFields(period: ReportingPeriod, now = new D
     letter_no: `NMC-CONS-${period.type}-${period.key}`,
     lunar_date_line: official.lunarLine,
     signed_day_kh: toKhmerDigits(day), signed_month_kh: KHMER_MONTHS[Number(month) - 1], signed_year_kh: toKhmerDigits(year),
+    // Prepared by the Centre's own system. Named here rather than left for
+    // an officer to type, because no officer wrote this analysis.
+    preparer_name: 'រៀបចំដោយប្រព័ន្ធឆ្លាតវៃរបស់ ម.ម.ជ',
+    preparer_position: 'ប្រព័ន្ធវិភាគស្វ័យប្រវត្តិ (Smart Algorithm & AI)',
     prepared_date_kh: date, reviewed_date_kh: date,
   };
 }

@@ -13,7 +13,6 @@ import ConsolidatedReportPreview from './ConsolidatedReportPreview';
 const INPUT = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800';
 const BUTTON = 'inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed';
 const OFFICER_FIELDS: Array<[keyof OfficerInputs, string]> = [
-  ['preparer_name', 'ឈ្មោះអ្នករៀបចំ'], ['preparer_position', 'តួនាទីអ្នករៀបចំ'],
   ['reviewer_name', 'ឈ្មោះអ្នកពិនិត្យ'], ['reviewer_position', 'តួនាទីអ្នកពិនិត្យ'],
 ];
 const ROW_FIELDS: Record<'actions' | 'proposals', Array<[string, string]>> = {

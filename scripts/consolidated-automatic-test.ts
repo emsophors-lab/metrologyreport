@@ -69,7 +69,10 @@ zero.kpi_sub_rate_cur = '0%'; zero.kpi_sub_rate_prev = '0%';
 assert.deepEqual(analyzeConsolidatedData(zero).findings.map(finding => finding.rule), ['no-flagged-indicators']);
 
 const override = { challenges: [{ text: 'កំណត់ចំណាំរបស់មន្ត្រី' }], conclusion: 'សេចក្ដីសន្និដ្ឋានរបស់មន្ត្រី',
-  letter_no: 'STALE', prepared_date_kh: 'STALE' };
+  letter_no: 'STALE',
+  // Not an OfficerInputs key any more: the preparer block is the machine's.
+  // Still sent here on purpose, to prove a client cannot set it.
+  ...({ prepared_date_kh: 'STALE', preparer_name: 'លោក ក', preparer_position: 'ប្រធាន' } as any) };
 const automatic = automaticConsolidatedInputs(sample, period, {}, now);
 assert.deepEqual(automatic.challenges, analysis.challenges);
 assert.equal(automatic.conclusion, analysis.conclusion);
@@ -77,7 +80,11 @@ const overridden = automaticConsolidatedInputs(sample, period, override, now);
 assert.deepEqual(overridden.challenges, override.challenges);
 assert.equal(overridden.conclusion, override.conclusion);
 assert.equal(overridden.letter_no, fields.letter_no);
-assert.equal(overridden.prepared_date_kh, fields.prepared_date_kh);
+assert.equal((overridden as any).prepared_date_kh, fields.prepared_date_kh);
+// The preparer block names the system, whatever the request asked for.
+assert.equal((overridden as any).preparer_name, 'រៀបចំដោយប្រព័ន្ធឆ្លាតវៃរបស់ ម.ម.ជ',
+  'a request must not be able to put a person in the preparer block');
+assert.match(String((overridden as any).preparer_position), /Smart Algorithm & AI/);
 assert.equal(automaticConsolidatedInputs(sample, period, { conclusion: '' }, now).conclusion, '', 'Explicit manual blank is respected');
 assert.equal(automaticConsolidatedInputs(sample, period, { conclusion: undefined }, now).conclusion, analysis.conclusion, 'Reset restores algorithm');
 const original = JSON.stringify(sample);
