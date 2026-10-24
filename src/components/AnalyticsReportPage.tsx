@@ -200,15 +200,37 @@ export default function AnalyticsReportPage(
   // built a new one on every tick.
   const aiJobId = aiJob?.id ? String(aiJob.id) : '';
   const aiJobStatus = String(aiJob?.status || '');
+  const [aiStalled, setAiStalled] = useState(false);
   useEffect(() => {
     if (!aiJobId || !['PENDING', 'RUNNING'].includes(aiJobStatus)) return;
     let cancelled = false;
+    let ticks = 0;
+    setAiStalled(false);
     const timer = window.setInterval(() => {
       void (async () => {
+        ticks++;
         const working = await readAiStatus();
-        if (!working && !cancelled) {
+        if (cancelled) return;
+        if (!working) {
           window.clearInterval(timer);
           await load(true);
+          return;
+        }
+        /**
+         * A job left PENDING has nothing working it: this deployment has no
+         * cron and no standing worker, so the press that queued it is the
+         * only thing that ever asked for it to be done. Ask again, bounded
+         * by the server's own attempt limit — it marks a job FAILED after
+         * three, which ends this loop by making `working` false.
+         */
+        if (aiJobStatus === 'PENDING' && ticks % 2 === 0) {
+          void apiRequest('/api/analytics/narrative/run', { method: 'POST' }).catch(() => {});
+        }
+        // Never spin for ever. After five minutes say so and stop, so the
+        // officer is told rather than left watching an animation.
+        if (ticks >= 38) {
+          window.clearInterval(timer);
+          setAiStalled(true);
         }
       })();
     }, 8000);
@@ -516,16 +538,17 @@ export default function AnalyticsReportPage(
                   <button
                     type="button"
                     onClick={() => void requestAiWording()}
-                    disabled={!!busy || loading || working}
+                    disabled={!!busy || loading || (working && !aiStalled)}
                     className="flex items-center gap-1.5 rounded-lg border border-[#0B2A66] bg-[#0B2A66] px-3 py-2 text-[11px] font-black text-white hover:bg-[#123a85] disabled:opacity-50"
                   >
-                    {busy === 'ai' || working
+                    {(busy === 'ai' || working) && !aiStalled
                       ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       : <Sparkles className="h-3.5 w-3.5" />}
                     តាក់តែងដោយភ្នាក់ងារ AI / Write with the AI agent
                   </button>
                   <span className="text-[10px] font-semibold text-slate-500">
-                    {status === 'PENDING' ? 'កំពុងរង់ចាំក្នុងជួរ… អត្ថបទនឹងបង្ហាញដោយខ្លួនឯង។'
+                    {aiStalled ? 'មិនទាន់ទទួលបានចម្លើយពីភ្នាក់ងារ AI ទេ។ សូមសាកល្បងម្ដងទៀត ឬប្ដូរក្រុមហ៊ុនផ្ដល់សេវា។'
+                      : status === 'PENDING' ? 'កំពុងរង់ចាំក្នុងជួរ… អត្ថបទនឹងបង្ហាញដោយខ្លួនឯង។'
                       : status === 'RUNNING' ? 'ភ្នាក់ងារ AI កំពុងសរសេរ…'
                       : status === 'FAILED' ? 'មិនបានសម្រេច — សូមសាកល្បងម្ដងទៀត។'
                       : status === 'DONE' ? `សរសេរដោយ ${aiJob?.agent_model || 'AI'}។ ការកែសម្រួលរបស់អ្នកនឹងត្រូវជំនួស។`

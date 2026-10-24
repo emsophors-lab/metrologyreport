@@ -12,6 +12,7 @@
  */
 import { collectAnalyticsSource } from './aggregate';
 import { draftWithAiAnalyst, figuresFingerprint } from './aiAnalyst';
+import type { AiBudget } from './aiAnalyst';
 import { claimNext, completeJob, failJob } from './narrativeQueue';
 import { resolveAiConfig } from './aiSettings';
 import { buildAnalyticsData } from '../lib/analytics/buildAnalyticsData';
@@ -56,7 +57,9 @@ export interface RunOutcome {
  * provider is the normal case, not an exception, and the cron calling this
  * should see a 200 with an explanation rather than a 500.
  */
-export async function runOneNarrativeJob(db: any): Promise<RunOutcome> {
+export async function runOneNarrativeJob(
+  db: any, budget: AiBudget & { deadlineAt?: number } = {},
+): Promise<RunOutcome> {
   const claimed = await claimNext(db);
   if (!claimed) return { outcome: 'idle' };
 
@@ -83,10 +86,43 @@ export async function runOneNarrativeJob(db: any): Promise<RunOutcome> {
     // Which provider, from the settings screen if an administrator has set
     // one up, from the environment otherwise.
     const config = await resolveAiConfig(db);
-    const result = await draftWithAiAnalyst(base, config, {
-      budgetMs: Number(process.env.ANALYTICS_NARRATIVE_BUDGET_MS || 240000),
-      timeoutMs: Number(process.env.ANALYTICS_NARRATIVE_TIMEOUT_MS || 120000),
-    });
+    /**
+     * The budget belongs to the CALLER, not to this function.
+     *
+     * A standing worker can give the provider minutes. The API endpoint
+     * cannot: its serverless function is killed at maxDuration, and a call
+     * that outlives it is killed mid-flight — so the job is never marked
+     * done or failed, and goes round from RUNNING to lease-expiry to
+     * PENDING for ever while the screen shows a spinner. That is exactly
+     * what happened in production with a 240s budget inside a 60s
+     * function, and why this is a parameter now.
+     */
+    /**
+     * What is left of the caller's deadline, not what it had at the start.
+     *
+     * Collecting the source scans every accepted report and builds the ML
+     * feature set; it took about 25 seconds in production. A 40-second
+     * budget handed to the agent AFTER that overran a 60-second function by
+     * five seconds, and a killed function never records an outcome — which
+     * is what left jobs cycling and the screen spinning. So the deadline is
+     * absolute and the agent gets the remainder.
+     */
+    let budgetMs = budget.budgetMs ?? Number(process.env.ANALYTICS_NARRATIVE_BUDGET_MS || 240000);
+    let timeoutMs = budget.timeoutMs ?? Number(process.env.ANALYTICS_NARRATIVE_TIMEOUT_MS || 120000);
+    if (budget.deadlineAt) {
+      budgetMs = Math.min(budgetMs, budget.deadlineAt - Date.now());
+      timeoutMs = Math.min(timeoutMs, budgetMs);
+      // Too little left to be worth starting: record it and let the next
+      // attempt have a whole deadline, rather than begin a call that will
+      // be cut off and leave the job in limbo.
+      if (budgetMs < 8000) {
+        const detail = `only ${Math.max(0, budgetMs)}ms of the request deadline remained after collecting the figures`;
+        await failJob(db, job.id, token, detail);
+        return { outcome: 'failed', period, seconds: seconds(), detail };
+      }
+    }
+
+    const result = await draftWithAiAnalyst(base, config, { budgetMs, timeoutMs });
     if (!result.narrative) {
       await failJob(db, job.id, token, result.reason || 'the agent produced nothing usable');
       return { outcome: 'failed', period, seconds: seconds(), detail: result.reason };

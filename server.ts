@@ -5066,7 +5066,19 @@ app.post('/api/analytics/narrative/run', async (req, res) => {
     }
     if (!supabaseAdmin) return apiError(res, 503, 'Server database provider is not configured.');
 
-    const outcome = await runOneNarrativeJob(supabaseAdmin);
+    /**
+     * Sized to finish inside the function's own deadline.
+     *
+     * vercel.json allows 60s. The agent gets 40, leaving time to record the
+     * outcome and answer. A job that outlives the function is never marked
+     * done or failed, and the screen waits on it for ever.
+     */
+    const outcome = await runOneNarrativeJob(supabaseAdmin, {
+      // An absolute deadline, because collecting the figures happens first
+      // and takes a slice of it. vercel.json allows 60s; this leaves ten to
+      // record the outcome and answer.
+      deadlineAt: Date.now() + Number(process.env.ANALYTICS_NARRATIVE_REQUEST_MS || 50000),
+    });
     return apiSuccess(res, outcome);
   } catch (err: any) {
     console.error('Analytics narrative run failed:', err?.message || err);
