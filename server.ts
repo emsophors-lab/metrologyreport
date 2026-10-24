@@ -4374,6 +4374,8 @@ app.get('/api/consolidated/preview', async (req, res) => {
         .gte('created_at', window.start).lt('created_at', window.end).lte('created_at', window.cutoff)
         .order('created_at', { ascending: true }).order('id', { ascending: true }));
       if (audits.length >= 50000) throw new Error('Audit evidence exceeds the complete-read limit.');
+      const auditCount = audits.length;
+      let reminderCount = 0;
       const reviewActions = draftRecordedActions(audits, period, result.data_as_of, result.data.licensees);
 
       /**
@@ -4391,6 +4393,7 @@ app.get('/api/consolidated/preview', async (req, res) => {
           [String(l.id), { no: String(l.license_number || ''), name: String(l.company_name_kh || l.company_name || '') }]));
         const logs = await selectAllRows('license_reminder_logs', q => q
           .gte('sent_at', window.start).lt('sent_at', window.end));
+        reminderCount = (logs || []).length;
         reminderActions = draftSentReminders((logs || []).map((row: any) => ({
           id: row.id,
           licence_no: byId.get(String(row.license_id))?.no || null,
@@ -4407,7 +4410,23 @@ app.get('/api/consolidated/preview', async (req, res) => {
       }
 
       result.data.actions = [...reviewActions, ...reminderActions];
-      if (!result.data.actions.length) result.warnings.push('៦.១៖ មិនមានកំណត់ត្រាវិធានការ (ការទទួលយក ការបញ្ជូនត្រឡប់ ឬលិខិតរំលឹក) ក្នុងរយៈពេលនេះទេ។ អាចបំពេញបន្ថែមតាមភស្តុតាងពិត។');
+      if (!result.data.actions.length) {
+        /**
+         * Say what was searched and what was found.
+         *
+         * "No records" on its own cannot be told apart from a filter
+         * quietly dropping everything, and an officer looking at an empty
+         * 6.1 has no way to know which it is. These counts make the
+         * difference visible without anyone reading the code: rows read in
+         * the window, against rows that qualified.
+         */
+        result.warnings.push(
+          `៦.១៖ មិនមានកំណត់ត្រាវិធានការក្នុងរយៈពេលនេះទេ។ `
+          + `បានពិនិត្យ៖ កំណត់ត្រាសវនកម្ម ${auditCount} ជួរ (ទទួលយក/បញ្ជូនត្រឡប់ ដោយមន្ត្រី) `
+          + `និងលិខិតរំលឹក ${reminderCount} ជួរ។ `
+          + `ប្រសិនបើ ម.ម.ជ បានអនុវត្តវិធានការក្រៅប្រព័ន្ធ សូមបំពេញជួរខាងក្រោមតាមភស្តុតាងពិត `
+          + `រួចចុច «បង្កើតព្រាង» ដើម្បីឱ្យភ្នាក់ងារ AI រៀបចំអត្ថបទជូន។`);
+      }
     } catch {
       result.data.actions = [];
       result.warnings.push('៦.១៖ មិនអាចផ្ទៀងផ្ទាត់ប្រវត្តិសកម្មភាពមន្ត្រីបានទេ។ មិនបានបង្កើតសកម្មភាពសន្មតឡើយ។');
