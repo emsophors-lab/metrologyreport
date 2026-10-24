@@ -124,7 +124,16 @@ if (DB_DRIVER === 'mysql' && !mysqlUrl) {
 
 async function resolveApiUser(req: any): Promise<{ role: string; userRow: any | null } | null> {
   if (!supabaseAdmin) {
-    // Local/demo mode has no server-side auth provider. Production must configure SUPABASE_SERVICE_ROLE_KEY.
+    /**
+     * Local/demo mode has no server-side auth provider, so it runs open.
+     *
+     * Production must never take that path. The condition is only "no admin
+     * client", which a missing SUPABASE_SERVICE_ROLE_KEY also satisfies — so
+     * a deployment with one environment variable unset would have treated
+     * every caller as a superadmin. Refusing is the only safe answer when
+     * the server cannot tell who is asking.
+     */
+    if (isProduction) return null;
     return { role: 'superadmin', userRow: null };
   }
 
@@ -5445,6 +5454,27 @@ app.post('/api/annex8/reports/:id/review', async (req, res) => {
     const { data: updated, error } = await supabaseAdmin
       .from('annex8_reports').update(patch).eq('id', id).select('*').single();
     if (error) throw error;
+
+    /**
+     * Confirm the row really changed, by reading it back.
+     *
+     * A review that reports success without recording anything is the worst
+     * outcome this endpoint has: the officer believes the report is handled,
+     * the licensee is never told, and the register says it never happened.
+     * The update's own return value is not proof — it is what the driver
+     * says it wrote, and the two have disagreed in production.
+     *
+     * Costs one extra read on an action that happens a few times a day.
+     */
+    const { data: confirmed } = await supabaseAdmin
+      .from('annex8_reports').select('status, reviewer').eq('id', id).maybeSingle();
+    if (!confirmed || confirmed.status !== patch.status) {
+      console.error('Annex 8 review did not persist:', {
+        id, wanted: patch.status, found: confirmed?.status ?? '(row not found)',
+      });
+      return apiError(res, 500,
+        `ប្រព័ន្ធមិនបានរក្សាទុកការសម្រេចទេ (ស្ថានភាពនៅតែ ${confirmed?.status || 'មិនស្គាល់'})។ សូមរាយការណ៍ទៅអ្នកគ្រប់គ្រងប្រព័ន្ធ។`);
+    }
     await signalMlChange();
 
     await writeAnnex8Audit({
