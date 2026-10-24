@@ -94,6 +94,8 @@ export default function Annex8StaffReview(
   const [detail, setDetail] = useState<Record<string, any>>({});
   const [audit, setAudit] = useState<Record<string, any[]>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  /** The outcome of the last review action, per report, shown on its row. */
+  const [rowNote, setRowNote] = useState<Record<string, { ok: boolean; text: string } | null>>({});
   /** The report being read in full before a decision is made about it. */
   const [viewing, setViewing] = useState<string | null>(null);
 
@@ -177,17 +179,43 @@ export default function Annex8StaffReview(
     }
   };
 
+  /**
+   * Accept or return a report.
+   *
+   * The outcome is shown ON THE ROW as well as in a toast. A toast is easy
+   * to miss and gone in seconds, and a review desk that appears to do
+   * nothing is worse than one that fails loudly: a reviewer who does not
+   * know the click failed believes the report is handled.
+   *
+   * The server's own answer is checked too. It returns the report as
+   * written, so if the status that comes back is not the one asked for, the
+   * write did not take and this says so rather than reporting success.
+   */
   const review = async (r: StaffReport, action: 'accept' | 'return', comment = '') => {
     setBusy(`${action}:${r.id}`);
+    setRowNote(note => ({ ...note, [r.id]: null }));
     try {
-      await apiRequest(`/api/annex8/reports/${r.id}/review`, {
+      const res = await apiRequest<any>(`/api/annex8/reports/${r.id}/review`, {
         method: 'POST', body: { action, comment },
       });
+      const expected = action === 'accept' ? 'ACCEPTED' : 'RETURNED';
+      const got = String(res?.report?.status || '');
+      if (got && got !== expected) {
+        const message = `ប្រព័ន្ធមិនបានកត់ត្រាការសម្រេចទេ (ទទួលបានស្ថានភាព ${got})។`;
+        setRowNote(note => ({ ...note, [r.id]: { ok: false, text: message } }));
+        toastMsg(message, 'error');
+        return;
+      }
+      setRowNote(note => ({ ...note, [r.id]: { ok: true,
+        text: action === 'accept' ? 'បានទទួលយក និងកត់ត្រារួចរាល់' : 'បានត្រឡប់ និងកត់ត្រារួចរាល់' } }));
       toastMsg(action === 'accept' ? 'បានទទួលយករបាយការណ៍' : 'បានត្រឡប់របាយការណ៍ទៅសហគ្រាស', 'success');
       setPrompt(null);
       await load();
     } catch (err: any) {
-      toastMsg(err?.message || 'មិនបានសម្រេច', 'error');
+      const message = err?.message || 'មិនបានសម្រេច';
+      // Kept on the row until the next attempt, so it cannot be missed.
+      setRowNote(note => ({ ...note, [r.id]: { ok: false, text: message } }));
+      toastMsg(message, 'error');
     } finally {
       setBusy(null);
     }
@@ -399,9 +427,16 @@ export default function Annex8StaffReview(
                                 onClick={() => void review(r, 'accept')}
                                 disabled={busy === `accept:${r.id}`}
                                 title="ទទួលយក"
-                                className="rounded border border-emerald-200 bg-emerald-50 p-1.5 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                                /* Labelled, not a bare icon: four 14px icons
+                                   in a row is a target nobody hits reliably,
+                                   and the cost of missing is a review the
+                                   officer believes they completed. */
+                                className="flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
                               >
-                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                {busy === `accept:${r.id}`
+                                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  : <CheckCircle2 className="h-3.5 w-3.5" />}
+                                ទទួលយក
                               </button>
                             )}
 
@@ -425,6 +460,19 @@ export default function Annex8StaffReview(
                           </div>
                         </td>
                       </tr>
+
+                      {/* The outcome of the last review on this row. Stays
+                          until the next attempt, unlike a toast. */}
+                      {rowNote[r.id] && (
+                        <tr key={`${r.id}-note`}>
+                          <td colSpan={9} className={`border-t px-5 py-2 text-[11px] font-bold ${
+                            rowNote[r.id]!.ok
+                              ? 'border-emerald-100 bg-emerald-50 text-emerald-800'
+                              : 'border-red-100 bg-red-50 text-red-700'}`}>
+                            {rowNote[r.id]!.ok ? '✓ ' : '⚠ '}{rowNote[r.id]!.text}
+                          </td>
+                        </tr>
+                      )}
 
                       {isOpen && (
                         <tr key={`${r.id}-detail`}>
