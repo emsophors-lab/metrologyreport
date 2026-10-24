@@ -4426,14 +4426,17 @@ app.get('/api/consolidated/preview', async (req, res) => {
      */
     if (String((req.query as any)?.ai || '') === '1') {
       try {
+        // One deadline for BOTH calls: 6.2 and 6.1 share a single
+        // serverless function, which is killed at maxDuration.
+        const aiDeadline = Date.now() + Number(process.env.CONSOLIDATED_AI_REQUEST_MS || 45000);
+        const aiConfig = await resolveAiConfig(supabaseAdmin);
         const analysis = analyzeConsolidatedData(result.data);
         const drafted = await draftConsolidatedWithAi(
-          result.data, analysis, await resolveAiConfig(supabaseAdmin));
+          result.data, analysis, aiConfig, aiDeadline);
         if (drafted.reason) console.log('Consolidated AI drafter not used:', drafted.reason);
         // 6.1: wording only. The rows come from evidence above and the
         // licensee and date are preserved byte for byte — see aiDrafter.
-        const worded = await draftActionsWithAi(
-          result.data.actions, await resolveAiConfig(supabaseAdmin));
+        const worded = await draftActionsWithAi(result.data.actions, aiConfig, aiDeadline);
         if (worded.actions) result.data.actions = worded.actions;
         else if (worded.reason) console.log('Consolidated 6.1 AI wording not used:', worded.reason);
 

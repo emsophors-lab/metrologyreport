@@ -22,6 +22,9 @@ export interface ConsolidatedPreview {
     reason: string | null;
     proposals: ConsolidatedData['proposals'] | null;
     conclusion: string | null;
+    /** Section 6.1 is worded separately, and may succeed or fail alone. */
+    actions_engine?: 'ai-agent' | 'deterministic';
+    actions_reason?: string | null;
   };
 }
 

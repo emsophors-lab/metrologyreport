@@ -135,11 +135,18 @@ export default function ConsolidatedReportPage({ currentUser }: { currentUser: M
           the system's own drafter is visible, not silent — and 6.1 is
           always the audit record, never written by either. */}
       {preview?.ai_draft && (
-        <p className={`text-[11px] font-semibold ${preview.ai_draft.engine === 'ai-agent' ? 'text-green-800' : 'text-slate-500'}`}>
-          {preview.ai_draft.engine === 'ai-agent'
-            ? `៦.២ ត្រូវតាក់តែងដោយភ្នាក់ងារ AI (${preview.ai_draft.model || 'AI'})។ មូលដ្ឋានច្បាប់ជ្រើសរើសពីបញ្ជីដែលបានអនុម័ត។`
-            : `៦.២ ត្រូវតាក់តែងដោយប្រព័ន្ធ។${preview.ai_draft.reason ? ` (${preview.ai_draft.reason})` : ''}`}
-        </p>
+        <div className="space-y-1">
+          <p className={`text-[11px] font-semibold ${preview.ai_draft.actions_engine === 'ai-agent' ? 'text-green-800' : 'text-slate-500'}`}>
+            {preview.ai_draft.actions_engine === 'ai-agent'
+              ? `៦.១ ត្រូវតាក់តែងដោយភ្នាក់ងារ AI (${preview.ai_draft.model || 'AI'})។ ឈ្មោះក្រុមហ៊ុន និងកាលបរិច្ឆេទរក្សាដូចកំណត់ត្រាដើម។`
+              : `៦.១ ត្រូវតាក់តែងដោយប្រព័ន្ធពីកំណត់ត្រាពិត។${preview.ai_draft.actions_reason ? ` (${preview.ai_draft.actions_reason})` : ''}`}
+          </p>
+          <p className={`text-[11px] font-semibold ${preview.ai_draft.engine === 'ai-agent' ? 'text-green-800' : 'text-slate-500'}`}>
+            {preview.ai_draft.engine === 'ai-agent'
+              ? `៦.២ ត្រូវតាក់តែងដោយភ្នាក់ងារ AI (${preview.ai_draft.model || 'AI'})។ មូលដ្ឋានច្បាប់ជ្រើសរើសពីបញ្ជីដែលបានអនុម័ត។`
+              : `៦.២ ត្រូវតាក់តែងដោយប្រព័ន្ធ។${preview.ai_draft.reason ? ` (${preview.ai_draft.reason})` : ''}`}
+          </p>
+        </div>
       )}
       {(['actions', 'proposals'] as const).map(key => <div key={key} className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-xs font-bold">{key === 'actions' ? '៦.១ សកម្មភាពបានអនុវត្ត' : '៦.២ សំណើ'}</h4>

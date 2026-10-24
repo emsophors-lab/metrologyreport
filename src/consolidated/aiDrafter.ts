@@ -50,6 +50,20 @@ const MAX_CHARS = 1200;
 const BUDGET_MS = () => Number(process.env.CONSOLIDATED_AI_BUDGET_MS || 60000);
 
 /**
+ * How long this call may take, given the caller's own deadline.
+ *
+ * The endpoint makes TWO calls — 6.2 and then 6.1 — inside one serverless
+ * function. Two sixty-second budgets inside a sixty-second function is the
+ * same overrun that left the analytics queue cycling: the function is
+ * killed, and the report comes back as a 504 instead of as a report. So
+ * both calls share one absolute deadline and take what is left of it.
+ */
+function allowance(deadlineAt?: number): number {
+  const budget = BUDGET_MS();
+  return deadlineAt ? Math.min(budget, deadlineAt - Date.now()) : budget;
+}
+
+/**
  * The figures the drafter may see.
  *
  * Named explicitly, so a key added to the report later cannot leak through.
@@ -96,6 +110,7 @@ export async function draftConsolidatedWithAi(
   data: ConsolidatedData,
   analysis: ConsolidatedAnalysis,
   config: AiConfig | null,
+  deadlineAt?: number,
 ): Promise<AiDraftResult> {
   const fallback = (reason: string): AiDraftResult =>
     ({ analysis: null, engine: 'deterministic', model: null, reason });
@@ -110,10 +125,10 @@ export async function draftConsolidatedWithAi(
     approved_legal_references: citationChoices(),
   };
 
-  const deadline = Date.now() + BUDGET_MS();
+  const deadline = Date.now() + allowance(deadlineAt);
   for (const model of config.models) {
     const remaining = deadline - Date.now();
-    if (remaining < 2000) return fallback(`budget of ${BUDGET_MS()}ms spent`);
+    if (remaining < 2000) return fallback('the request deadline was spent before 6.2 could be worded');
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), remaining);
@@ -208,6 +223,7 @@ const ACTIONS_PROMPT = `អ្នកគឺជាអ្នករៀបចំរ�
 export async function draftActionsWithAi(
   actions: ConsolidatedData['actions'],
   config: AiConfig | null,
+  deadlineAt?: number,
 ): Promise<{ actions: ConsolidatedData['actions'] | null; engine: 'ai-agent' | 'deterministic'; model: string | null; reason?: string }> {
   const fallback = (reason: string) =>
     ({ actions: null, engine: 'deterministic' as const, model: null, reason });
@@ -220,10 +236,10 @@ export async function draftActionsWithAi(
     date: String(a.date), result: String(a.result),
   }));
 
-  const deadline = Date.now() + BUDGET_MS();
+  const deadline = Date.now() + allowance(deadlineAt);
   for (const model of config.models) {
     const remaining = deadline - Date.now();
-    if (remaining < 2000) return fallback(`budget of ${BUDGET_MS()}ms spent`);
+    if (remaining < 2000) return fallback('the request deadline was spent before 6.2 could be worded');
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), remaining);
