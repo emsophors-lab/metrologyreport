@@ -4369,8 +4369,14 @@ app.get('/api/consolidated/preview', async (req, res) => {
     // Optional evidence must never turn unavailable audit history into invented actions.
     try {
       const window = actionWindow(period, result.data_as_of);
+      // Every officer action, not just accept and return: correcting a
+      // licensee's figures or removing a bad record is something the Centre
+      // did, and excluding it made 6.1 look emptier than the quarter was.
+      // Entities beyond the report itself count too — an instrument row an
+      // officer corrected is the same kind of intervention.
       const audits = await selectAllRows('annex8_report_audit_log', query => query
-        .eq('entity', 'report').in('actor_role', ['admin', 'superadmin']).in('action', ['accept', 'return'])
+        .in('actor_role', ['admin', 'superadmin'])
+        .in('action', ['accept', 'return', 'update', 'delete', 'undelete'])
         .gte('created_at', window.start).lt('created_at', window.end).lte('created_at', window.cutoff)
         .order('created_at', { ascending: true }).order('id', { ascending: true }));
       if (audits.length >= 50000) throw new Error('Audit evidence exceeds the complete-read limit.');
