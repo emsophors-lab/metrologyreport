@@ -21,7 +21,7 @@ import { computeSummary, deadlineFor, isOnTime } from './src/annex8/summary';
 import { reportingPeriod, toKhmerDigits } from './src/lib/consolidated/periods';
 import type { PeriodType } from './src/lib/consolidated/periods';
 import { formatConsolidatedAggregate } from './src/lib/consolidated/aggregateResult';
-import { actionWindow, draftRecordedActions, draftSentReminders } from './src/lib/consolidated/officerDrafts';
+import { actionWindow, draftRecordedActions, draftReviewOutcomes, draftSentReminders, groupActionEvents } from './src/lib/consolidated/officerDrafts';
 import { analyzeConsolidatedData } from './src/lib/consolidated/automaticReport';
 import { draftActionsWithAi, draftConsolidatedWithAi } from './src/consolidated/aiDrafter';
 // NMC's own summary over the submissions. Deliberately separate from the
@@ -4382,7 +4382,21 @@ app.get('/api/consolidated/preview', async (req, res) => {
       if (audits.length >= 50000) throw new Error('Audit evidence exceeds the complete-read limit.');
       const auditCount = audits.length;
       let reminderCount = 0;
-      const reviewActions = draftRecordedActions(audits, period, result.data_as_of, result.data.licensees);
+      const auditEvents = draftRecordedActions(audits, period, result.data_as_of);
+
+      /**
+       * The reports' own review outcomes.
+       *
+       * 6.1 used to read the audit log alone, so an empty audit log emptied
+       * the section even though `status = 'ACCEPTED'` was sitting in the
+       * report row saying the Centre had accepted it. Both records describe
+       * the same events and are deduplicated by report.
+       */
+      const periodReports = await selectAllRows('annex8_reports', q => q
+        .in('status', ['ACCEPTED', 'RETURNED'])
+        .gte('period_month', period.start.slice(0, 7))
+        .lte('period_month', period.end.slice(0, 7)));
+      const outcomeEvents = draftReviewOutcomes(periodReports as any, result.data.licensees);
 
       /**
        * Reminder letters the Centre actually sent, which 6.1 asks for by
@@ -4392,7 +4406,7 @@ app.get('/api/consolidated/preview', async (req, res) => {
        * Resolved to a licence here, because license_reminder_logs keys by
        * the register's row id rather than the licence number.
        */
-      let reminderActions: typeof reviewActions = [];
+      let reminderEvents: typeof auditEvents = [];
       try {
         const licences = await selectAllRows('enterprise_licenses', q => q);
         const byId = new Map((licences || []).map((l: any) =>
@@ -4400,7 +4414,7 @@ app.get('/api/consolidated/preview', async (req, res) => {
         const logs = await selectAllRows('license_reminder_logs', q => q
           .gte('sent_at', window.start).lt('sent_at', window.end));
         reminderCount = (logs || []).length;
-        reminderActions = draftSentReminders((logs || []).map((row: any) => ({
+        reminderEvents = draftSentReminders((logs || []).map((row: any) => ({
           id: row.id,
           licence_no: byId.get(String(row.license_id))?.no || null,
           licensee_name: byId.get(String(row.license_id))?.name || null,
@@ -4408,14 +4422,15 @@ app.get('/api/consolidated/preview', async (req, res) => {
           reminder_days: row.reminder_days ?? null,
           send_status: row.send_status ?? null,
           sent_at: row.sent_at ?? null,
-        })), period, result.data_as_of, reviewActions.length + 1);
+        })), period, result.data_as_of);
       } catch {
         // Reminder history being unreadable must not invent letters, and
         // must not lose the review actions that were read successfully.
         result.warnings.push('៦.១៖ មិនអាចអានប្រវត្តិលិខិតរំលឹកបានទេ។ មិនបានបង្កើតវិធានការសន្មតឡើយ។');
       }
 
-      result.data.actions = [...reviewActions, ...reminderActions];
+      result.data.actions = groupActionEvents(
+        [...auditEvents, ...outcomeEvents, ...reminderEvents], result.data.licensees);
       if (!result.data.actions.length) {
         /**
          * Say what was searched and what was found.

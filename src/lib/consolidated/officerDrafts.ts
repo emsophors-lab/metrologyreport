@@ -59,6 +59,7 @@ const STAFF_ACTIONS: Record<string, string> = {
   update: 'កែតម្រូវទិន្នន័យក្នុងរបាយការណ៍',
   delete: 'លុបកំណត់ត្រាដែលមិនត្រឹមត្រូវ',
   undelete: 'ស្ដារកំណត់ត្រាឡើងវិញ',
+  reminder: 'ផ្ញើលិខិតរំលឹក',
 };
 
 const STAFF_RESULTS: Record<string, string> = {
@@ -67,7 +68,73 @@ const STAFF_RESULTS: Record<string, string> = {
   update: 'បានកត់ត្រាការកែតម្រូវ',
   delete: 'បានកត់ត្រាការលុប',
   undelete: 'បានកត់ត្រាការស្ដារ',
+  reminder: 'បានផ្ញើរួច',
 };
+
+/**
+ * A report as the register itself records it.
+ *
+ * The report row carries the outcome of NMC's review: its status, who
+ * reviewed it, and when it was received or returned. Those are facts about
+ * what the Centre did, written at the moment it did it — the audit log is a
+ * second record of the same events, not the only one.
+ */
+export interface ReportOutcomeEvidence {
+  id: string;
+  licence_no: string | null;
+  status: string | null;
+  reviewer: string | null;
+  received_at: string | null;
+  returned_at: string | null;
+  updated_at: string | null;
+  period_month: string | null;
+}
+
+/**
+ * NMC actions derived from the reports themselves.
+ *
+ * This exists because 6.1 was built on the audit log alone, and an audit log
+ * that is empty — a fresh deployment, a table added later, a write that
+ * failed — made the section empty too, while `status = 'ACCEPTED'` sat in
+ * the report row saying plainly that the Centre had accepted it.
+ *
+ * A report that is ACCEPTED was accepted; one that is RETURNED was returned.
+ * Nothing is inferred beyond what the status word already asserts.
+ *
+ * The date is the one the register kept for that outcome, falling back to
+ * when the row was last written. Where even that is missing the action is
+ * still real, so it is reported with the period rather than dropped.
+ */
+export function draftReviewOutcomes(
+  reports: ReportOutcomeEvidence[], licensees: ConsolidatedData['licensees'],
+): ActionEvent[] {
+  const events: ActionEvent[] = [];
+  for (const row of reports) {
+    const status = String(row.status || '').toUpperCase();
+    const kind = status === 'ACCEPTED' ? 'accept' : status === 'RETURNED' ? 'return' : '';
+    if (!kind) continue;
+    const stamp = (kind === 'accept' ? row.received_at : row.returned_at) || row.updated_at;
+    const at = stamp ? new Date(stamp) : null;
+    events.push({
+      licence: String(row.licence_no || '').trim(),
+      action: kind,
+      id: `report:${row.id}`,
+      at: at && Number.isFinite(at.getTime()) ? at : null,
+      period: String(row.period_month || ''),
+    });
+  }
+  return events;
+}
+
+/** One thing the Centre did to one report, from whichever record holds it. */
+export interface ActionEvent {
+  licence: string;
+  action: string;
+  /** Prefixed by source, so the same report seen twice counts once. */
+  id: string;
+  at: Date | null;
+  period: string;
+}
 
 /**
  * Recorded NMC actions, grouped so the table can be read.
@@ -87,16 +154,13 @@ const STAFF_RESULTS: Record<string, string> = {
  * line can still be traced back to the entries that produced it.
  */
 export function draftRecordedActions(
-  rows: StaffReviewEvidence[], period: ReportingPeriod, asOf: string, licensees: ConsolidatedData['licensees'],
-): ConsolidatedData['actions'] {
+  rows: StaffReviewEvidence[], period: ReportingPeriod, asOf: string,
+): ActionEvent[] {
   const window = actionWindow(period, asOf);
-  const names = new Map(licensees.map(row => [String(row.licence_no), String(row.name)]));
   const seen = new Set<string>();
+  const events: ActionEvent[] = [];
 
-  interface Group { licence: string; action: string; ids: string[]; first: Date; last: Date }
-  const groups = new Map<string, Group>();
-
-  for (const row of [...rows].sort((a, b) => a.created_at.localeCompare(b.created_at) || String(a.id).localeCompare(String(b.id)))) {
+  for (const row of rows) {
     const at = new Date(row.created_at);
     if (!Number.isFinite(at.getTime())) continue;
     const timestamp = at.toISOString();
@@ -115,15 +179,44 @@ export function draftRecordedActions(
     }
 
     seen.add(key);
-    const licence = String(row.licence_no || '').trim();
-    const groupKey = `${licence}|${row.action}`;
-    const group = groups.get(groupKey);
-    if (group) {
-      group.ids.push(key);
-      if (at < group.first) group.first = at;
-      if (at > group.last) group.last = at;
-    } else {
-      groups.set(groupKey, { licence, action: row.action, ids: [key], first: at, last: at });
+    events.push({
+      licence: String(row.licence_no || '').trim(),
+      action: row.action,
+      // Keyed by the report, so the same outcome recorded in both the audit
+      // log and the report row is one action, not two.
+      id: `report:${String((row as any).report_uuid || row.id)}`,
+      at, period: '',
+    });
+  }
+  return events;
+}
+
+/**
+ * Turn action events into the rows section 6.1 prints.
+ *
+ * One row per licensee per kind of action, with how many times and over what
+ * dates. Forty-nine separate lines saying the same thing about one company
+ * is a register nobody reads; "accepted 3 reports, 02/10 to 18/10" is the
+ * same evidence, usable. Events are deduplicated by report, so an outcome
+ * held in both the audit log and the report row counts once.
+ */
+export function groupActionEvents(
+  events: ActionEvent[], licensees: ConsolidatedData['licensees'], startNo = 1,
+): ConsolidatedData['actions'] {
+  const names = new Map(licensees.map(row => [String(row.licence_no), String(row.name)]));
+  interface Group { licence: string; action: string; ids: Set<string>; first: Date | null; last: Date | null; periods: Set<string> }
+  const groups = new Map<string, Group>();
+
+  for (const e of events) {
+    const key = `${e.licence}|${e.action}`;
+    let g = groups.get(key);
+    if (!g) { g = { licence: e.licence, action: e.action, ids: new Set(), first: null, last: null, periods: new Set() }; groups.set(key, g); }
+    if (g.ids.has(e.id)) continue;
+    g.ids.add(e.id);
+    if (e.period) g.periods.add(e.period);
+    if (e.at) {
+      if (!g.first || e.at < g.first) g.first = e.at;
+      if (!g.last || e.at > g.last) g.last = e.at;
     }
   }
 
@@ -132,16 +225,23 @@ export function draftRecordedActions(
   }).format(d));
 
   return [...groups.values()]
-    .sort((a, b) => a.first.getTime() - b.first.getTime() || a.licence.localeCompare(b.licence))
+    .sort((a, b) => (a.first?.getTime() ?? 0) - (b.first?.getTime() ?? 0) || a.licence.localeCompare(b.licence))
     .map((g, i) => {
-      const times = g.ids.length;
-      const range = g.first.getTime() === g.last.getTime() ? day(g.first) : `${day(g.first)} – ${day(g.last)}`;
+      const times = g.ids.size;
+      const dates = !g.first || !g.last
+        // No timestamp survived on any record of this action. It still
+        // happened, so the period is reported rather than the row dropped.
+        ? [...g.periods].sort().map(p => toKhmerDigits(p)).join(', ') || 'មិនមានកាលបរិច្ឆេទ'
+        : g.first.getTime() === g.last.getTime() ? day(g.first) : `${day(g.first)} – ${day(g.last)}`;
       return {
-        no: i + 1,
+        no: startNo + i,
         licensee: names.has(g.licence) ? `${names.get(g.licence)} (${g.licence})` : g.licence || 'មិនមានទិន្នន័យ',
         action: times > 1 ? `${STAFF_ACTIONS[g.action]} ${toKhmerDigits(times)} លើក` : STAFF_ACTIONS[g.action],
-        date: range,
-        result: `${STAFF_RESULTS[g.action]} · Audit #${g.ids.slice(0, 5).join(', #')}${g.ids.length > 5 ? ` (+${toKhmerDigits(g.ids.length - 5)})` : ''}`,
+        date: dates,
+        // How many records stand behind the row, rather than their ids: a
+        // report id is a UUID, and a column of those on a ministry table
+        // helps nobody. The records themselves are in the app.
+        result: `${STAFF_RESULTS[g.action]} · កំណត់ត្រា ${toKhmerDigits(times)}`,
       };
     });
 }
@@ -154,13 +254,12 @@ export function draftRecordedActions(
  * false entry in an official register.
  */
 export function draftSentReminders(
-  rows: ReminderEvidence[], period: ReportingPeriod, asOf: string, startNo: number,
-): ConsolidatedData['actions'] {
+  rows: ReminderEvidence[], period: ReportingPeriod, asOf: string,
+): ActionEvent[] {
   const window = actionWindow(period, asOf);
   const seen = new Set<string>();
-  const actions: ConsolidatedData['actions'] = [];
-  for (const row of [...rows].sort((a, b) =>
-    String(a.sent_at || '').localeCompare(String(b.sent_at || '')) || String(a.id).localeCompare(String(b.id)))) {
+  const events: ActionEvent[] = [];
+  for (const row of rows) {
     if (String(row.send_status || '').toLowerCase() !== 'sent') continue;
     const at = new Date(String(row.sent_at || ''));
     if (!Number.isFinite(at.getTime())) continue;
@@ -169,21 +268,12 @@ export function draftSentReminders(
     const key = String(row.id);
     if (!key || seen.has(key)) continue;
     seen.add(key);
-
-    const licence = String(row.licence_no || '').trim();
-    const subject = KH_REMINDER[String(row.reminder_type || '').toLowerCase()]
-      || String(row.reminder_type || '').trim();
-    const days = Number(row.reminder_days);
-    actions.push({
-      no: startNo + actions.length,
-      licensee: row.licensee_name ? `${row.licensee_name} (${licence})` : licence || 'មិនមានទិន្នន័យ',
-      action: `ផ្ញើលិខិតរំលឹក${subject ? `ស្ដីពី${subject}` : ''}`
-        + (Number.isFinite(days) && days > 0 ? ` (មុន ${toKhmerDigits(days)} ថ្ងៃ)` : ''),
-      date: toKhmerDigits(new Intl.DateTimeFormat('en-GB', {
-        timeZone: 'Asia/Phnom_Penh', day: '2-digit', month: '2-digit', year: 'numeric',
-      }).format(at)),
-      result: `បានផ្ញើរួច · Reminder #${key}`,
+    events.push({
+      licence: String(row.licence_no || '').trim(),
+      action: 'reminder',
+      id: `reminder:${key}`,
+      at, period: '',
     });
   }
-  return actions;
+  return events;
 }
