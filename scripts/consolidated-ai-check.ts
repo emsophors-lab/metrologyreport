@@ -130,19 +130,27 @@ check('an OIML number we do not record is refused', () => {
   assert.equal(citationsAreApproved('OIML R 60'), false);
 });
 
-check('the instrument is named once, then its articles', () => {
+check('articles are joined, and the instrument named at most once', () => {
+  // Both configurations are normal: the title is empty until a Prakas
+  // number is confirmed, and set once it is. The joining must hold either
+  // way, and naming the instrument per-article would repeat the whole title
+  // inside one table cell.
   const basis = legalBasisForRule('late-reports');
-  assert.ok(basis.includes(INSTRUMENT_TITLE), 'the Prakas should be named');
-  assert.equal(basis.split(INSTRUMENT_TITLE).length - 1, 1,
-    'naming it twice in one cell is what printing it per-article would do');
   assert.match(basis, /ប្រការ២១ និង ឧបសម្ព័ន្ធទី៨/);
+  if (INSTRUMENT_TITLE) {
+    assert.ok(basis.startsWith(INSTRUMENT_TITLE), 'the Prakas should be named first');
+    assert.equal(basis.split(INSTRUMENT_TITLE).length - 1, 1, 'named once, not per article');
+  } else {
+    assert.equal(basis, 'ប្រការ២១ និង ឧបសម្ព័ន្ធទី៨', 'bare articles while no Prakas is confirmed');
+  }
 });
 
 check('an international recommendation is not filed under the Prakas', () => {
   // OIML belongs to a different authority and must not read as part of it.
   const r = LEGAL_REFERENCES.find(x => x.id === 'oiml_r76')!;
   assert.equal(r.ref, 'OIML R 76');
-  assert.ok(!r.ref.includes(INSTRUMENT_TITLE));
+  assert.equal(r.kind, 'international');
+  if (INSTRUMENT_TITLE) assert.ok(!r.ref.includes(INSTRUMENT_TITLE));
 });
 
 check('a citation under the instrument title is accepted', () => {
@@ -163,7 +171,10 @@ check('an invented instrument is refused', () => {
 });
 
 check('the title alone, citing nothing, is refused', () => {
-  assert.equal(citationsAreApproved(INSTRUMENT_TITLE), false);
+  // Only meaningful with a title: an empty value is always allowed, because
+  // saying nothing is permitted and inventing something is not.
+  if (INSTRUMENT_TITLE) assert.equal(citationsAreApproved(INSTRUMENT_TITLE), false);
+  else assert.ok(citationsAreApproved(''), 'an empty citation stays allowed');
 });
 
 /* ------------------------------------------------------------------ *

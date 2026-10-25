@@ -114,10 +114,22 @@ The last three are unmapped because the catalogue has nothing that governs
 them. An empty citation is better than a loosely related article. An officer
 may add the right one by hand.
 
-The instrument is named once per citation, then its articles:
+Where an instrument is configured it is named once per citation, then its
+articles. It is currently **not** configured, so citations print as bare
+articles — which is exactly what the Word templates do, their own instrument
+line being left as dotted blanks:
 
 ```
-ប្រកាសលេខ ២៤៧ សហវ.ប្រក ចុះថ្ងៃទី១៨ ខែមីនា ឆ្នាំ២០២២ ប្រការ២១ និង ឧបសម្ព័ន្ធទី៨
+ប្រការ២១ និង ឧបសម្ព័ន្ធទី៨
+```
+
+All three templates identify the instrument as the **Prakas on the management
+and licensing of the manufacture, installation and repair of metrology
+instruments**, with its number and date left blank. Once that number is
+confirmed it goes in `INSTRUMENT_TITLE` and every citation picks it up:
+
+```
+ប្រកាសលេខ ... ចុះថ្ងៃទី ... ប្រការ២១ និង ឧបសម្ព័ន្ធទី៨
 ```
 
 International recommendations (OIML R 76, R 111, R 117, R 46, R 49) follow
@@ -150,6 +162,12 @@ references, not a wrong one being entered here by hand.
 `INSTRUMENT_TITLE` is the single place the Prakas is named. Changing it
 updates every citation. Leaving it empty prints bare articles, which is what
 the rest of the system does.
+
+It was briefly set to a Prakas number that turned out not to match: the
+prefix was a Ministry of Economy and Finance one and the year disagreed with
+the templates. It was cleared again rather than left to print under
+signature. A bare article is accurate; a real article under the wrong
+instrument is the failure this catalogue exists to prevent.
 
 ---
 

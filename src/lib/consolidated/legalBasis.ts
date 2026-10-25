@@ -48,8 +48,28 @@
  * 'ប្រកាសលេខ ... ចុះថ្ងៃទី ...'. Leave empty rather than guess: an article
  * number attached to the wrong instrument is a worse citation than a bare
  * article number.
+ *
+ * WHICH INSTRUMENT THIS IS
+ *
+ * All three Word templates name it and leave its number blank:
+ *
+ *   ប្រការ២១ នៃប្រកាសលេខ............ ចុះថ្ងៃទី..... ខែ...... ឆ្នាំ២០២៦
+ *   ស្ដីពីការគ្រប់គ្រង និងផ្ដល់អាជ្ញាប័ណ្ណផលិត ដំឡើង និងជួសជុលឧបករណ៍មាត្រាសាស្ត្រ
+ *
+ * So it is the metrology licensing Prakas, and its articles are the ones
+ * this code relies on: 21 (the deadline), 22 and 26 (administrative
+ * measures, quoted in Annex 8's declaration and the analytics limitations).
+ *
+ * It was briefly set to 'ប្រកាសលេខ ២៤៧ សហវ.ប្រក ចុះថ្ងៃទី១៨ ខែមីនា ឆ្នាំ២០២២'
+ * and cleared again: សហវ is the Ministry of Economy and Finance prefix, and
+ * the date did not match the ២០២៦ the templates carry, so it appeared to be
+ * a different document. Empty until the owner confirms the number, which is
+ * what the templates themselves print.
  */
-export const INSTRUMENT_TITLE = 'ប្រកាសលេខ ២៤៧ សហវ.ប្រក ចុះថ្ងៃទី១៨ ខែមីនា ឆ្នាំ២០២២';
+// Typed as string, not inferred: an empty literal narrows to `never` and
+// breaks the prefix handling below the moment this is empty — which is its
+// normal state until a Prakas number is confirmed.
+export const INSTRUMENT_TITLE: string = '';
 
 export interface LegalReference {
   /** Stable id, used by the rule map and by the AI's allowed-choice list. */
