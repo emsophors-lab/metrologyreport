@@ -152,6 +152,25 @@ main{max-width:620px;margin:0 auto;padding:22px 16px 44px}
 .value.mono{font:600 12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .value.none{font-weight:400;color:var(--muted)}
 
+/* Collapsed by default. Most people reach this page by scanning a QR code
+   printed on paper, where there is no file to check and a printed copy
+   would fail the hash anyway. They should see a verdict and stop. The
+   officer holding the electronic file opens it with one tap. */
+details.file{padding:0}
+details.file > summary{
+  list-style:none;cursor:pointer;padding:16px 18px;
+  display:flex;gap:12px;align-items:flex-start;justify-content:space-between;
+}
+details.file > summary::-webkit-details-marker{display:none}
+details.file > summary:focus-visible{outline:2px solid var(--navy);outline-offset:-3px;border-radius:14px}
+.sum-text{position:relative;padding-left:13px;min-width:0}
+.sum-text::before{content:"";position:absolute;left:0;top:3px;bottom:3px;width:3px;border-radius:2px;background:var(--navy)}
+.sum-text .kh{display:block;font-size:14.5px;font-weight:700;color:var(--navy);line-height:1.5}
+.sum-text .en{display:block;font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.5}
+.chev{flex:none;width:20px;height:20px;margin-top:4px;color:var(--navy);transition:transform .15s ease}
+details.file[open] .chev{transform:rotate(180deg)}
+.file-body{padding:0 18px 18px}
+.hint{margin:0 0 13px;font-size:12.5px;line-height:1.7;color:var(--muted)}
 .file label{display:block;margin:0 0 11px;line-height:1.55}
 .file label .kh{display:block;font-size:13.5px;color:var(--ink)}
 .file label .en{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
@@ -193,13 +212,23 @@ input[type=file]{width:100%;font-size:14px;padding:11px;border:1px dashed var(--
   <div id="details"></div>
 </section>
 
-<section class="card file" id="file-check" hidden>
-  <h2><span class="kh">ផ្ទៀងផ្ទាត់ឯកសារដែលបានទាញយក</span><span class="en">Check the downloaded file</span></h2>
-  <label for="file"><span class="kh">ជ្រើសរើសឯកសារដើម្បីប្រៀបធៀបជាមួយកំណត់ត្រានេះ</span><span class="en">Select the file to compare against this record</span></label>
-  <input type="file" id="file" aria-label="Downloaded report file">
-  <p id="result" role="status" aria-live="polite"></p>
-  <p class="note">កូដ QR អាចត្រូវបានចម្លង។ ការផ្គូផ្គងកំណត់ត្រាបញ្ជាក់តែថាកំណត់ត្រានេះមានប៉ុណ្ណោះ មិនបញ្ជាក់ថាខ្លឹមសារឯកសារមិនបានកែប្រែទេ។ ច្បាប់ចម្លងដែលបានបោះពុម្ព ឬរក្សាទុកឡើងវិញ មានលេខសម្គាល់ឯកសារផ្សេងគ្នា។<br><br>A QR code can be copied. An issuance match alone does not establish that surrounding document content is unchanged. Printed or re-saved copies have different file hashes.</p>
-</section>
+<details class="card file" id="file-check" hidden>
+  <summary>
+    <span class="sum-text">
+      <span class="kh">ផ្ទៀងផ្ទាត់ឯកសារអេឡិចត្រូនិក</span>
+      <span class="en">Check an electronic file — only if you have it on this device</span>
+    </span>
+    <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9.5l6 6 6-6"/></svg>
+  </summary>
+  <div class="file-body">
+    <p class="hint">បើអ្នកបានស្កេនកូដ QR ពីឯកសារបោះពុម្ព មិនចាំបាច់ប្រើផ្នែកនេះទេ — ច្បាប់ចម្លងបោះពុម្ពនឹងមិនត្រូវគ្នានឹងលេខសម្គាល់ឡើយ។<br>If you scanned a printed report, you do not need this — a printed copy never matches the file hash.</p>
+    <label for="file"><span class="kh">ជ្រើសរើសឯកសារដើម្បីប្រៀបធៀបជាមួយកំណត់ត្រានេះ</span><span class="en">Select the file to compare against this record</span></label>
+    <input type="file" id="file" aria-label="Downloaded report file">
+    <p id="result" role="status" aria-live="polite"></p>
+    <p class="note">កូដ QR អាចត្រូវបានចម្លង។ ការផ្គូផ្គងកំណត់ត្រាបញ្ជាក់តែថាកំណត់ត្រានេះមានប៉ុណ្ណោះ មិនបញ្ជាក់ថាខ្លឹមសារឯកសារមិនបានកែប្រែទេ។ ច្បាប់ចម្លងដែលបានបោះពុម្ព ឬរក្សាទុកឡើងវិញ មានលេខសម្គាល់ឯកសារផ្សេងគ្នា។<br><br>A QR code can be copied. An issuance match alone does not establish that surrounding document content is unchanged. Printed or re-saved copies have different file hashes.</p>
+  </div>
+</details>
 
 <p class="foot">នាយកដ្ឋានមាត្រាសាស្ត្រឧស្សាហកម្ម · ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍<span class="en">Department of Industrial Metrology · MISTI</span></p>
 </main>
