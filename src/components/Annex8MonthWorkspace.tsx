@@ -922,13 +922,24 @@ export default function Annex8MonthWorkspace({ currentUser, toastMsg }: Props) {
                     : list === 'modules' ? 'module'
                       : list === 'repairs' ? 'repair'
                         : list === 'standards' ? 'standard' : null;
-                setView('entries');
+
                 if (target) {
+                  setView('entries');
                   setPart(target);
                   const index = Number(String(issue.path).split('.')[1]);
                   const row = (entries[listKey[target]] || [])[index];
                   if (row) openForm(target, row, row.id);
+                  return;
                 }
+
+                // Not an entry. Sending these to the entries view left the
+                // licensee on whichever part tab happened to be open — a
+                // report about the contact details landing them on standard
+                // equipment, with nothing highlighted and nothing to fix.
+                if (list === 'carry_over') { setView('carry'); return; }
+                if (list === 'meta') { setView('licensee'); return; }
+                // events.* and declaration are both on the review page, which
+                // is where they already are.
               }}
             />
           </div>

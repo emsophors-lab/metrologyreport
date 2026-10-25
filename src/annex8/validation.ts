@@ -85,13 +85,20 @@ export function validateAnnex8(
       'សូមបញ្ចូលលេខរបាយការណ៍ដើម', 'meta.original_report_id');
   }
 
+  // Part 1 is a snapshot of the licence record and the licensee cannot edit
+  // it — the panel itself says to ask NMC for a correction. So the message
+  // has to name who can actually fix this. "Please fill in" asked the one
+  // party who had no way to, and the report could not be submitted at all
+  // until they worked that out and rang the Centre.
   if (isBlank(state.meta.contact.name)) {
     add('block', 'R01', STEP_INDEX.PART1,
-      'សូមបំពេញព័ត៌មានអ្នកទទួលខុសត្រូវ (ឈ្មោះ)', 'meta.contact.name');
+      'បញ្ជីអាជ្ញាបណ្ណខ្វះឈ្មោះអ្នកទទួលខុសត្រូវ — សូមទាក់ទង ម.ម.ជ ដើម្បីបញ្ចូល (មិនអាចកែក្នុងរបាយការណ៍បានទេ)',
+      'meta.contact.name');
   }
   if (isBlank(state.meta.contact.phone)) {
     add('block', 'R01', STEP_INDEX.PART1,
-      'សូមបំពេញព័ត៌មានអ្នកទទួលខុសត្រូវ (ទូរសព្ទ)', 'meta.contact.phone');
+      'បញ្ជីអាជ្ញាបណ្ណខ្វះលេខទូរសព្ទអ្នកទទួលខុសត្រូវ — សូមទាក់ទង ម.ម.ជ ដើម្បីបញ្ចូល (មិនអាចកែក្នុងរបាយការណ៍បានទេ)',
+      'meta.contact.phone');
   }
   if (!isBlank(state.meta.contact.email) && !/^\S+@\S+\.\S+$/.test(state.meta.contact.email)) {
     add('block', 'R02', STEP_INDEX.PART1, 'អ៊ីម៉ែលមិនត្រឹមត្រូវ', 'meta.contact.email');
