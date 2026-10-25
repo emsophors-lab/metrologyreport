@@ -94,8 +94,11 @@ export function verificationPage(token: string, nonce: string) {
 <title>ការផ្ទៀងផ្ទាត់របាយការណ៍ | NMC Report Verification</title>
 <style>
 :root{
-  --navy:#0B2A66; --ink:#17212E; --muted:#5B6B7C; --line:#DCE4EC;
+  --navy:#0B2A66; --navy-deep:#081D48; --ink:#17212E; --muted:#5B6B7C; --line:#DCE4EC;
   --page:#EDF1F6; --card:#FFFFFF;
+  /* The gold hairline under the masthead is what reads as official on a
+     Cambodian government document; it is the only ornament on the page. */
+  --gold:#C8A24A;
   --ok:#0F7B4F; --ok-bg:#EAF7F0; --ok-line:#BCE3CE;
   --bad:#B42318; --bad-bg:#FDF0EF; --bad-line:#F3C3BE;
   --warn:#B54708; --warn-bg:#FFF8EC; --warn-line:#F2D8A8;
@@ -106,12 +109,16 @@ body{
   font:16px/1.65 "Khmer OS Battambang","Noto Sans Khmer","Khmer OS",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
   -webkit-text-size-adjust:100%;
 }
-main{max-width:620px;margin:0 auto;padding:0 16px 44px}
-.masthead{text-align:center;padding:30px 0 22px}
-.kingdom{font-size:11.5px;letter-spacing:.05em;color:var(--muted);margin:0}
-.centre{font-size:17px;font-weight:700;color:var(--navy);margin:7px 0 3px;line-height:1.45}
-.centre-en{font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0}
-.rule{height:3px;width:48px;margin:15px auto 0;border-radius:2px;background:var(--navy)}
+main{max-width:620px;margin:0 auto;padding:22px 16px 44px}
+
+/* A full-bleed masthead band. On a phone this is the first thing on
+   screen above the verdict, and it is what makes the page read as a
+   government record rather than a web form. */
+.band{background:linear-gradient(180deg,var(--navy) 0%,var(--navy-deep) 100%);border-bottom:3px solid var(--gold)}
+.band-inner{max-width:620px;margin:0 auto;padding:22px 16px 19px;text-align:center}
+.kingdom{font-size:11.5px;letter-spacing:.05em;color:#A9BEE2;margin:0}
+.centre{font-size:19px;font-weight:700;color:#fff;margin:8px 0 4px;line-height:1.45}
+.centre-en{font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:#C3D4EE;margin:0}
 
 .status{
   display:flex;gap:14px;align-items:flex-start;
@@ -130,10 +137,13 @@ main{max-width:620px;margin:0 auto;padding:0 16px 44px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:0 0 16px}
 /* Khmer and Latin on one line wrap into each other and read badly at
    phone width, so every bilingual heading stacks instead. */
-.card h2{margin:0 0 15px}
-.card h2 .kh{display:block;font-size:14.5px;font-weight:700;color:var(--ink);line-height:1.5}
+.card h2{margin:0 0 15px;padding-left:13px;position:relative}
+/* A navy tick against each section heading, the way a stamped form is
+   ruled. Decorative only, so it is hidden from the reading order. */
+.card h2::before{content:"";position:absolute;left:0;top:3px;bottom:3px;width:3px;border-radius:2px;background:var(--navy)}
+.card h2 .kh{display:block;font-size:14.5px;font-weight:700;color:var(--navy);line-height:1.5}
 .card h2 .en{display:block;font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:3px}
-.doc-title{font-size:16.5px;font-weight:700;color:var(--navy);margin:0 0 14px;line-height:1.5}
+.doc-title{font-size:16.5px;font-weight:700;color:var(--ink);margin:0 0 15px;padding:0 0 14px;line-height:1.5;border-bottom:2px solid var(--gold)}
 
 .row{padding:11px 0;border-top:1px solid var(--line)}
 .row:first-child{border-top:0;padding-top:0}
@@ -152,18 +162,21 @@ input[type=file]{width:100%;font-size:14px;padding:11px;border:1px dashed var(--
 #result.ok{color:var(--ok)}
 #result.bad{color:var(--bad)}
 .note{margin:15px 0 0;padding:13px 14px;background:#F5F8FB;border-radius:10px;font-size:12.5px;line-height:1.7;color:var(--muted)}
-.foot{text-align:center;font-size:11.5px;color:var(--muted);margin:22px 0 0;line-height:1.7}
+.foot{text-align:center;font-size:11.5px;color:var(--navy);margin:24px 0 0;padding:16px 0 0;line-height:1.7;border-top:2px solid var(--navy)}
+.foot .en{display:block;color:var(--muted);margin-top:3px}
 [hidden]{display:none!important}
-@media print{body{background:#fff}.file{display:none}}
+/* Keep the band's colour when an officer prints the page for a file. */
+@media print{body{background:#fff}.file{display:none}
+  .band{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 </style></head>
-<body><main>
-
-<header class="masthead">
+<body>
+<header class="band"><div class="band-inner">
   <p class="kingdom">ព្រះរាជាណាចក្រកម្ពុជា · ជាតិ សាសនា ព្រះមហាក្សត្រ</p>
   <p class="centre">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
   <p class="centre-en">National Metrology Center</p>
-  <div class="rule"></div>
-</header>
+</div></header>
+
+<main>
 
 <div class="status pending" id="status" role="status" aria-live="polite">
   <svg id="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -188,7 +201,7 @@ input[type=file]{width:100%;font-size:14px;padding:11px;border:1px dashed var(--
   <p class="note">កូដ QR អាចត្រូវបានចម្លង។ ការផ្គូផ្គងកំណត់ត្រាបញ្ជាក់តែថាកំណត់ត្រានេះមានប៉ុណ្ណោះ មិនបញ្ជាក់ថាខ្លឹមសារឯកសារមិនបានកែប្រែទេ។ ច្បាប់ចម្លងដែលបានបោះពុម្ព ឬរក្សាទុកឡើងវិញ មានលេខសម្គាល់ឯកសារផ្សេងគ្នា។<br><br>A QR code can be copied. An issuance match alone does not establish that surrounding document content is unchanged. Printed or re-saved copies have different file hashes.</p>
 </section>
 
-<p class="foot">នាយកដ្ឋានមាត្រាសាស្ត្រឧស្សាហកម្ម · ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍<br>Department of Industrial Metrology · MISTI</p>
+<p class="foot">នាយកដ្ឋានមាត្រាសាស្ត្រឧស្សាហកម្ម · ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍<span class="en">Department of Industrial Metrology · MISTI</span></p>
 </main>
 <script nonce="${nonce}">
 (function(){
