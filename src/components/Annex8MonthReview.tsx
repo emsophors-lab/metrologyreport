@@ -349,6 +349,45 @@ export default function Annex8MonthReview({ reportUuid, onFixIssue, onSubmitted,
             <span className="mt-1 block text-[11px] text-slate-500">At submission, this device’s location is requested automatically, recorded with the report and shared with the NMC Telegram group. Browser location permission is required. The registered company location is not changed.</span>
           </div>
 
+          {/*
+            Why the button is dead, said where the button is.
+
+            The blocking list sits much further up the page, so a licensee who
+            scrolls to the bottom meets a greyed-out button and nothing else.
+            The reason used to be a `title`, which browsers do not show on a
+            disabled control and which does not exist on a touch screen at
+            all — and this report is filed on a phone as often as not. So the
+            count is stated here, with a jump to the first thing to fix.
+          */}
+          {!can_submit && (
+            <div role="alert"
+              className="mt-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-[11px] font-bold text-red-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1">
+                មិនទាន់អាចដាក់ជូនបានទេ៖ នៅមាន <b>{blocking.length}</b> បញ្ហាត្រូវដោះស្រាយជាមុន។
+                <span className="mt-0.5 block text-[10px] font-semibold text-red-600">
+                  {blocking.length} issue{blocking.length === 1 ? '' : 's'} must be fixed before this report can be submitted.
+                </span>
+              </span>
+              {!!blocking.length && blocking[0]?.path && (
+                <button type="button" onClick={() => onFixIssue(blocking[0])}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md bg-red-600 px-2 py-1 text-[10px] font-black text-white hover:bg-red-700">
+                  ទៅកែ <ArrowRight className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {can_submit && !report.declaration_accepted && (
+            <div role="alert"
+              className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] font-bold text-amber-800">
+              សូមគូសយល់ព្រមលើសេចក្ដីប្រកាសអះអាងខាងលើ មុនដាក់ជូន។
+              <span className="mt-0.5 block text-[10px] font-semibold text-amber-600">
+                Tick the declaration above before submitting.
+              </span>
+            </div>
+          )}
+
           <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-3">
             <button type="button" onClick={() => void downloadDraft()} disabled={busy === 'draft'}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-[11px] font-black text-slate-600 hover:bg-slate-50 disabled:opacity-50">
