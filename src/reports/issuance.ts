@@ -69,30 +69,236 @@ export function sealHtml(seal: ReportSeal) {
     <img alt="Report verification QR" width="112" height="112" style="flex:none" src="data:image/png;base64,${seal.png.toString('base64')}"></section>`;
 }
 
+/**
+ * The page an inspector sees after scanning a report's QR code.
+ *
+ * This is the public face of the Centre's verification and often the only
+ * part of the system an outside party ever sees — usually on a phone, at a
+ * counter, in a hurry. So it answers the one question that matters, is this
+ * document genuine, before any detail, and it answers in Khmer and English
+ * because the people reading it are Cambodian officials and licensees.
+ *
+ * Everything is inline. This endpoint serves a strict `default-src 'none'`
+ * policy, which rules out web fonts and image files, so the icons are inline
+ * SVG — markup, not an image request — and the type is a system stack with
+ * Khmer faces first. The page therefore renders instantly on a weak mobile
+ * connection, which is the condition it will usually be read in.
+ *
+ * The caveat about copied QR codes is kept and given its own place rather
+ * than buried: a matching issuance proves this record exists, not that the
+ * paper in someone's hand is unaltered.
+ */
 export function verificationPage(token: string, nonce: string) {
   const safeToken = /^[A-Za-z0-9_-]{43}$/.test(token) ? token : '';
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>NMC Report Verification</title><style>body{font:16px Arial,sans-serif;color:#172a38;margin:0;background:#f4f7f9}main{max-width:740px;margin:auto;padding:28px 20px}h1{font-size:24px}h2{font-size:18px}dl{display:grid;grid-template-columns:140px minmax(0,1fr);gap:14px 12px}dd{margin:0;overflow-wrap:anywhere}dt{color:#556674}section{padding:20px 0;border-top:1px solid #cbd5df}#status{font-weight:bold;color:#076b43}#status.error{color:#a52c22}input{max-width:100%}#result{font-weight:bold;overflow-wrap:anywhere}@media(max-width:480px){dl{grid-template-columns:1fr;gap:8px}dd{margin-bottom:12px}}</style></head>
-  <body><main><p>National Metrology Center</p><h1>Report Verification</h1><p id="status" role="status">Checking issuance record…</p>
-  <section id="record" hidden><h2 id="title"></h2><dl id="details"></dl></section>
-  <section id="file-check" hidden><h2>Check Downloaded File</h2><input type="file" id="file" aria-label="Downloaded report file"><p id="result" role="status"></p>
-  <p>A QR code can be copied. An issuance match alone does not establish that surrounding document content is unchanged. Printed or re-saved copies have different file hashes.</p></section></main>
-  <script nonce="${nonce}">
-  const endpoint='/api/report-issuance/verify/${safeToken}';
-  const status=document.getElementById('status');
-  const showError=text=>{status.textContent=text;status.className='error';};
-  fetch(endpoint,{cache:'no-store'}).then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error||'Verification unavailable');
-    status.textContent=data.state==='revoked'?'REVOKED issuance':data.basis==='draft'?'Draft issuance record found':'Issuance record found';
-    if(data.state!=='issued')status.className='error';document.getElementById('record').hidden=false;document.getElementById('file-check').hidden=false;
-    document.getElementById('title').textContent=data.title;
-    for(const [key,value] of [['Issuance ID',data.id],['Company',data.company],['Licence',data.licence],['Period',data.period],['Issued at',data.issued_at],['File format',data.format],['Basis',data.basis],['State',data.state]]){
-      const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=key;dd.textContent=value||'—';document.getElementById('details').append(dt,dd);}
-  }).catch(()=>showError('Unable to confirm this report. The code is unknown or verification is unavailable.'));
-  document.getElementById('file').addEventListener('change',async event=>{const output=document.getElementById('result');const file=event.target.files[0];if(!file)return;
-    if(file.size>50*1024*1024){output.textContent='File exceeds the 50 MB verification limit.';return;}
-    try{output.textContent='Checking file…';const hash=await crypto.subtle.digest('SHA-256',await file.arrayBuffer());const hex=Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');
-      const response=await fetch(endpoint+'?sha256='+hex,{cache:'no-store'});const data=await response.json();if(!response.ok)throw new Error();
-      output.textContent=data.file_match?'Exact issued file match':data.state==='revoked'?'This issuance is revoked':'This file does not match the registered download';
-    }catch{output.textContent='File verification is unavailable.';}});
-  </script></body></html>`;
+  return `<!doctype html><html lang="km"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ការផ្ទៀងផ្ទាត់របាយការណ៍ | NMC Report Verification</title>
+<style>
+:root{
+  --navy:#0B2A66; --ink:#17212E; --muted:#5B6B7C; --line:#DCE4EC;
+  --page:#EDF1F6; --card:#FFFFFF;
+  --ok:#0F7B4F; --ok-bg:#EAF7F0; --ok-line:#BCE3CE;
+  --bad:#B42318; --bad-bg:#FDF0EF; --bad-line:#F3C3BE;
+  --warn:#B54708; --warn-bg:#FFF8EC; --warn-line:#F2D8A8;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--page);color:var(--ink);
+  font:16px/1.65 "Khmer OS Battambang","Noto Sans Khmer","Khmer OS",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+main{max-width:620px;margin:0 auto;padding:0 16px 44px}
+.masthead{text-align:center;padding:30px 0 22px}
+.kingdom{font-size:11.5px;letter-spacing:.05em;color:var(--muted);margin:0}
+.centre{font-size:17px;font-weight:700;color:var(--navy);margin:7px 0 3px;line-height:1.45}
+.centre-en{font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0}
+.rule{height:3px;width:48px;margin:15px auto 0;border-radius:2px;background:var(--navy)}
+
+.status{
+  display:flex;gap:14px;align-items:flex-start;
+  border:1px solid var(--line);border-left-width:5px;border-radius:14px;
+  background:var(--card);padding:18px;margin:0 0 16px;
+}
+.status svg{flex:none;width:34px;height:34px;margin-top:1px}
+.status .kh{font-size:18px;font-weight:700;margin:0;line-height:1.45}
+.status .en{font-size:13px;color:var(--muted);margin:4px 0 0}
+/* The tone colours the whole block, so the icon inherits it too. */
+.status.ok{color:var(--ok);border-left-color:var(--ok);background:var(--ok-bg);border-color:var(--ok-line)}
+.status.bad{color:var(--bad);border-left-color:var(--bad);background:var(--bad-bg);border-color:var(--bad-line)}
+.status.warn{color:var(--warn);border-left-color:var(--warn);background:var(--warn-bg);border-color:var(--warn-line)}
+.status.pending{color:var(--muted);border-left-color:var(--muted)}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:0 0 16px}
+/* Khmer and Latin on one line wrap into each other and read badly at
+   phone width, so every bilingual heading stacks instead. */
+.card h2{margin:0 0 15px}
+.card h2 .kh{display:block;font-size:14.5px;font-weight:700;color:var(--ink);line-height:1.5}
+.card h2 .en{display:block;font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:3px}
+.doc-title{font-size:16.5px;font-weight:700;color:var(--navy);margin:0 0 14px;line-height:1.5}
+
+.row{padding:11px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0;padding-top:0}
+.label{font-size:12px;color:var(--muted);margin:0 0 2px}
+.value{margin:0;font-weight:600;overflow-wrap:anywhere}
+.value.mono{font:600 12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.value.none{font-weight:400;color:var(--muted)}
+
+.file label{display:block;margin:0 0 11px;line-height:1.55}
+.file label .kh{display:block;font-size:13.5px;color:var(--ink)}
+.file label .en{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
+input[type=file]{width:100%;font-size:14px;padding:11px;border:1px dashed var(--line);border-radius:10px;background:#FAFCFE}
+#result{margin:14px 0 0;overflow-wrap:anywhere;line-height:1.55;color:var(--muted)}
+#result .kh{display:block;font-size:14.5px;font-weight:700}
+#result .en{display:block;font-size:12.5px;margin-top:2px;color:var(--muted)}
+#result.ok{color:var(--ok)}
+#result.bad{color:var(--bad)}
+.note{margin:15px 0 0;padding:13px 14px;background:#F5F8FB;border-radius:10px;font-size:12.5px;line-height:1.7;color:var(--muted)}
+.foot{text-align:center;font-size:11.5px;color:var(--muted);margin:22px 0 0;line-height:1.7}
+[hidden]{display:none!important}
+@media print{body{background:#fff}.file{display:none}}
+</style></head>
+<body><main>
+
+<header class="masthead">
+  <p class="kingdom">ព្រះរាជាណាចក្រកម្ពុជា · ជាតិ សាសនា ព្រះមហាក្សត្រ</p>
+  <p class="centre">មជ្ឈមណ្ឌលមាត្រាសាស្ត្រជាតិ</p>
+  <p class="centre-en">National Metrology Center</p>
+  <div class="rule"></div>
+</header>
+
+<div class="status pending" id="status" role="status" aria-live="polite">
+  <svg id="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/></svg>
+  <div style="min-width:0">
+    <p class="kh" id="status-kh">កំពុងពិនិត្យ…</p>
+    <p class="en" id="status-en">Checking the issuance record</p>
+  </div>
+</div>
+
+<section class="card" id="record" hidden>
+  <h2><span class="kh">ព័ត៌មានឯកសារ</span><span class="en">Document record</span></h2>
+  <p class="doc-title" id="title"></p>
+  <div id="details"></div>
+</section>
+
+<section class="card file" id="file-check" hidden>
+  <h2><span class="kh">ផ្ទៀងផ្ទាត់ឯកសារដែលបានទាញយក</span><span class="en">Check the downloaded file</span></h2>
+  <label for="file"><span class="kh">ជ្រើសរើសឯកសារដើម្បីប្រៀបធៀបជាមួយកំណត់ត្រានេះ</span><span class="en">Select the file to compare against this record</span></label>
+  <input type="file" id="file" aria-label="Downloaded report file">
+  <p id="result" role="status" aria-live="polite"></p>
+  <p class="note">កូដ QR អាចត្រូវបានចម្លង។ ការផ្គូផ្គងកំណត់ត្រាបញ្ជាក់តែថាកំណត់ត្រានេះមានប៉ុណ្ណោះ មិនបញ្ជាក់ថាខ្លឹមសារឯកសារមិនបានកែប្រែទេ។ ច្បាប់ចម្លងដែលបានបោះពុម្ព ឬរក្សាទុកឡើងវិញ មានលេខសម្គាល់ឯកសារផ្សេងគ្នា។<br><br>A QR code can be copied. An issuance match alone does not establish that surrounding document content is unchanged. Printed or re-saved copies have different file hashes.</p>
+</section>
+
+<p class="foot">នាយកដ្ឋានមាត្រាសាស្ត្រឧស្សាហកម្ម · ក្រសួងឧស្សាហកម្ម វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា និងនវានុវត្តន៍<br>Department of Industrial Metrology · MISTI</p>
+</main>
+<script nonce="${nonce}">
+(function(){
+  var endpoint = '/api/report-issuance/verify/${safeToken}';
+  var box = document.getElementById('status');
+  var icon = document.getElementById('status-icon');
+  var kh = document.getElementById('status-kh');
+  var en = document.getElementById('status-en');
+
+  var TICK  = '<circle cx="12" cy="12" r="9"/><path d="M8 12.4l2.6 2.6L16 9.6"/>';
+  var CROSS = '<circle cx="12" cy="12" r="9"/><path d="M9.2 9.2l5.6 5.6M14.8 9.2l-5.6 5.6"/>';
+  var BANG  = '<circle cx="12" cy="12" r="9"/><path d="M12 7.4v5.2"/><path d="M12 16.3v.2"/>';
+
+  function setStatus(tone, shape, khText, enText){
+    box.className = 'status ' + tone;
+    icon.innerHTML = shape;
+    kh.textContent = khText;
+    en.textContent = enText;
+  }
+
+  /** Cambodia time, because that is where this page is read. */
+  function when(iso){
+    if(!iso) return '';
+    var d = new Date(iso);
+    if(isNaN(d.getTime())) return String(iso);
+    try{
+      return new Intl.DateTimeFormat('en-GB', {timeZone:'Asia/Phnom_Penh', day:'2-digit',
+        month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:false
+      }).format(d) + ' (UTC+7)';
+    }catch(e){ return String(iso); }
+  }
+
+  function addRow(labelKh, labelEn, value, mono){
+    var row = document.createElement('div'); row.className = 'row';
+    var l = document.createElement('p'); l.className = 'label';
+    l.textContent = labelKh + ' · ' + labelEn;
+    var v = document.createElement('p');
+    v.className = 'value' + (mono ? ' mono' : '') + (value ? '' : ' none');
+    v.textContent = value ? String(value) : '—';
+    row.appendChild(l); row.appendChild(v);
+    document.getElementById('details').appendChild(row);
+  }
+
+  fetch(endpoint, {cache:'no-store'}).then(function(response){
+    return response.json().then(function(data){
+      if(!response.ok) throw new Error(data.error || 'unavailable');
+
+      if(data.state === 'revoked'){
+        setStatus('bad', CROSS, 'កំណត់ត្រានេះត្រូវបានដកហូត', 'This issuance has been revoked');
+      }else if(data.basis === 'draft'){
+        setStatus('warn', BANG, 'ជាសេចក្ដីព្រាង មិនមែនឯកសារផ្លូវការ', 'Draft issuance — not a final document');
+      }else{
+        setStatus('ok', TICK, 'ឯកសារនេះចេញដោយ ម.ម.ជ', 'Issued by the National Metrology Center');
+      }
+
+      document.getElementById('record').hidden = false;
+      document.getElementById('file-check').hidden = false;
+      document.getElementById('title').textContent = data.title || '';
+
+      addRow('ក្រុមហ៊ុន', 'Company', data.company);
+      addRow('លេខអាជ្ញាប័ណ្ណ', 'Licence', data.licence);
+      addRow('រយៈពេលរបាយការណ៍', 'Reporting period', data.period);
+      addRow('កាលបរិច្ឆេទចេញ', 'Issued', when(data.issued_at));
+      addRow('ប្រភេទឯកសារ', 'File format', data.format ? String(data.format).toUpperCase() : '');
+      addRow('លេខសម្គាល់', 'Issuance ID', data.id, true);
+    });
+  }).catch(function(){
+    setStatus('bad', CROSS, 'រកមិនឃើញកំណត់ត្រានេះទេ', 'No issuance record matches this code');
+  });
+
+  /** Khmer over English, for the same reason the headings stack. */
+  function say(output, tone, khText, enText){
+    output.className = tone;
+    output.textContent = '';
+    var a = document.createElement('span'); a.className = 'kh'; a.textContent = khText;
+    var b = document.createElement('span'); b.className = 'en'; b.textContent = enText;
+    output.appendChild(a); output.appendChild(b);
+  }
+
+  document.getElementById('file').addEventListener('change', function(event){
+    var output = document.getElementById('result');
+    var file = event.target.files[0];
+    if(!file) return;
+    if(file.size > 50 * 1024 * 1024){
+      say(output, 'bad', 'ឯកសារធំជាង ៥០ MB', 'File exceeds the 50 MB limit');
+      return;
+    }
+    say(output, '', 'កំពុងពិនិត្យ…', 'Checking the file…');
+    file.arrayBuffer().then(function(buffer){
+      return crypto.subtle.digest('SHA-256', buffer);
+    }).then(function(hash){
+      var hex = Array.from(new Uint8Array(hash)).map(function(b){
+        return b.toString(16).padStart(2, '0');
+      }).join('');
+      return fetch(endpoint + '?sha256=' + hex, {cache:'no-store'});
+    }).then(function(response){
+      return response.json().then(function(data){
+        if(!response.ok) throw new Error('unavailable');
+        if(data.file_match){
+          say(output, 'ok', 'ត្រូវគ្នាជាមួយឯកសារដែលបានចេញ', 'Exact match with the issued file');
+        }else if(data.state === 'revoked'){
+          say(output, 'bad', 'កំណត់ត្រានេះត្រូវបានដកហូត', 'This issuance is revoked');
+        }else{
+          say(output, 'bad', 'ឯកសារនេះមិនត្រូវគ្នានឹងកំណត់ត្រាទេ', 'This file does not match the registered download');
+        }
+      });
+    }).catch(function(){
+      say(output, 'bad', 'មិនអាចផ្ទៀងផ្ទាត់បានទេ', 'File verification is unavailable');
+    });
+  });
+})();
+</script></body></html>`;
 }

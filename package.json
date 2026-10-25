@@ -42,7 +42,8 @@
     "analytics:ai:live": "tsx scripts/analytics-ai-live.ts",
     "analytics:narrative-worker": "tsx scripts/analytics-narrative-worker.ts",
     "analytics:queue:check": "tsx scripts/analytics-queue-check.ts",
-    "ml:filters:check": "tsx scripts/ml-audit-filters-check.ts"
+    "ml:filters:check": "tsx scripts/ml-audit-filters-check.ts",
+    "reports:qr-preview": "tsx scripts/verify-preview.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
