@@ -3361,6 +3361,21 @@ function deadlineDate(period: string): string {
   return `${due.getFullYear()}-${pad(due.getMonth() + 1)}-${pad(due.getDate())}`;
 }
 
+/**
+ * The first value that is actually filled in, as a trimmed string.
+ *
+ * `a || b` is not enough here: these columns hold `' '` and `'-'` as often as
+ * they hold null, and a space would satisfy `||` while still failing the
+ * blank check that validation applies.
+ */
+function firstFilled(...values: any[]): string {
+  for (const value of values) {
+    const text = String(value ?? '').trim();
+    if (text && text !== '-') return text;
+  }
+  return '';
+}
+
 async function openMonthFor(
   req: any,
   res: any,
@@ -3414,10 +3429,18 @@ async function openMonthFor(
       operating_address: profile.data?.operating_address || licence.data?.company_address || '',
       period_month: period,
       report_type: 'REGULAR',
-      contact_name: profile.data?.contact_name || '',
-      contact_position: profile.data?.contact_position || '',
-      contact_phone: profile.data?.contact_phone || '',
-      contact_email: profile.data?.contact_email || '',
+      // Every other Part 1 field already falls back to the licence record;
+      // the contact did not, and annex8_licence_profiles is empty in
+      // production. So each opened month carried a blank responsible person,
+      // R01 blocked it, and no licensee could submit anything at all — while
+      // the licence register held the owner's name and position for all of
+      // them. The profile still wins where NMC has set one.
+      contact_name: firstFilled(profile.data?.contact_name, licence.data?.license_owner_name),
+      contact_position: firstFilled(profile.data?.contact_position, licence.data?.license_owner_position),
+      contact_phone: firstFilled(
+        profile.data?.contact_phone, licence.data?.license_owner_phone, licence.data?.phone_number),
+      contact_email: firstFilled(
+        profile.data?.contact_email, licence.data?.license_owner_email, licence.data?.email),
       status: 'OPEN',
       declaration_accepted: false,
       opened_at: now,
