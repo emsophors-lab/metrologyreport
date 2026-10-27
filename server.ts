@@ -728,6 +728,380 @@ async function sealServerReport(bytes: Buffer, details: import('./src/reports/is
   return result.bytes;
 }
 
+/* ===================== Annex 2 licence applications =====================
+ *
+ * The stage before a licence exists. Everything here is additive: no route
+ * below touches enterprise_licenses, the company accounts, or the existing
+ * "ចុះបញ្ជីថ្មី" path, which keeps issuing licences exactly as it does now.
+ * An application turns into a licence only when an officer approves it and
+ * then uses the existing creation screen — this module records the decision
+ * and the link, it does not write the licence itself.
+ */
+
+const APPLICATION_STATUSES = ['DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'ISSUED'] as const;
+type ApplicationStatus = typeof APPLICATION_STATUSES[number];
+
+/** Who may touch applications at all. Companies cannot: this is NMC's desk. */
+async function requireApplicationStaff(req: any, res: any) {
+  if (!supabaseAdmin) { apiError(res, 503, 'Server database provider is not configured.'); return null; }
+  const resolved = await resolveApiUser(req);
+  if (!resolved) { res.status(401).json({ error: 'Authentication required.' }); return null; }
+  if (!['superadmin', 'admin'].includes(resolved.role)) {
+    res.status(403).json({ error: 'Insufficient permission.' });
+    return null;
+  }
+  return resolved;
+}
+
+/** The columns kept outside the payload, derived from it on every write. */
+function applicationHeader(payload: any) {
+  const text = (v: any) => String(v ?? '').trim();
+  const picked = Array.isArray(payload?.reqTypes)
+    ? payload.reqTypes.map((on: any, i: number) => (on ? String(i + 1) : '')).filter(Boolean)
+    : [];
+  return {
+    enterprise_name_kh: text(payload?.ent?.kh),
+    enterprise_name_en: text(payload?.ent?.lat),
+    owner_name_kh: text(payload?.owner?.kh),
+    phone: text(payload?.ent?.phone),
+    email: text(payload?.ent?.email),
+    subject: text(payload?.subject),
+    request_types: picked,
+    made_on: /^\d{4}-\d{2}-\d{2}$/.test(text(payload?.close?.madeOn)) ? text(payload.close.madeOn) : null,
+  };
+}
+
+async function logApplicationEvent(entry: {
+  application_id: string; action: string; from_status?: string | null; to_status?: string | null;
+  actor?: string | null; actor_role?: string | null; note?: string | null;
+}) {
+  // Reports a failure rather than throwing it: a decision that was written
+  // must not be rolled back because its log line could not be, but a silent
+  // gap in the trail is worse than a noisy one.
+  const { error } = await supabaseAdmin.from('licence_application_events').insert({
+    id: crypto.randomUUID(),
+    application_id: entry.application_id,
+    action: entry.action,
+    from_status: entry.from_status || null,
+    to_status: entry.to_status || null,
+    actor: entry.actor || null,
+    actor_role: entry.actor_role || null,
+    note: entry.note || null,
+  });
+  if (error) console.error('Licence application event write failed:', error.message || error);
+}
+
+/** GET /api/licence-applications?status=&q= */
+app.get('/api/licence-applications', async (req, res) => {
+  try {
+    const staff = await requireApplicationStaff(req, res);
+    if (!staff) return;
+
+    let query = supabaseAdmin
+      .from('licence_applications')
+      .select('id, application_no, status, enterprise_name_kh, enterprise_name_en, owner_name_kh,' +
+              ' phone, email, subject, request_types, made_on, created_at, updated_at,' +
+              ' submitted_at, reviewed_at, decision_note, issued_licence_id, issued_at')
+      .order('created_at', { ascending: false })
+      .limit(500);
+
+    const status = String(req.query?.status || '').trim();
+    if (status && (APPLICATION_STATUSES as readonly string[]).includes(status)) query = query.eq('status', status);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const q = String(req.query?.q || '').trim().toLowerCase();
+    const rows = q
+      ? (data || []).filter((r: any) => [r.application_no, r.enterprise_name_kh, r.enterprise_name_en,
+          r.owner_name_kh, r.phone].some(v => String(v || '').toLowerCase().includes(q)))
+      : (data || []);
+
+    return apiSuccess(res, { applications: rows });
+  } catch (err: any) {
+    console.error('Licence application list failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to list licence applications.');
+  }
+});
+
+/** GET /api/licence-applications/:id — the whole form, plus attachments. */
+app.get('/api/licence-applications/:id', async (req, res) => {
+  try {
+    const staff = await requireApplicationStaff(req, res);
+    if (!staff) return;
+
+    const { data, error } = await supabaseAdmin
+      .from('licence_applications').select('*').eq('id', String(req.params.id)).maybeSingle();
+    if (error) throw error;
+    if (!data) return apiError(res, 404, 'Application not found.');
+
+    // The file bytes are deliberately left out of the detail read: a form
+    // with eight scanned attachments is tens of megabytes, and the screen
+    // only needs to know which rows carry a file.
+    const { data: files } = await supabaseAdmin
+      .from('licence_application_files')
+      .select('id, doc_index, row_index, verified, file_name, mime_type, byte_size, uploaded_at')
+      .eq('application_id', String(req.params.id));
+
+    const { data: events } = await supabaseAdmin
+      .from('licence_application_events')
+      .select('*').eq('application_id', String(req.params.id))
+      .order('created_at', { ascending: false }).limit(100);
+
+    return apiSuccess(res, { application: data, files: files || [], events: events || [] });
+  } catch (err: any) {
+    console.error('Licence application read failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to read the application.');
+  }
+});
+
+/** POST /api/licence-applications — create, or save a draft over itself. */
+app.post('/api/licence-applications', async (req, res) => {
+  try {
+    const staff = await requireApplicationStaff(req, res);
+    if (!staff) return;
+
+    const payload = req.body?.payload;
+    if (!payload || typeof payload !== 'object') return apiError(res, 400, 'A form payload is required.');
+
+    const applicationNo = String(req.body?.application_no || '').trim();
+    if (!applicationNo) return apiError(res, 400, 'An application number is required.');
+
+    const header = applicationHeader(payload);
+    if (!header.enterprise_name_kh && !header.enterprise_name_en) {
+      return apiError(res, 400, 'សូមបំពេញឈ្មោះសហគ្រាសជាមុន / The enterprise name is required.');
+    }
+
+    const actor = String(staff.userRow?.id || '');
+    const existing = await supabaseAdmin
+      .from('licence_applications').select('id, status').eq('application_no', applicationNo).maybeSingle();
+
+    if (existing.data) {
+      // Only a draft may be overwritten in place. Once it has been handed in,
+      // the form is evidence and editing it would change what was submitted.
+      if (existing.data.status !== 'DRAFT') {
+        return apiError(res, 409,
+          'ពាក្យស្នើសុំនេះបានដាក់ជូនរួចហើយ មិនអាចកែបានទេ / This application has been submitted and can no longer be edited.');
+      }
+      const { data, error } = await supabaseAdmin.from('licence_applications')
+        .update({ ...header, payload, updated_by: actor, updated_at: new Date().toISOString() })
+        .eq('id', existing.data.id).select('*').single();
+      if (error) throw error;
+      await logApplicationEvent({ application_id: data.id, action: 'update',
+        from_status: 'DRAFT', to_status: 'DRAFT', actor, actor_role: staff.role });
+      return apiSuccess(res, { application: data, created: false });
+    }
+
+    const id = crypto.randomUUID();
+    const { data, error } = await supabaseAdmin.from('licence_applications').insert({
+      id, application_no: applicationNo, status: 'DRAFT', ...header, payload,
+      created_by: actor, updated_by: actor,
+    }).select('*').single();
+    if (error) throw error;
+
+    await logApplicationEvent({ application_id: id, action: 'create',
+      to_status: 'DRAFT', actor, actor_role: staff.role });
+    return apiSuccess(res, { application: data, created: true });
+  } catch (err: any) {
+    console.error('Licence application save failed:', err?.message || err);
+    return apiError(res, 500, err?.message || 'Unable to save the application.');
+  }
+});
+
+/** POST /api/licence-applications/:id/status — move it along the workflow. */
+app.post('/api/licence-applications/:id/status', async (req, res) => {
+  try {
+    const staff = await requireApplicationStaff(req, res);
+    if (!staff) return;
+
+    const to = String(req.body?.status || '').trim() as ApplicationStatus;
+    if (!(APPLICATION_STATUSES as readonly string[]).includes(to)) {
+      return apiError(res, 400, 'Unknown application status.');
+    }
+
+    const { data: row, error: readError } = await supabaseAdmin
+      .from('licence_applications').select('*').eq('id', String(req.params.id)).maybeSingle();
+    if (readError) throw readError;
+    if (!row) return apiError(res, 404, 'Application not found.');
+
+    // ISSUED is not a decision anyone makes here. It is set by the issue
+    // endpoint, which records which licence was created; letting it be set
+    // directly would allow an application to claim a licence that does not
+    // exist.
+    if (to === 'ISSUED') {
+      return apiError(res, 400,
+        'ស្ថានភាព «បានចេញអាជ្ញាប័ណ្ណ» កំណត់ដោយការភ្ជាប់អាជ្ញាប័ណ្ណប៉ុណ្ណោះ / Use the issue step to mark an application as issued.');
+    }
+    if (row.status === 'ISSUED') {
+      return apiError(res, 409,
+        'ពាក្យស្នើសុំនេះបានចេញអាជ្ញាប័ណ្ណរួចហើយ / A licence has already been issued from this application.');
+    }
+
+    const now = new Date().toISOString();
+    const actor = String(staff.userRow?.id || '');
+    const patch: Record<string, any> = { status: to, updated_by: actor, updated_at: now };
+    if (to === 'SUBMITTED' && !row.submitted_at) patch.submitted_at = now;
+    if (['UNDER_REVIEW', 'APPROVED', 'REJECTED'].includes(to)) {
+      patch.reviewed_by = actor; patch.reviewed_at = now;
+      patch.decision_note = String(req.body?.note || '').trim() || null;
+    }
+
+    const { error } = await supabaseAdmin
+      .from('licence_applications').update(patch).eq('id', row.id);
+    if (error) throw error;
+
+    // Read back rather than trust the update: this database has silently
+    // discarded writes during a project upgrade before, and a decision that
+    // only appears to have been recorded is worse than one that failed.
+    const { data: confirmed } = await supabaseAdmin
+      .from('licence_applications').select('status').eq('id', row.id).maybeSingle();
+    if (!confirmed || confirmed.status !== to) {
+      return apiError(res, 500,
+        'ស្ថានភាពមិនទាន់រក្សាទុកបានទេ សូមព្យាយាមម្ដងទៀត / The status could not be confirmed as saved. Please try again.');
+    }
+
+    await logApplicationEvent({ application_id: row.id, action: 'status',
+      from_status: row.status, to_status: to, actor, actor_role: staff.role,
+      note: patch.decision_note || null });
+
+    return apiSuccess(res, { status: to });
+  } catch (err: any) {
+    console.error('Licence application status change failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to change the application status.');
+  }
+});
+
+/**
+ * POST /api/licence-applications/:id/issue
+ *
+ * Records that an approved application produced a licence. It deliberately
+ * does NOT create the licence: that is the existing registration screen's
+ * job and it stays the only thing that writes enterprise_licenses, so the
+ * path that has issued all 16 live licences is unchanged.
+ */
+app.post('/api/licence-applications/:id/issue', async (req, res) => {
+  try {
+    const staff = await requireApplicationStaff(req, res);
+    if (!staff) return;
+
+    const licenceId = String(req.body?.licence_id || '').trim();
+    if (!licenceId) return apiError(res, 400, 'A licence id is required.');
+
+    const { data: row, error: readError } = await supabaseAdmin
+      .from('licence_applications').select('*').eq('id', String(req.params.id)).maybeSingle();
+    if (readError) throw readError;
+    if (!row) return apiError(res, 404, 'Application not found.');
+    if (row.status !== 'APPROVED') {
+      return apiError(res, 409,
+        'ត្រូវអនុម័តពាក្យស្នើសុំជាមុនសិន / The application must be approved before a licence is linked.');
+    }
+
+    // The licence has to exist. Linking to one that does not would leave a
+    // record saying a licence was issued when none was.
+    const { data: licence } = await supabaseAdmin
+      .from('enterprise_licenses').select('id, license_number').eq('id', licenceId).maybeSingle();
+    if (!licence) return apiError(res, 404, 'រកមិនឃើញអាជ្ញាប័ណ្ណនេះទេ / No such licence.');
+
+    const now = new Date().toISOString();
+    const actor = String(staff.userRow?.id || '');
+    const { error } = await supabaseAdmin.from('licence_applications').update({
+      status: 'ISSUED', issued_licence_id: licenceId, issued_at: now,
+      updated_by: actor, updated_at: now,
+    }).eq('id', row.id);
+    if (error) throw error;
+
+    await logApplicationEvent({ application_id: row.id, action: 'issue',
+      from_status: row.status, to_status: 'ISSUED', actor, actor_role: staff.role,
+      note: `licence ${licence.license_number || licenceId}` });
+
+    return apiSuccess(res, { status: 'ISSUED', licence_no: licence.license_number || null });
+  } catch (err: any) {
+    console.error('Licence application issue link failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to link the licence.');
+  }
+});
+
+/** PUT /api/licence-applications/:id/files/:doc/:row — one attachment. */
+app.put('/api/licence-applications/:id/files/:doc/:row', async (req, res) => {
+  try {
+    const staff = await requireApplicationStaff(req, res);
+    if (!staff) return;
+
+    const docIndex = Number(req.params.doc), rowIndex = Number(req.params.row);
+    if (!Number.isInteger(docIndex) || docIndex < 0 || docIndex > 7 ||
+        !Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex > 2) {
+      return apiError(res, 400, 'Unknown attachment slot.');
+    }
+
+    const { data: row } = await supabaseAdmin
+      .from('licence_applications').select('id, status').eq('id', String(req.params.id)).maybeSingle();
+    if (!row) return apiError(res, 404, 'Application not found.');
+    if (!['DRAFT', 'SUBMITTED', 'UNDER_REVIEW'].includes(row.status)) {
+      return apiError(res, 409, 'មិនអាចផ្លាស់ប្ដូរឯកសារក្រោយការសម្រេចទេ / Attachments cannot change after a decision.');
+    }
+
+    const content = req.body?.content_base64 == null ? null : String(req.body.content_base64);
+    // 6 MB of base64 is about 4.5 MB of file. Bigger than that belongs in
+    // object storage, not in a row that is read with the form.
+    if (content && content.length > 6 * 1024 * 1024) {
+      return apiError(res, 413, 'ឯកសារធំពេក (អតិបរមា ~៤ MB) / The file is too large (about 4 MB maximum).');
+    }
+
+    const record = {
+      id: crypto.randomUUID(),
+      application_id: row.id, doc_index: docIndex, row_index: rowIndex,
+      verified: !!req.body?.verified,
+      file_name: String(req.body?.file_name || '').trim() || null,
+      mime_type: String(req.body?.mime_type || '').trim() || null,
+      byte_size: Number(req.body?.byte_size || 0) || null,
+      content_base64: content,
+      uploaded_by: String(staff.userRow?.id || ''),
+      uploaded_at: new Date().toISOString(),
+    };
+
+    const existing = await supabaseAdmin.from('licence_application_files')
+      .select('id').eq('application_id', row.id)
+      .eq('doc_index', docIndex).eq('row_index', rowIndex).maybeSingle();
+
+    if (existing.data) {
+      const { id, application_id, doc_index, row_index, ...patch } = record;
+      const { error } = await supabaseAdmin.from('licence_application_files')
+        .update(patch).eq('id', existing.data.id);
+      if (error) throw error;
+    } else {
+      const { error } = await supabaseAdmin.from('licence_application_files').insert(record);
+      if (error) throw error;
+    }
+
+    return apiSuccess(res, { saved: true });
+  } catch (err: any) {
+    console.error('Licence application attachment save failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to save the attachment.');
+  }
+});
+
+/** GET /api/licence-applications/:id/files/:doc/:row — the bytes back. */
+app.get('/api/licence-applications/:id/files/:doc/:row', async (req, res) => {
+  try {
+    const staff = await requireApplicationStaff(req, res);
+    if (!staff) return;
+
+    const { data, error } = await supabaseAdmin.from('licence_application_files')
+      .select('file_name, mime_type, content_base64')
+      .eq('application_id', String(req.params.id))
+      .eq('doc_index', Number(req.params.doc))
+      .eq('row_index', Number(req.params.row)).maybeSingle();
+    if (error) throw error;
+    if (!data || !data.content_base64) return apiError(res, 404, 'No attachment here.');
+
+    return apiSuccess(res, { file: data });
+  } catch (err: any) {
+    console.error('Licence application attachment read failed:', err?.message || err);
+    return apiError(res, 500, 'Unable to read the attachment.');
+  }
+});
+/* =================== end Annex 2 licence applications =================== */
+
 app.get('/api/report-issuance/check/:token', (req, res) => {
   const nonce = crypto.randomBytes(18).toString('base64');
   res.setHeader('Cache-Control', 'no-store');

@@ -77,6 +77,7 @@ import { logLoginHistory, fetchLoginHistory, logAuditEvent } from './services/lo
 const LoginHistoryView = lazy(() => import('./components/LoginHistoryView'));
 const BackupData = lazy(() => import('./components/BackupData'));
 const EnterpriseLicensingRegistry = lazy(() => import('./components/EnterpriseLicensingRegistry'));
+const LicenceApplicationRegistry = lazy(() => import('./components/LicenceApplicationRegistry'));
 const ChangePasswordModal = lazy(() => import('./components/ChangePasswordModal'));
 const MachineLearningPredictionDashboard = lazy(() => import('./components/MachineLearningPredictionDashboard'));
 // The official Khmer analysis report the department sends to the Director
@@ -426,7 +427,7 @@ export default function App() {
   const [dashboardDataError, setDashboardDataError] = useState<string | null>(null);
   
   // App navigation state: 'dashboard' | 'reports' | 'users' | 'developer' | 'history' | 'backup' | 'licenses' | 'ml'
-  const [activeTab, setActiveTab ] = useState<'dashboard' | 'reports' | 'annex8' | 'users' | 'developer' | 'history' | 'backup' | 'licenses' | 'ml'>('dashboard');
+  const [activeTab, setActiveTab ] = useState<'dashboard' | 'reports' | 'annex8' | 'users' | 'developer' | 'history' | 'backup' | 'licenses' | 'applications' | 'ml'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [language, setLanguage] = useState<AppLanguage>(() => {
@@ -617,6 +618,11 @@ export default function App() {
       } else if (activeTab === 'backup' && sessionUser.role !== 'superadmin') {
         setActiveTab('dashboard');
         showToast('សិទ្ធិមិនគ្រប់គ្រាន់ដើម្បីចូលប្រើប្រាស់ទំព័រនេះទេ (Unauthorized access to Backup Data)', 'error');
+      } else if (activeTab === 'applications' && sessionUser.role !== 'superadmin' && sessionUser.role !== 'admin') {
+        // Applications are NMC's desk. A company account that lands here —
+        // by a stale tab or a shared link — goes back to the dashboard
+        // rather than seeing another enterprise's paperwork.
+        setActiveTab('dashboard');
       } else if (activeTab === 'ml' && sessionUser.role !== 'superadmin' && sessionUser.role !== 'admin') {
         setActiveTab('dashboard');
         showToast('សិទ្ធិមិនគ្រប់គ្រាន់សម្រាប់ការវិភាគឆ្លាតវៃ (Unauthorized access to Smart Analytics)', 'error');
@@ -1810,6 +1816,25 @@ export default function App() {
                   <span className="ml-auto text-[9px] font-extrabold text-gold/80">ថ្មី</span>
                 </button>
 
+                {(sessionUser.role === 'superadmin' || sessionUser.role === 'admin') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('applications');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer justify-start ${
+                      activeTab === 'applications'
+                        ? 'bg-gold/10 text-gold border-r-4 border-gold'
+                        : 'text-slate-400 hover:bg-white/[0.02] hover:text-white'
+                    }`}
+                  >
+                    <FileCheck2 className="h-4 w-4 shrink-0 text-gold" />
+                    <span>{language === 'en' ? 'Applications' : 'ពាក្យស្នើសុំអាជ្ញាប័ណ្ណ'}</span>
+                    <span className="ml-auto text-[9px] font-extrabold text-gold/80">ថ្មី</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
@@ -3002,6 +3027,16 @@ export default function App() {
                   />
                 )}
               </div>
+            )}
+
+            {/* G2. ANNEX 2 LICENCE APPLICATIONS — the stage before a licence.
+                 Separate from the registry below on purpose: that screen
+                 still issues every licence, and nothing here touches it. */}
+            {activeTab === 'applications' && (
+              <LicenceApplicationRegistry
+                currentUser={sessionUser}
+                toastMsg={showToast}
+              />
             )}
 
             {/* G. ENTERPRISE LICENSING REGISTRY MODULE */}
